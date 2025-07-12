@@ -84,6 +84,22 @@ export const dataService = {
 
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({ error: "Unknown error" }))
+      
+      // Handle Indian market specific errors with better messaging
+      if (market === 'INDIA' && res.status === 503) {
+        const message = errorData.message || errorData.error || "Indian options data temporarily unavailable"
+        const suggestions = errorData.suggestions || []
+        const suggestionsText = suggestions.length > 0 ? "\n\nSuggestions:\n" + suggestions.map((s: string) => `• ${s}`).join('\n') : ""
+        throw new Error(message + suggestionsText)
+      }
+      
+      // Handle other specific error codes
+      if (res.status === 404) {
+        const suggestions = errorData.suggestions || [`Verify ticker symbol is correct`, `Check if ticker has options trading`]
+        const suggestionsText = suggestions.length > 0 ? "\n\nSuggestions:\n" + suggestions.map((s: string) => `• ${s}`).join('\n') : ""
+        throw new Error((errorData.error || `Ticker "${ticker}" not found`) + suggestionsText)
+      }
+      
       throw new Error(errorData.error || `Failed to fetch data for ${ticker}`)
     }
 

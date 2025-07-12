@@ -11,15 +11,78 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const ticker = tickerParam.toUpperCase()
 
   try {
-    // First approach: Try alternative NSE data sources
     let optionsData: any[] = []
     let currentPrice: number | null = null
+    let dataSource = "NSE_API"
+    let warnings: string[] = []
     
     // Try to get current price from multiple sources
-    currentPrice = await getCurrentPrice(ticker)
-    
+    try {
+      currentPrice = await getCurrentPrice(ticker)
+    } catch (priceError) {
+      console.error(`Failed to fetch current price for ${ticker}:`, priceError)
+      return NextResponse.json(
+        { 
+          error: `Unable to fetch current price for ${ticker}. This ticker may not be available or the symbol may be incorrect for Indian markets.`,
+          suggestions: ticker === 'NIFTY' ? ['Try BANKNIFTY', 'Try RELIANCE'] : ['Verify ticker symbol', 'Check if ticker has options trading']
+        },
+        { status: 404 },
+      )
+    }
+
     // Try to get options data from NSE
-    optionsData = await getNSEOptionsData(ticker)
+    try {
+      optionsData = await getNSEOptionsData(ticker)
+      if (optionsData.length === 0) {
+        throw new Error('No options data returned from NSE API')
+      }
+    } catch (nseError) {
+      console.error(`NSE options data fetch failed for ${ticker}:`, nseError)
+      const errorMessage = nseError instanceof Error ? nseError.message : String(nseError)
+      
+      // Check if this is a deployment/infrastructure issue
+      if (errorMessage.includes('timeout') || errorMessage.includes('fetch failed') || errorMessage.includes('network')) {
+        return NextResponse.json(
+          {
+            error: `Indian options data is currently unavailable due to infrastructure limitations.`,
+            message: `We successfully fetched the current price for ${ticker} (₹${currentPrice}), but NSE's options data API is not accessible from this deployment platform.`,
+            current_price: currentPrice,
+            market: "INDIA",
+            exchange: "NSE", 
+            suggestions: [
+              "This works perfectly on local development",
+              "Consider deploying on a different platform (Railway, Fly.io, DigitalOcean)",
+              "Or use a third-party Indian options data provider",
+              "NSE blocks requests from certain cloud providers including Vercel"
+            ],
+            technical_details: {
+              platform: "Vercel", 
+              issue: "NSE API access blocked",
+              working_locally: true,
+              price_fetch_status: "SUCCESS",
+              options_fetch_status: "BLOCKED"
+            }
+          },
+          { status: 503 }, // Service Unavailable
+        )
+      } else {
+        // Other types of errors (invalid ticker, no options, etc.)
+        return NextResponse.json(
+          {
+            error: `No options data available for ${ticker} on NSE.`,
+            current_price: currentPrice,
+            market: "INDIA",
+            exchange: "NSE",
+            suggestions: [
+              "Verify that this ticker has active options trading",
+              "Check if the ticker symbol is correct for NSE",
+              "Some stocks may not have options available"
+            ]
+          },
+          { status: 400 },
+        )
+      }
+    }
 
     const normalizedData = {
       current_price: currentPrice,
@@ -27,7 +90,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       timestamp: new Date().toISOString(),
       market: "INDIA",
       exchange: "NSE",
-      data_source: "NSE_API"
+      data_source: dataSource,
+      warnings: warnings.length > 0 ? warnings : undefined
     }
 
     console.log(
@@ -39,7 +103,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     console.error(`Error fetching Indian market data for ${ticker}:`, error)
     return NextResponse.json(
       {
-        error: `Unable to fetch Indian market data for ticker ${ticker}. Please check if the ticker is valid for NSE.`,
+        error: `Unable to fetch Indian market data for ticker ${ticker}.`,
+        message: "Please check if the ticker symbol is valid for NSE and has options trading available.",
+        suggestions: [
+          "Verify ticker symbol is correct",
+          "Check if ticker has options trading on NSE",
+          "Try different ticker symbols like NIFTY, BANKNIFTY, RELIANCE"
+        ]
       },
       { status: 500 },
     )
