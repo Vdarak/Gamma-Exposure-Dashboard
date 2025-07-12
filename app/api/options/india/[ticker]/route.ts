@@ -121,70 +121,111 @@ async function getNSEOptionsData(ticker: string): Promise<any[]> {
       "Cache-Control": "no-cache",
       "Pragma": "no-cache",
       "Sec-Fetch-Dest": "document",
-      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Mode": "navigate", 
       "Sec-Fetch-Site": "none",
       "Sec-Fetch-User": "?1",
       "Upgrade-Insecure-Requests": "1",
+      "Connection": "keep-alive",
     }
 
-    // First, visit the option-chain page to establish session and get cookies
-    const optionChainResponse = await fetch("https://www.nseindia.com/option-chain", {
-      headers: optionChainHeaders,
-      method: 'GET',
-    })
+    // Add timeout and better error handling for Vercel deployment
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
 
-    console.log(`NSE option-chain page response: ${optionChainResponse.status}`)
-    
-    // Extract cookies from the response
-    const setCookieHeaders = optionChainResponse.headers.getSetCookie()
-    const cookies = setCookieHeaders.join('; ')
-    
-    console.log(`Extracted cookies: ${cookies.substring(0, 100)}...`)
-    
-    // Step 2: Now use the cookies to hit the actual API
-    const apiEndpoint = isIndex 
-      ? `https://www.nseindia.com/api/option-chain-indices?symbol=${ticker}`
-      : `https://www.nseindia.com/api/option-chain-equities?symbol=${ticker}`
+    try {
+      // First, visit the option-chain page to establish session and get cookies
+      const optionChainResponse = await fetch("https://www.nseindia.com/option-chain", {
+        headers: optionChainHeaders,
+        method: 'GET',
+        signal: controller.signal,
+        // Add additional fetch options for better compatibility
+        redirect: 'follow',
+        referrerPolicy: 'no-referrer-when-downgrade',
+      })
 
-    console.log(`Step 2: Fetching NSE options data from: ${apiEndpoint}`)
+      clearTimeout(timeoutId)
+      console.log(`NSE option-chain page response: ${optionChainResponse.status}`)
+      
+      if (!optionChainResponse.ok) {
+        throw new Error(`Option chain page returned ${optionChainResponse.status}`)
+      }
+      
+      // Extract cookies from the response
+      const setCookieHeaders = optionChainResponse.headers.getSetCookie()
+      const cookies = setCookieHeaders.join('; ')
+      
+      console.log(`Extracted cookies: ${cookies.substring(0, 100)}...`)
+      
+      if (!cookies || cookies.length < 10) {
+        throw new Error('No valid cookies received from NSE')
+      }
+      
+      // Step 2: Now use the cookies to hit the actual API
+      const apiEndpoint = isIndex 
+        ? `https://www.nseindia.com/api/option-chain-indices?symbol=${ticker}`
+        : `https://www.nseindia.com/api/option-chain-equities?symbol=${ticker}`
 
-    const apiHeaders = {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "Accept": "application/json, text/plain, */*",
-      "Accept-Language": "en-US,en;q=0.9",
-      "Accept-Encoding": "gzip, deflate, br",
-      "Referer": "https://www.nseindia.com/option-chain",
-      "Origin": "https://www.nseindia.com",
-      "Sec-Fetch-Dest": "empty",
-      "Sec-Fetch-Mode": "cors",
-      "Sec-Fetch-Site": "same-origin",
-      "X-Requested-With": "XMLHttpRequest",
-      "Cookie": cookies,
-      "Cache-Control": "no-cache",
-      "Pragma": "no-cache",
-    }
+      console.log(`Step 2: Fetching NSE options data from: ${apiEndpoint}`)
 
-    const response = await fetch(apiEndpoint, {
-      headers: apiHeaders,
-      method: 'GET',
-    })
+      const apiHeaders = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Referer": "https://www.nseindia.com/option-chain",
+        "Origin": "https://www.nseindia.com",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        "X-Requested-With": "XMLHttpRequest",
+        "Cookie": cookies,
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Connection": "keep-alive",
+      }
 
-    console.log(`NSE API response status: ${response.status}`)
+      const controller2 = new AbortController()
+      const timeoutId2 = setTimeout(() => controller2.abort(), 15000) // 15 second timeout
 
-    if (response.ok) {
-      const nseData = await response.json()
-      console.log(`NSE API response received, parsing data for ${ticker}`)
-      const parsedOptions = parseNSEOptionsData(nseData, ticker)
-      console.log(`Parsed ${parsedOptions.length} options for ${ticker}`)
-      return parsedOptions
-    } else {
-      const errorText = await response.text()
-      console.error(`NSE API failed with status: ${response.status}, response: ${errorText}`)
-      throw new Error(`NSE API returned status ${response.status}: ${errorText}`)
+      const response = await fetch(apiEndpoint, {
+        headers: apiHeaders,
+        method: 'GET',
+        signal: controller2.signal,
+        redirect: 'follow',
+        referrerPolicy: 'no-referrer-when-downgrade',
+      })
+
+      clearTimeout(timeoutId2)
+      console.log(`NSE API response status: ${response.status}`)
+
+      if (response.ok) {
+        const nseData = await response.json()
+        console.log(`NSE API response received, parsing data for ${ticker}`)
+        const parsedOptions = parseNSEOptionsData(nseData, ticker)
+        console.log(`Parsed ${parsedOptions.length} options for ${ticker}`)
+        return parsedOptions
+      } else {
+        const errorText = await response.text()
+        console.error(`NSE API failed with status: ${response.status}, response: ${errorText}`)
+        throw new Error(`NSE API returned status ${response.status}: ${errorText}`)
+      }
+    } catch (fetchError) {
+      clearTimeout(timeoutId)
+      if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+        throw new Error('NSE API request timed out - this may be due to Vercel deployment restrictions')
+      }
+      throw fetchError
     }
   } catch (error) {
     console.error('Error fetching NSE options data:', error)
-    throw new Error(`Failed to fetch options data from NSE: ${error}`)
+    
+    // Enhanced error message for Vercel deployment issues
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    if (errorMessage.includes('fetch failed') || errorMessage.includes('network')) {
+      throw new Error(`NSE API is blocked on this deployment platform. This works locally but Vercel's infrastructure may be blocked by NSE. Consider using a different deployment platform or NSE data provider. Original error: ${errorMessage}`)
+    }
+    
+    throw new Error(`Failed to fetch options data from NSE: ${errorMessage}`)
   }
 }
 

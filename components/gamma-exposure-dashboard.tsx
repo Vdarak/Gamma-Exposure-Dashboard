@@ -218,14 +218,17 @@ export function GammaExposureDashboard() {
   }
 
   // Function to handle ticker selection
-  const handleTickerSelect = async (selected: string) => {
+  const handleTickerSelect = async (selected: string, targetMarket?: Market) => {
     try {
       setIsLoading(true);
       setError(null);
       
+      // Use the provided targetMarket or fallback to current market state
+      const marketToUse = targetMarket || market;
+      
       const { spotPrice: fetchedSpotPrice, optionData: fetchedOptionData } = await dataService.fetchOptionData(
         selected.toUpperCase(),
-        market
+        marketToUse
       );
 
       // Update all states at once
@@ -441,8 +444,8 @@ export function GammaExposureDashboard() {
     setTicker(newDefaultTicker)
     // Clear custom tickers as they might not be valid for the new market
     setCustomTickers([])
-    // Fetch data for the new default ticker
-    handleTickerSelect(newDefaultTicker)
+    // Fetch data for the new default ticker with the new market
+    handleTickerSelect(newDefaultTicker, newMarket)
   }
 
   // Auto-load data for default ticker on mount
