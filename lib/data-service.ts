@@ -1,13 +1,17 @@
 import type { OptionData } from "./types"
 import { fixOptionData } from "./calculations"
 
+export type Market = 'USA' | 'INDIA'
+
 export class DataService {
   private cache = new Map<string, { data: any; timestamp: number }>()
   private readonly CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
 
-  async fetchOptionData(ticker: string): Promise<{ spotPrice: number; optionData: OptionData[] }> {
+  async fetchOptionData(ticker: string, market: Market = 'USA'): Promise<{ spotPrice: number; optionData: OptionData[] }> {
+    const cacheKey = `${market}-${ticker}`
+    
     // Check cache first
-    const cached = this.cache.get(ticker)
+    const cached = this.cache.get(cacheKey)
     if (cached && Date.now() - cached.timestamp < this.CACHE_DURATION) {
       const spotPrice = cached.data.current_price
       const optionData = fixOptionData(cached.data.options)
@@ -15,8 +19,9 @@ export class DataService {
     }
 
     try {
-      // Use our API route instead of direct CBOE API call
-      const response = await fetch(`/api/options/${ticker}`)
+      // Use appropriate API route based on market
+      const apiRoute = market === 'INDIA' ? `/api/options/india/${ticker}` : `/api/options/${ticker}`
+      const response = await fetch(apiRoute)
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: "Unknown error" }))
@@ -31,11 +36,12 @@ export class DataService {
       }
 
       if (!Array.isArray(data.options) || data.options.length === 0) {
-        throw new Error(`No options data available for ${ticker}. This ticker may not have options listed on CBOE.`)
+        const exchange = market === 'INDIA' ? 'NSE/BSE' : 'CBOE'
+        throw new Error(`No options data available for ${ticker}. This ticker may not have options listed on ${exchange}.`)
       }
 
       // Cache the response
-      this.cache.set(ticker, { data, timestamp: Date.now() })
+      this.cache.set(cacheKey, { data, timestamp: Date.now() })
 
       const spotPrice = data.current_price
       const optionData = fixOptionData(data.options)
@@ -44,7 +50,8 @@ export class DataService {
         throw new Error(`Unable to parse options data for ${ticker}. The data format may be unsupported.`)
       }
 
-      console.log(`Successfully processed ${optionData.length} options for ${ticker} at price ${spotPrice}`)
+      const currency = market === 'INDIA' ? '₹' : '$'
+      console.log(`Successfully processed ${optionData.length} options for ${ticker} at price ${currency}${spotPrice}`)
 
       return { spotPrice, optionData }
     } catch (error) {
@@ -63,13 +70,14 @@ export class DataService {
 }
 
 export const dataService = {
-  async fetchOptionData(ticker: string): Promise<{ spotPrice: number; optionData: OptionData[] }> {
+  async fetchOptionData(ticker: string, market: Market = 'USA'): Promise<{ spotPrice: number; optionData: OptionData[] }> {
     // The narrative here is that we're making a primary, critical request for application data.
     // The `keepalive` option, which caused the issue in Chrome with large payloads,
     // is meant for non-critical, "fire-and-forget" requests when a page unloads.
     // By removing it, we ensure our request is handled through the standard, robust browser channel
     // for fetching essential content, which has no such payload size limitation.
-    const res = await fetch(`/api/options/${ticker.toUpperCase()}`, {
+    const apiRoute = market === 'INDIA' ? `/api/options/india/${ticker.toUpperCase()}` : `/api/options/${ticker.toUpperCase()}`
+    const res = await fetch(apiRoute, {
       // keepalive: true, // <-- This was the likely culprit. Removing it.
       cache: "no-store", // Ensure we always get the latest data.
     })
@@ -87,7 +95,8 @@ export const dataService = {
     }
 
     if (!Array.isArray(data.options) || data.options.length === 0) {
-      throw new Error(`No options data available for ${ticker}. This ticker may not have options listed on CBOE.`)
+      const exchange = market === 'INDIA' ? 'NSE/BSE' : 'CBOE'
+      throw new Error(`No options data available for ${ticker}. This ticker may not have options listed on ${exchange}.`)
     }
 
     const spotPrice = data.current_price
@@ -97,7 +106,8 @@ export const dataService = {
       throw new Error(`Unable to parse options data for ${ticker}. The data format may be unsupported.`)
     }
 
-    console.log(`Successfully processed ${optionData.length} options for ${ticker} at price ${spotPrice}`)
+    const currency = market === 'INDIA' ? '₹' : '$'
+    console.log(`Successfully processed ${optionData.length} options for ${ticker} at price ${currency}${spotPrice}`)
 
     return { spotPrice, optionData }
   },

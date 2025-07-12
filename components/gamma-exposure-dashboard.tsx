@@ -9,8 +9,10 @@ import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
 import type { OptionData } from "@/lib/types"
-import { dataService } from "@/lib/data-service"
+import { dataService, type Market } from "@/lib/data-service"
 import { computeTotalGEX } from "@/lib/calculations"
 import { GEXByStrikeChart } from "./charts/gex-by-strike-chart"
 import { GEXByExpirationChart } from "./charts/gex-by-expiration-chart"
@@ -95,6 +97,7 @@ function calculateGEXWeightedVolatility(optionData: OptionData[]) {
 
 export function GammaExposureDashboard() {
   const [ticker, setTicker] = useState("SPX")
+  const [market, setMarket] = useState<Market>("USA")
   const [customTickers, setCustomTickers] = useState<string[]>([])
   const [isEditing, setIsEditing] = useState(false)
   const [newTicker, setNewTicker] = useState("")
@@ -116,7 +119,8 @@ export function GammaExposureDashboard() {
   const handleNewTickerSubmit = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && newTicker.trim()) {
       const formattedTicker = newTicker.trim().toUpperCase()
-      if (!defaultTickers.includes(formattedTicker as any) && !customTickers.includes(formattedTicker)) {
+      const currentDefaultTickers = market === 'USA' ? usaTickers : indiaTickers
+      if (!currentDefaultTickers.includes(formattedTicker) && !customTickers.includes(formattedTicker)) {
         setCustomTickers(prev => [...prev, formattedTicker])
         handleTickerSelect(formattedTicker)
       }
@@ -160,8 +164,8 @@ export function GammaExposureDashboard() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [isEditing])
 
-  // Default tickers list
-  const defaultTickers = [
+  // Default tickers lists
+  const usaTickers = [
     "SPX",
     "SPY",
     "AAPL",
@@ -178,13 +182,34 @@ export function GammaExposureDashboard() {
     "CRWV",
     "HIMS",
     "SOFI"
-  ] as const
+  ]
+
+  const indiaTickers = [
+    "NIFTY",
+    "BANKNIFTY",
+    "RELIANCE",
+    "TCS",
+    "INFY",
+    "HINDUNILVR",
+    "HDFCBANK",
+    "ICICIBANK",
+    "KOTAKBANK",
+    "SBIN",
+    "ITC",
+    "LT",
+    "BHARTIARTL",
+    "ASIANPAINT",
+    "MARUTI",
+    "WIPRO"
+  ]
+
+  const defaultTickers = market === 'USA' ? usaTickers : indiaTickers
 
   // Function to add custom ticker
   const handleAddCustomTicker = () => {
     const newTicker = prompt("Enter new ticker symbol:")?.toUpperCase()
     if (newTicker?.trim() && 
-        !defaultTickers.includes(newTicker as any) && 
+        !defaultTickers.includes(newTicker) && 
         !customTickers.includes(newTicker)) {
       setCustomTickers(prev => [...prev, newTicker])
       setTicker(newTicker)
@@ -199,7 +224,8 @@ export function GammaExposureDashboard() {
       setError(null);
       
       const { spotPrice: fetchedSpotPrice, optionData: fetchedOptionData } = await dataService.fetchOptionData(
-        selected.toUpperCase()
+        selected.toUpperCase(),
+        market
       );
 
       // Update all states at once
@@ -278,6 +304,7 @@ export function GammaExposureDashboard() {
     try {
       const { spotPrice: fetchedSpotPrice, optionData: fetchedOptionData } = await dataService.fetchOptionData(
         ticker.toUpperCase(),
+        market
       )
 
       setSpotPrice(fetchedSpotPrice)
@@ -338,7 +365,7 @@ export function GammaExposureDashboard() {
     } finally {
       setIsLoading(false)
     }
-  }, [ticker, selectedRampExpiry, selectedGEXExpiry, selectedMoveExpiry])
+  }, [ticker, selectedRampExpiry, selectedGEXExpiry, selectedMoveExpiry, market])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -405,9 +432,26 @@ export function GammaExposureDashboard() {
   // Dynamic color for the arc and value
   const gexIntensityColor = gexIntensity < 0 ? pastelRed : pastelGreen;
 
+  // Function to handle market change
+  const handleMarketChange = (newMarket: Market) => {
+    setMarket(newMarket)
+    setError(null)
+    // Switch to default ticker for the new market
+    const newDefaultTicker = newMarket === 'USA' ? 'SPX' : 'NIFTY'
+    setTicker(newDefaultTicker)
+    // Clear custom tickers as they might not be valid for the new market
+    setCustomTickers([])
+    // Fetch data for the new default ticker
+    handleTickerSelect(newDefaultTicker)
+  }
+
   // Auto-load data for default ticker on mount
   useEffect(() => {
-    handleTickerSelect("SPX");
+    if (market === 'USA') {
+      handleTickerSelect("SPX");
+    } else {
+      handleTickerSelect("NIFTY");
+    }
   }, []); // Empty dependency array - only run on mount
 
   return (
@@ -416,16 +460,34 @@ export function GammaExposureDashboard() {
       <div className="text-center space-y-2">
         <h1 className="text-4xl font-bold tracking-tight">Gamma Exposure Indicator</h1>
         <p className="text-muted-foreground text-lg">
-          Track and visualize dealers' notional gamma exposure (GEX) from CBOE data
+          Track and visualize dealers' notional gamma exposure (GEX) from {market === 'USA' ? 'CBOE' : 'NSE/BSE'} data
         </p>
       </div>
       {/* Ticker Input */}
       <Card>
         <CardHeader>
-          <CardTitle>Enter Ticker Symbol</CardTitle>
-          <CardDescription>
-            Select a ticker or enter a custom symbol to fetch gamma exposure data
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Enter Ticker Symbol</CardTitle>
+              <CardDescription>
+                Select a ticker or enter a custom symbol to fetch gamma exposure data
+              </CardDescription>
+            </div>
+            {/* Market Toggle */}
+            <div className="flex items-center space-x-3">
+              <Label htmlFor="market-toggle" className="text-sm font-medium">
+                {market === 'USA' ? 'USA' : 'INDIA'}
+              </Label>
+              <Switch
+                id="market-toggle"
+                checked={market === 'INDIA'}
+                onCheckedChange={(checked) => handleMarketChange(checked ? 'INDIA' : 'USA')}
+              />
+              <span className="text-xs text-muted-foreground">
+                {market === 'USA' ? 'CBOE' : 'NSE/BSE'}
+              </span>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
@@ -562,7 +624,7 @@ export function GammaExposureDashboard() {
                 <TrendingUp className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-4xl font-bold text-white mb-1">${spotPrice!.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                <div className="text-4xl font-bold text-white mb-1">{market === 'USA' ? '$' : '₹'}{spotPrice!.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                 <p className="text-sm text-[#B0B8D1] mb-6">Current market price</p>
                 <div className="flex flex-col gap-2 mt-2">
                   {/* Total Gamma */}
