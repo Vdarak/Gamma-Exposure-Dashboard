@@ -271,6 +271,7 @@ async function getNSEOptionsData(ticker: string): Promise<any[]> {
       if (response.ok) {
         const nseData = await response.json()
         console.log(`NSE API response received, parsing data for ${ticker}`)
+        console.log('Full NSE Data structure:', JSON.stringify(nseData, null, 2))
         const parsedOptions = parseNSEOptionsData(nseData, ticker)
         console.log(`Parsed ${parsedOptions.length} options for ${ticker}`)
         return parsedOptions

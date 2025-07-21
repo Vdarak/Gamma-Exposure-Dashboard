@@ -26,9 +26,10 @@ interface GEXByStrikeChartProps {
   selectedExpiry: string
   pricingMethod: PricingMethod
   onPricingMethodChange: (method: PricingMethod) => void
+  market?: 'USA' | 'INDIA'
 }
 
-export function GEXByStrikeChart({ data, ticker, spotPrice, selectedExpiry, pricingMethod, onPricingMethodChange }: GEXByStrikeChartProps) {
+export function GEXByStrikeChart({ data, ticker, spotPrice, selectedExpiry, pricingMethod, onPricingMethodChange, market = 'USA' }: GEXByStrikeChartProps) {
   // Add state for y-axis min/max
   const [yMin, setYMin] = useState<number | undefined>(undefined);
   const [yMax, setYMax] = useState<number | undefined>(undefined);
@@ -36,6 +37,9 @@ export function GEXByStrikeChart({ data, ticker, spotPrice, selectedExpiry, pric
   // Add state for GEX display mode and volume chart visibility
   const [showAbsoluteGEX, setShowAbsoluteGEX] = useState(false); // false = Net GEX, true = Absolute GEX
   const [showVolumeChart, setShowVolumeChart] = useState(true);
+
+  // For Indian markets, force Black-Scholes as Indian options are European-style (no early exercise)
+  const effectivePricingMethod = market === 'INDIA' ? 'black-scholes' : pricingMethod;
 
   // Filter data by expiry if needed
   const filteredData = selectedExpiry === "All Dates"
@@ -48,7 +52,7 @@ export function GEXByStrikeChart({ data, ticker, spotPrice, selectedExpiry, pric
     : new Date(selectedExpiry + "T00:00:00.000Z")
 
   // Compute GEX by strike
-  const gexByStrike = useMemo(() => computeGEXByStrike(spotPrice, filteredData, pricingMethod), [spotPrice, filteredData, pricingMethod])
+  const gexByStrike = useMemo(() => computeGEXByStrike(spotPrice, filteredData, effectivePricingMethod), [spotPrice, filteredData, effectivePricingMethod])
   // Compute actual volume by strike using the new function
   const volumeByStrike = useMemo(() => computeVolumeByStrike(filteredData), [filteredData])
   // Calculate gamma flip level for the specific expiry (or all data if "All Dates")
@@ -529,11 +533,21 @@ export function GEXByStrikeChart({ data, ticker, spotPrice, selectedExpiry, pric
         
         {/* Right side - Pricing method, GEX toggle and Volume visibility */}
         <div className="flex items-center gap-3">
-          {/* Pricing Method Toggle */}
-          <PricingMethodToggle 
-            pricingMethod={pricingMethod}
-            onPricingMethodChange={onPricingMethodChange}
-          />
+          {/* Pricing Method Toggle - Disabled for Indian markets as they use European-style options */}
+          {market === 'USA' ? (
+            <PricingMethodToggle 
+              pricingMethod={pricingMethod}
+              onPricingMethodChange={onPricingMethodChange}
+            />
+          ) : (
+            <div 
+              className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 text-gray-300 rounded-lg border border-gray-600"
+              title="Indian options are European-style (no early exercise), so Black-Scholes pricing is optimal. Binomial trees are designed for American options with early exercise features."
+            >
+              <span className="text-xs">Black-Scholes</span>
+              <span className="text-xs text-gray-400">(European Options)</span>
+            </div>
+          )}
           
           {/* GEX Mode Toggle */}
           <button

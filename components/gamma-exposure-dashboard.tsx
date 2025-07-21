@@ -452,6 +452,12 @@ export function GammaExposureDashboard() {
   const handleMarketChange = (newMarket: Market) => {
     setMarket(newMarket)
     setError(null)
+    
+    // For Indian markets, force Black-Scholes as Indian options are European-style
+    if (newMarket === 'INDIA') {
+      setPricingMethod('black-scholes')
+    }
+    
     // Switch to default ticker for the new market
     const newDefaultTicker = newMarket === 'USA' ? 'SPX' : 'NIFTY'
     setTicker(newDefaultTicker)
@@ -850,6 +856,7 @@ export function GammaExposureDashboard() {
                       selectedExpiry={selectedGEXExpiry}
                       pricingMethod={pricingMethod}
                       onPricingMethodChange={handlePricingMethodChange}
+                      market={market}
                     />
                   </div>
                 </CardContent>
