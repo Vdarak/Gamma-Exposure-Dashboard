@@ -6,6 +6,11 @@ import type { OptionData, GEXByStrike, GEXByExpiration, CallPutWalls, ExpectedMo
 const CONTRACT_SIZE = 100
 
 /**
+ * Pricing method for options calculations
+ */
+export type PricingMethod = 'black-scholes' | 'binomial'
+
+/**
  * Calculates the Gamma Exposure (GEX) for a single European-style option using the Black-Scholes model.
  *
  * The function first calculates the raw gamma of the option and then scales it by Open Interest (OI),
@@ -57,6 +62,143 @@ export function calcGammaEx(
 }
 
 /**
+ * American option pricing using Binomial Tree Model
+ * Handles early exercise features better than Black-Scholes
+ */
+export function americanOptionPrice(
+  spot: number,
+  strike: number,
+  timeToExpiry: number,
+  riskFreeRate: number,
+  volatility: number,
+  isCall: boolean,
+  steps: number = 100
+): number {
+  if (timeToExpiry <= 0 || volatility <= 0 || spot <= 0 || strike <= 0) return 0
+  
+  const dt = timeToExpiry / steps
+  const u = Math.exp(volatility * Math.sqrt(dt)) // Up factor
+  const d = 1 / u // Down factor
+  const p = (Math.exp(riskFreeRate * dt) - d) / (u - d) // Risk-neutral probability
+  const discount = Math.exp(-riskFreeRate * dt)
+
+  // Initialize asset prices at maturity
+  const optionValues: number[] = []
+
+  // Calculate intrinsic values at final nodes
+  for (let i = 0; i <= steps; i++) {
+    const price = spot * Math.pow(u, steps - i) * Math.pow(d, i)
+    
+    // Calculate intrinsic value at expiration
+    if (isCall) {
+      optionValues[i] = Math.max(price - strike, 0)
+    } else {
+      optionValues[i] = Math.max(strike - price, 0)
+    }
+  }
+
+  // Work backwards through the tree
+  for (let step = steps - 1; step >= 0; step--) {
+    for (let i = 0; i <= step; i++) {
+      // Current asset price at this node
+      const currentPrice = spot * Math.pow(u, step - i) * Math.pow(d, i)
+      
+      // Calculate continuation value (expected value)
+      const continuationValue = discount * (p * optionValues[i] + (1 - p) * optionValues[i + 1])
+      
+      // Calculate intrinsic value (immediate exercise)
+      let intrinsicValue: number
+      if (isCall) {
+        intrinsicValue = Math.max(currentPrice - strike, 0)
+      } else {
+        intrinsicValue = Math.max(strike - currentPrice, 0)
+      }
+      
+      // For American options, take the maximum of continuation and intrinsic value
+      optionValues[i] = Math.max(continuationValue, intrinsicValue)
+    }
+  }
+
+  return optionValues[0]
+}
+
+/**
+ * Calculate delta for American options using finite difference
+ */
+export function americanDelta(
+  spot: number,
+  strike: number,
+  timeToExpiry: number,
+  riskFreeRate: number,
+  volatility: number,
+  isCall: boolean,
+  steps: number = 100
+): number {
+  const dS = spot * 0.01 // 1% bump
+  
+  const priceUp = americanOptionPrice(spot + dS, strike, timeToExpiry, riskFreeRate, volatility, isCall, steps)
+  const priceDown = americanOptionPrice(spot - dS, strike, timeToExpiry, riskFreeRate, volatility, isCall, steps)
+  
+  return (priceUp - priceDown) / (2 * dS)
+}
+
+/**
+ * Calculate gamma for American options using finite difference
+ */
+export function americanGamma(
+  spot: number,
+  strike: number,
+  timeToExpiry: number,
+  riskFreeRate: number,
+  volatility: number,
+  isCall: boolean,
+  steps: number = 100
+): number {
+  const dS = spot * 0.01 // 1% bump
+  
+  const deltaUp = americanDelta(spot + dS, strike, timeToExpiry, riskFreeRate, volatility, isCall, steps)
+  const deltaDown = americanDelta(spot - dS, strike, timeToExpiry, riskFreeRate, volatility, isCall, steps)
+  
+  return (deltaUp - deltaDown) / (2 * dS)
+}
+
+/**
+ * Enhanced Gamma Exposure calculation with support for both Black-Scholes and Binomial pricing
+ */
+export function calcGammaExEnhanced(
+  S: number, // Spot price
+  K: number, // Strike price
+  vol: number, // Volatility
+  T: number, // Time to expiration
+  r = 0, // Risk-free rate
+  q = 0, // Dividend yield
+  optType: "call" | "put",
+  OI: number, // Open interest
+  pricingMethod: PricingMethod = 'black-scholes'
+): number {
+  if (pricingMethod === 'black-scholes') {
+    return calcGammaEx(S, K, vol, T, r, q, optType, OI)
+  }
+  
+  // Binomial method
+  if (T === 0 || vol === 0 || S === 0) return 0
+  if (K <= 0 || vol <= 0 || T < 0) return 0
+
+  T = Math.max(T, 1e-8)
+  vol = Math.max(vol, 1e-8)
+
+  try {
+    const isCall = optType === "call"
+    const gamma = americanGamma(S, K, T, r, vol, isCall)
+    
+    return OI * 100 * S * S * 0.01 * gamma
+  } catch (error) {
+    console.warn(`Numerical error in calcGammaExEnhanced (binomial) with inputs: S=${S}, K=${K}, vol=${vol}, T=${T}`)
+    return 0
+  }
+}
+
+/**
  * Parses and transforms raw option data from an array of any type into a structured `OptionData[]` format.
  *
  * This function attempts to extract key option parameters (name, type, strike, expiration, gamma, OI, IV, delta)
@@ -67,9 +209,10 @@ export function calcGammaEx(
  * Fallback values are used if critical data is missing to prevent crashes, with warnings logged.
  *
  * @param data - An array of raw option data items. Each item can be an object with varying property names.
+ * @param pricingMethod - The pricing method to use for calculations ('black-scholes' or 'binomial').
  * @returns An array of `OptionData` objects, cleaned and structured.
  */
-export function fixOptionData(data: any[]): OptionData[] {
+export function fixOptionData(data: any[], pricingMethod: PricingMethod = 'black-scholes'): OptionData[] {
   if (!Array.isArray(data)) {
     console.error("Options data is not an array:", data)
     return []
@@ -257,16 +400,17 @@ export function fixOptionData(data: any[]): OptionData[] {
  *
  * @param spot - Current spot price of the underlying asset. Used in GEX calculation per option.
  * @param data - An array of `OptionData` objects, potentially with `gamma` pre-calculated.
+ * @param pricingMethod - The pricing method to use ('black-scholes' or 'binomial').
  * @returns The total Gamma Exposure in billions.
  */
-export function computeTotalGEX(spot: number, data: OptionData[]): number {
+export function computeTotalGEX(spot: number, data: OptionData[], pricingMethod: PricingMethod = 'black-scholes'): number {
   const today = new Date()
   
-  // Calculate GEX for each option using Black-Scholes if gamma is 0 or missing
+  // Calculate GEX for each option using the specified pricing method if gamma is 0 or missing
   data.forEach((option) => {
     let gamma = option.gamma
     
-    // If gamma is 0 or missing, calculate it using Black-Scholes
+    // If gamma is 0 or missing, calculate it using the specified pricing method
     if (!gamma || gamma === 0) {
       const daysTillExp = Math.max(1, (option.expiration.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
       const timeToExpiry = daysTillExp / 365.25
@@ -276,8 +420,8 @@ export function computeTotalGEX(spot: number, data: OptionData[]): number {
       
       const optType = option.type === "C" ? "call" : "put"
       
-      // Calculate gamma using Black-Scholes
-      const blackScholesGamma = calcGammaEx(
+      // Calculate gamma using the specified pricing method
+      const gammaEx = calcGammaExEnhanced(
         spot,
         option.strike,
         volatility,
@@ -285,11 +429,12 @@ export function computeTotalGEX(spot: number, data: OptionData[]): number {
         0, // risk-free rate
         0, // dividend yield
         optType,
-        1  // OI of 1 to get per-contract gamma
+        1, // OI of 1 to get per-contract gamma
+        pricingMethod
       )
       
       // Extract gamma per contract (divide by the scaling factors)
-      gamma = blackScholesGamma / (100 * spot * spot * 0.01)
+      gamma = gammaEx / (100 * spot * spot * 0.01)
       
       // Update the option object with calculated gamma
       option.gamma = gamma
@@ -311,26 +456,27 @@ export function computeTotalGEX(spot: number, data: OptionData[]): number {
  * Computes Gamma Exposure (GEX) aggregated by strike price.
  *
  * For each option, it first calculates the time to expiration (`daysTillExp`).
- * Then, it calculates the GEX for each option using the `calcGammaEx` function (Black-Scholes model).
+ * Then, it calculates the GEX for each option using the specified pricing method.
  * GEX for put options is treated as negative.
  * The results are summed up for each strike price and converted to billions.
  *
  * @param spot - Current spot price of the underlying asset.
  * @param data - An array of `OptionData` objects.
+ * @param pricingMethod - The pricing method to use ('black-scholes' or 'binomial').
  * @returns An array of `GEXByStrike` objects, sorted by strike price.
  */
-export function computeGEXByStrike(spot: number, data: OptionData[]): GEXByStrike[] {
-  // Calculate days till expiration for Black-Scholes
+export function computeGEXByStrike(spot: number, data: OptionData[], pricingMethod: PricingMethod = 'black-scholes'): GEXByStrike[] {
+  // Calculate days till expiration
   const today = new Date()
   data.forEach((option) => {
     const daysDiff = Math.max(1, Math.ceil((option.expiration.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)))
     option.daysTillExp = daysDiff === 0 ? 1 / 262 : daysDiff / 262
   })
 
-  // Calculate GEX using Black-Scholes gamma
+  // Calculate GEX using the specified pricing method
   data.forEach((option) => {
     if (option.type === "C") {
-      option.GEX_BS = calcGammaEx(
+      option.GEX_BS = calcGammaExEnhanced(
         spot,
         option.strike,
         option.iv,
@@ -339,9 +485,10 @@ export function computeGEXByStrike(spot: number, data: OptionData[]): GEXByStrik
         0,
         "call",
         option.open_interest,
+        pricingMethod
       )
     } else {
-      option.GEX_BS = -calcGammaEx(
+      option.GEX_BS = -calcGammaExEnhanced(
         spot,
         option.strike,
         option.iv,
@@ -350,6 +497,7 @@ export function computeGEXByStrike(spot: number, data: OptionData[]): GEXByStrik
         0,
         "put",
         option.open_interest,
+        pricingMethod
       )
     }
   })

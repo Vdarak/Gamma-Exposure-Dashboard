@@ -13,7 +13,7 @@ import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import type { OptionData } from "@/lib/types"
 import { dataService, type Market } from "@/lib/data-service"
-import { computeTotalGEX } from "@/lib/calculations"
+import { computeTotalGEX, type PricingMethod } from "@/lib/calculations"
 import { GEXByStrikeChart } from "./charts/gex-by-strike-chart"
 import { GEXByExpirationChart } from "./charts/gex-by-expiration-chart"
 import { GEXSurfaceChart } from "./charts/gex-surface-chart"
@@ -22,6 +22,7 @@ import { ExpectedMoveChart } from "./charts/expected-move-chart"
 import { OptionChain } from "./charts/option-chain"
 import { GEXDataGraphDashboard } from "./charts/gex-data-graph-dashboard"
 import { TotalGEXCard } from "./charts/total-gex-card"
+import { PricingMethodToggle } from "./pricing-method-toggle"
 
 // --- Gauge component ---
 function Gauge({ value, min, max, label, color, valueDisplay }: { value: number, min: number, max: number, label: string, color: string, valueDisplay: string }) {
@@ -98,6 +99,7 @@ function calculateGEXWeightedVolatility(optionData: OptionData[]) {
 export function GammaExposureDashboard() {
   const [ticker, setTicker] = useState("SPX")
   const [market, setMarket] = useState<Market>("USA")
+  const [pricingMethod, setPricingMethod] = useState<PricingMethod>("black-scholes")
   const [customTickers, setCustomTickers] = useState<string[]>([])
   const [isEditing, setIsEditing] = useState(false)
   const [newTicker, setNewTicker] = useState("")
@@ -139,6 +141,15 @@ export function GammaExposureDashboard() {
     }
     if (ticker === tickerToRemove) {
       handleTickerSelect(defaultTickers[0])
+    }
+  }
+
+  // Function to handle pricing method change
+  const handlePricingMethodChange = (method: PricingMethod) => {
+    setPricingMethod(method)
+    // Refresh data when pricing method changes if we have a ticker
+    if (ticker && !isLoading) {
+      handleTickerSelect(ticker)
     }
   }
 
@@ -228,14 +239,15 @@ export function GammaExposureDashboard() {
       
       const { spotPrice: fetchedSpotPrice, optionData: fetchedOptionData } = await dataService.fetchOptionData(
         selected.toUpperCase(),
-        marketToUse
+        marketToUse,
+        pricingMethod
       );
 
       // Update all states at once
       setTicker(selected);
       setSpotPrice(fetchedSpotPrice);
       setOptionData(fetchedOptionData);
-      setTotalGEX(computeTotalGEX(fetchedSpotPrice, fetchedOptionData));
+      setTotalGEX(computeTotalGEX(fetchedSpotPrice, fetchedOptionData, pricingMethod));
       setLastUpdated(new Date());
 
       // Update expiry selections
@@ -307,13 +319,14 @@ export function GammaExposureDashboard() {
     try {
       const { spotPrice: fetchedSpotPrice, optionData: fetchedOptionData } = await dataService.fetchOptionData(
         ticker.toUpperCase(),
-        market
+        market,
+        pricingMethod
       )
 
       setSpotPrice(fetchedSpotPrice)
       setOptionData(fetchedOptionData)
 
-      const gex = computeTotalGEX(fetchedSpotPrice, fetchedOptionData)
+      const gex = computeTotalGEX(fetchedSpotPrice, fetchedOptionData, pricingMethod)
       setTotalGEX(gex)
       setLastUpdated(new Date());
 
@@ -368,7 +381,7 @@ export function GammaExposureDashboard() {
     } finally {
       setIsLoading(false)
     }
-  }, [ticker, selectedRampExpiry, selectedGEXExpiry, selectedMoveExpiry, market])
+  }, [ticker, selectedRampExpiry, selectedGEXExpiry, selectedMoveExpiry, market, pricingMethod])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -835,6 +848,8 @@ export function GammaExposureDashboard() {
                       ticker={ticker}
                       spotPrice={spotPrice!}
                       selectedExpiry={selectedGEXExpiry}
+                      pricingMethod={pricingMethod}
+                      onPricingMethodChange={handlePricingMethodChange}
                     />
                   </div>
                 </CardContent>

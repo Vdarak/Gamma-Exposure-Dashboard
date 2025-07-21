@@ -1,5 +1,5 @@
 import type { OptionData } from "./types"
-import { fixOptionData } from "./calculations"
+import { fixOptionData, type PricingMethod } from "./calculations"
 
 export type Market = 'USA' | 'INDIA'
 
@@ -7,14 +7,14 @@ export class DataService {
   private cache = new Map<string, { data: any; timestamp: number }>()
   private readonly CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
 
-  async fetchOptionData(ticker: string, market: Market = 'USA'): Promise<{ spotPrice: number; optionData: OptionData[] }> {
-    const cacheKey = `${market}-${ticker}`
+  async fetchOptionData(ticker: string, market: Market = 'USA', pricingMethod: PricingMethod = 'black-scholes'): Promise<{ spotPrice: number; optionData: OptionData[] }> {
+    const cacheKey = `${market}-${ticker}-${pricingMethod}`
     
     // Check cache first
     const cached = this.cache.get(cacheKey)
     if (cached && Date.now() - cached.timestamp < this.CACHE_DURATION) {
       const spotPrice = cached.data.current_price
-      const optionData = fixOptionData(cached.data.options)
+      const optionData = fixOptionData(cached.data.options, pricingMethod)
       return { spotPrice, optionData }
     }
 
@@ -44,7 +44,7 @@ export class DataService {
       this.cache.set(cacheKey, { data, timestamp: Date.now() })
 
       const spotPrice = data.current_price
-      const optionData = fixOptionData(data.options)
+      const optionData = fixOptionData(data.options, pricingMethod)
 
       if (optionData.length === 0) {
         throw new Error(`Unable to parse options data for ${ticker}. The data format may be unsupported.`)
@@ -70,7 +70,7 @@ export class DataService {
 }
 
 export const dataService = {
-  async fetchOptionData(ticker: string, market: Market = 'USA'): Promise<{ spotPrice: number; optionData: OptionData[] }> {
+  async fetchOptionData(ticker: string, market: Market = 'USA', pricingMethod: PricingMethod = 'black-scholes'): Promise<{ spotPrice: number; optionData: OptionData[] }> {
     // The narrative here is that we're making a primary, critical request for application data.
     // The `keepalive` option, which caused the issue in Chrome with large payloads,
     // is meant for non-critical, "fire-and-forget" requests when a page unloads.
@@ -116,7 +116,7 @@ export const dataService = {
     }
 
     const spotPrice = data.current_price
-    const optionData = fixOptionData(data.options)
+    const optionData = fixOptionData(data.options, pricingMethod)
 
     if (optionData.length === 0) {
       throw new Error(`Unable to parse options data for ${ticker}. The data format may be unsupported.`)

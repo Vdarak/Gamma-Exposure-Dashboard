@@ -14,7 +14,8 @@ import {
 } from "chart.js"
 
 import type { OptionData } from "@/lib/types"
-import { computeGEXByStrike, computeVolumeByStrike, findZeroGammaLevel } from "@/lib/calculations"
+import { computeGEXByStrike, computeVolumeByStrike, findZeroGammaLevel, type PricingMethod } from "@/lib/calculations"
+import { PricingMethodToggle } from "../pricing-method-toggle"
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 
@@ -23,9 +24,11 @@ interface GEXByStrikeChartProps {
   ticker: string
   spotPrice: number
   selectedExpiry: string
+  pricingMethod: PricingMethod
+  onPricingMethodChange: (method: PricingMethod) => void
 }
 
-export function GEXByStrikeChart({ data, ticker, spotPrice, selectedExpiry }: GEXByStrikeChartProps) {
+export function GEXByStrikeChart({ data, ticker, spotPrice, selectedExpiry, pricingMethod, onPricingMethodChange }: GEXByStrikeChartProps) {
   // Add state for y-axis min/max
   const [yMin, setYMin] = useState<number | undefined>(undefined);
   const [yMax, setYMax] = useState<number | undefined>(undefined);
@@ -45,7 +48,7 @@ export function GEXByStrikeChart({ data, ticker, spotPrice, selectedExpiry }: GE
     : new Date(selectedExpiry + "T00:00:00.000Z")
 
   // Compute GEX by strike
-  const gexByStrike = useMemo(() => computeGEXByStrike(spotPrice, filteredData), [spotPrice, filteredData])
+  const gexByStrike = useMemo(() => computeGEXByStrike(spotPrice, filteredData, pricingMethod), [spotPrice, filteredData, pricingMethod])
   // Compute actual volume by strike using the new function
   const volumeByStrike = useMemo(() => computeVolumeByStrike(filteredData), [filteredData])
   // Calculate gamma flip level for the specific expiry (or all data if "All Dates")
@@ -524,8 +527,14 @@ export function GEXByStrikeChart({ data, ticker, spotPrice, selectedExpiry }: GE
           </button>
         </div>
         
-        {/* Right side - GEX toggle and Volume visibility */}
+        {/* Right side - Pricing method, GEX toggle and Volume visibility */}
         <div className="flex items-center gap-3">
+          {/* Pricing Method Toggle */}
+          <PricingMethodToggle 
+            pricingMethod={pricingMethod}
+            onPricingMethodChange={onPricingMethodChange}
+          />
+          
           {/* GEX Mode Toggle */}
           <button
             className={`px-3 py-1 rounded-full text-xs border transition-colors ${showAbsoluteGEX ? 'bg-[#059669] text-white border-[#10B981]' : 'bg-[#7C3AED] text-white border-[#8B5CF6]'}`}
