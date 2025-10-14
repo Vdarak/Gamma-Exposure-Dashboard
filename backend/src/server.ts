@@ -90,6 +90,15 @@ app.get('/health', (req: Request, res: Response) => {
   });
 });
 
+// Also support /api/health for frontend
+app.get('/api/health', (req: Request, res: Response) => {
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  });
+});
+
 /**
  * Get current (most recent) data for a ticker
  */

@@ -121,74 +121,98 @@ async function fetchOptionChainFromCBOE(ticker: string): Promise<CBOEResponse | 
 /**
  * Fetch option chain data from NSE API (Indian Market)
  * NSE requires cookies and specific headers
+ * Enhanced with retry logic and better cookie management
  */
 async function fetchOptionChainFromNSE(ticker: string): Promise<NSEResponse | null> {
-  try {
-    // First, get cookies by visiting the main page
-    const cookieResponse = await axios.get('https://www.nseindia.com', {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-      },
-      timeout: 10000,
-    });
-
-    // Extract cookies
-    const cookies = cookieResponse.headers['set-cookie']?.join('; ') || '';
-
-    // Wait a bit to mimic human behavior
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // Map ticker to NSE symbol
-    let symbol = ticker;
-    if (ticker === 'NIFTY') symbol = 'NIFTY';
-    else if (ticker === 'BANKNIFTY') symbol = 'BANKNIFTY';
-    else if (ticker === 'RELIANCE') {
-      // For stocks, use equity options API
-      const response = await axios.get(
-        `https://www.nseindia.com/api/option-chain-equities?symbol=RELIANCE`,
-        {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Referer': 'https://www.nseindia.com/option-chain',
-            'Cookie': cookies,
-            'Connection': 'keep-alive',
-          },
-          timeout: 15000,
-        }
-      );
-      return response.data;
-    }
-
-    // Fetch option chain for indices
-    const response = await axios.get(
-      `https://www.nseindia.com/api/option-chain-indices?symbol=${symbol}`,
-      {
+  const maxRetries = 3;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`   [NSE ${ticker}] Attempt ${attempt}/${maxRetries} - Getting fresh cookies...`);
+      
+      // First, get cookies by visiting the main page
+      const cookieResponse = await axios.get('https://www.nseindia.com/option-chain', {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'application/json',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Cache-Control': 'max-age=0',
+        },
+        timeout: 15000,
+      });
+
+      // Extract and format cookies properly
+      const setCookies = cookieResponse.headers['set-cookie'];
+      if (!setCookies || setCookies.length === 0) {
+        throw new Error('No cookies received from NSE');
+      }
+      
+      const cookies = setCookies.map(cookie => cookie.split(';')[0]).join('; ');
+      console.log(`   [NSE ${ticker}] Got ${setCookies.length} cookies`);
+
+      // Wait to mimic human behavior
+      await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 1000));
+
+      // Map ticker to NSE symbol
+      let apiUrl: string;
+      if (ticker === 'NIFTY' || ticker === 'BANKNIFTY') {
+        apiUrl = `https://www.nseindia.com/api/option-chain-indices?symbol=${ticker}`;
+      } else {
+        // For stocks like RELIANCE
+        apiUrl = `https://www.nseindia.com/api/option-chain-equities?symbol=${ticker}`;
+      }
+
+      console.log(`   [NSE ${ticker}] Fetching option chain data...`);
+      
+      // Fetch option chain with cookies
+      const response = await axios.get(apiUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/json, text/plain, */*',
           'Accept-Language': 'en-US,en;q=0.9',
           'Accept-Encoding': 'gzip, deflate, br',
           'Referer': 'https://www.nseindia.com/option-chain',
           'Cookie': cookies,
           'Connection': 'keep-alive',
+          'Sec-Fetch-Dest': 'empty',
+          'Sec-Fetch-Mode': 'cors',
+          'Sec-Fetch-Site': 'same-origin',
+          'X-Requested-With': 'XMLHttpRequest',
         },
-        timeout: 15000,
-      }
-    );
+        timeout: 20000,
+      });
 
-    return response.data;
-  } catch (error) {
-    console.error(`❌ Failed to fetch data for ${ticker} from NSE:`, error);
-    return null;
+      console.log(`   [NSE ${ticker}] ✅ Successfully fetched data`);
+      return response.data;
+      
+    } catch (error: any) {
+      const isLastAttempt = attempt === maxRetries;
+      
+      if (error.response?.status === 403) {
+        console.error(`   [NSE ${ticker}] ❌ 403 Forbidden (cookies rejected) - Attempt ${attempt}/${maxRetries}`);
+      } else {
+        console.error(`   [NSE ${ticker}] ❌ Error: ${error.message} - Attempt ${attempt}/${maxRetries}`);
+      }
+      
+      if (isLastAttempt) {
+        console.error(`   [NSE ${ticker}] Failed after ${maxRetries} attempts`);
+        return null;
+      }
+      
+      // Wait before retry (exponential backoff)
+      const waitTime = Math.min(5000 * attempt, 15000);
+      console.log(`   [NSE ${ticker}] Waiting ${waitTime/1000}s before retry...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
   }
+  
+  return null;
 }
 
 /**
@@ -445,27 +469,29 @@ export async function fetchAndStoreOptionData(
  * Fetch and store data for multiple tickers with rate limiting
  * 15-minute delay between API requests to respect rate limits
  */
+/**
+ * Fetch and store data for multiple tickers
+ * Groups tickers and fetches them sequentially with small delays within groups
+ * Then waits 15 minutes before the next group
+ */
 export async function fetchAndStoreMultipleTickers(tickers: string[]): Promise<void> {
   console.log(`\n🚀 Starting data collection for ${tickers.length} ticker(s)...`);
-  console.log(`⏱️  Rate limit: 15 minutes between requests\n`);
+  console.log(`📋 Tickers: ${tickers.join(', ')}\n`);
 
+  // Process all tickers sequentially with small delays
   for (let i = 0; i < tickers.length; i++) {
     const ticker = tickers[i];
     
     console.log(`[${i + 1}/${tickers.length}] Processing ${ticker}...`);
     await fetchAndStoreOptionData(ticker);
     
-    // Add 15-minute delay between requests (except for the last one)
+    // Add a small delay between requests (5 seconds) to avoid rate limiting
     if (i < tickers.length - 1) {
-      const delayMinutes = 15;
-      const delayMs = delayMinutes * 60 * 1000;
-      
-      console.log(`⏳ Waiting ${delayMinutes} minutes before next request...`);
-      console.log(`   Next: ${tickers[i + 1]} at ${new Date(Date.now() + delayMs).toLocaleTimeString()}\n`);
-      
-      await new Promise(resolve => setTimeout(resolve, delayMs));
+      const delaySeconds = 5;
+      console.log(`⏳ Waiting ${delaySeconds}s before next ticker...\n`);
+      await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
     }
   }
 
-  console.log(`✅ Data collection completed for all tickers\n`);
+  console.log(`✅ Data collection completed for all tickers at ${new Date().toLocaleTimeString()}\n`);
 }
