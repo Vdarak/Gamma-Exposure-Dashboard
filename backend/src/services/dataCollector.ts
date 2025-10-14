@@ -121,7 +121,7 @@ async function fetchOptionChainFromCBOE(ticker: string): Promise<CBOEResponse | 
 /**
  * Fetch option chain data from NSE API (Indian Market)
  * NSE requires cookies and specific headers
- * Enhanced with retry logic and better cookie management
+ * Using native fetch (same approach as working frontend)
  */
 async function fetchOptionChainFromNSE(ticker: string): Promise<NSEResponse | null> {
   const maxRetries = 3;
@@ -130,65 +130,76 @@ async function fetchOptionChainFromNSE(ticker: string): Promise<NSEResponse | nu
     try {
       console.log(`   [NSE ${ticker}] Attempt ${attempt}/${maxRetries} - Getting fresh cookies...`);
       
-      // First, get cookies by visiting the main page
-      const cookieResponse = await axios.get('https://www.nseindia.com/option-chain', {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Connection': 'keep-alive',
-          'Upgrade-Insecure-Requests': '1',
-          'Sec-Fetch-Dest': 'document',
-          'Sec-Fetch-Mode': 'navigate',
-          'Sec-Fetch-Site': 'none',
-          'Cache-Control': 'max-age=0',
-        },
-        timeout: 15000,
+      // Step 1: Hit the option-chain page to get cookies (same as frontend)
+      const optionChainHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1',
+        'Connection': 'keep-alive',
+      };
+
+      const optionChainResponse = await axios.get('https://www.nseindia.com/option-chain', {
+        headers: optionChainHeaders,
+        timeout: 10000,
+        maxRedirects: 5,
       });
 
-      // Extract and format cookies properly
-      const setCookies = cookieResponse.headers['set-cookie'];
+      console.log(`   [NSE ${ticker}] Option-chain page status: ${optionChainResponse.status}`);
+
+      // Extract and format cookies properly (same as frontend)
+      const setCookies = optionChainResponse.headers['set-cookie'];
       if (!setCookies || setCookies.length === 0) {
         throw new Error('No cookies received from NSE');
       }
       
       const cookies = setCookies.map(cookie => cookie.split(';')[0]).join('; ');
-      console.log(`   [NSE ${ticker}] Got ${setCookies.length} cookies`);
+      console.log(`   [NSE ${ticker}] Got ${setCookies.length} cookies: ${cookies.substring(0, 50)}...`);
 
       // Wait to mimic human behavior
       await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 1000));
 
-      // Map ticker to NSE symbol
+      // Step 2: Use cookies to fetch API data
       let apiUrl: string;
-      if (ticker === 'NIFTY' || ticker === 'BANKNIFTY') {
+      if (ticker === 'NIFTY' || ticker === 'BANKNIFTY' || ticker === 'FINNIFTY') {
         apiUrl = `https://www.nseindia.com/api/option-chain-indices?symbol=${ticker}`;
       } else {
-        // For stocks like RELIANCE
         apiUrl = `https://www.nseindia.com/api/option-chain-equities?symbol=${ticker}`;
       }
 
-      console.log(`   [NSE ${ticker}] Fetching option chain data...`);
+      console.log(`   [NSE ${ticker}] Fetching from: ${apiUrl}`);
       
-      // Fetch option chain with cookies
+      const apiHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Referer': 'https://www.nseindia.com/option-chain',
+        'Origin': 'https://www.nseindia.com',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-origin',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Cookie': cookies,
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Connection': 'keep-alive',
+      };
+
       const response = await axios.get(apiUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'application/json, text/plain, */*',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Referer': 'https://www.nseindia.com/option-chain',
-          'Cookie': cookies,
-          'Connection': 'keep-alive',
-          'Sec-Fetch-Dest': 'empty',
-          'Sec-Fetch-Mode': 'cors',
-          'Sec-Fetch-Site': 'same-origin',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        timeout: 20000,
+        headers: apiHeaders,
+        timeout: 15000,
+        maxRedirects: 5,
       });
 
-      console.log(`   [NSE ${ticker}] ✅ Successfully fetched data`);
+      console.log(`   [NSE ${ticker}] ✅ Successfully fetched data (status: ${response.status})`);
       return response.data;
       
     } catch (error: any) {
@@ -196,6 +207,8 @@ async function fetchOptionChainFromNSE(ticker: string): Promise<NSEResponse | nu
       
       if (error.response?.status === 403) {
         console.error(`   [NSE ${ticker}] ❌ 403 Forbidden (cookies rejected) - Attempt ${attempt}/${maxRetries}`);
+      } else if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
+        console.error(`   [NSE ${ticker}] ❌ Timeout - Attempt ${attempt}/${maxRetries}`);
       } else {
         console.error(`   [NSE ${ticker}] ❌ Error: ${error.message} - Attempt ${attempt}/${maxRetries}`);
       }
