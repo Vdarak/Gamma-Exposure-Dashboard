@@ -23,6 +23,7 @@ import { OptionChain } from "./charts/option-chain"
 import { GEXDataGraphDashboard } from "./charts/gex-data-graph-dashboard"
 import { TotalGEXCard } from "./charts/total-gex-card"
 import { PricingMethodToggle } from "./pricing-method-toggle"
+import { EnhancedTimeMachine } from "./enhanced-time-machine"
 
 // --- Gauge component ---
 function Gauge({ value, min, max, label, color, valueDisplay }: { value: number, min: number, max: number, label: string, color: string, valueDisplay: string }) {
@@ -725,7 +726,7 @@ export function GammaExposureDashboard() {
           />
           {/* Charts */}
           <Tabs defaultValue="option-chain" className="space-y-4">
-            <TabsList className="grid w-full grid-cols-7">
+            <TabsList className="grid w-full grid-cols-8">
               <TabsTrigger value="option-chain" className="flex items-center gap-1">
                 <Activity className="h-4 w-4" />
                 Option Chain
@@ -753,6 +754,10 @@ export function GammaExposureDashboard() {
               <TabsTrigger value="gex-data-graph" className="flex items-center gap-1">
                 <BarChart3 className="h-4 w-4" />
                 GEX Data Graph
+              </TabsTrigger>
+              <TabsTrigger value="time-machine" className="flex items-center gap-1">
+                <TrendingUp className="h-4 w-4" />
+                Time Machine
               </TabsTrigger>
             </TabsList>
 
@@ -977,6 +982,22 @@ export function GammaExposureDashboard() {
                 </CardHeader>
                 <CardContent className="h-[500px]">
                   <GEXDataGraphDashboard data={optionData} />
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="time-machine">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Time Machine</CardTitle>
+                  <CardDescription>
+                    Travel back in time to see how GEX changed throughout the day. Analyze historical option data and gamma exposure patterns.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <EnhancedTimeMachine 
+                    ticker={ticker}
+                  />
                 </CardContent>
               </Card>
             </TabsContent>

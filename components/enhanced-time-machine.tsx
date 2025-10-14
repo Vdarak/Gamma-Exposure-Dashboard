@@ -34,8 +34,8 @@ interface OptionData {
 
 interface EnhancedTimeMachineProps {
   ticker: string
-  onTimestampChange: (timestamp: Date | null) => void
-  onDataUpdate: (data: any) => void
+  onTimestampChange?: (timestamp: Date | null) => void
+  onDataUpdate?: (data: any) => void
   backendUrl?: string
 }
 
@@ -43,8 +43,11 @@ export function EnhancedTimeMachine({
   ticker, 
   onTimestampChange, 
   onDataUpdate,
-  backendUrl = 'http://localhost:3001' 
+  backendUrl 
 }: EnhancedTimeMachineProps) {
+  // Use environment variable for backend URL or fallback
+  const BACKEND_URL = backendUrl || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'
+  
   const [timestamps, setTimestamps] = useState<TimestampInfo[]>([])
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [isLive, setIsLive] = useState(true)
@@ -118,12 +121,12 @@ export function EnhancedTimeMachine({
 
   async function fetchCurrentData() {
     try {
-      const response = await fetch(`${backendUrl}/api/current-data?ticker=${ticker}`)
+      const response = await fetch(`${BACKEND_URL}/api/current-data?ticker=${ticker}`)
       if (response.ok) {
         const result = await response.json()
         if (result.success && result.data) {
           setOptionData(result.data)
-          onDataUpdate(result.data)
+          onDataUpdate?.(result.data)
         }
       }
     } catch (err) {
@@ -134,13 +137,13 @@ export function EnhancedTimeMachine({
   async function fetchHistoricalData(timestamp: Date) {
     try {
       const response = await fetch(
-        `${backendUrl}/api/historical-data?ticker=${ticker}&timestamp=${timestamp.toISOString()}`
+        `${BACKEND_URL}/api/historical-data?ticker=${ticker}&timestamp=${timestamp.toISOString()}`
       )
       if (response.ok) {
         const result = await response.json()
         if (result.success && result.data && result.data.length > 0) {
           setOptionData(result.data[0])
-          onDataUpdate(result.data[0])
+          onDataUpdate?.(result.data[0])
         }
       }
     } catch (err) {
@@ -155,9 +158,9 @@ export function EnhancedTimeMachine({
     setIsPlaying(false)
     
     if (index === timestamps.length - 1) {
-      onTimestampChange(null)
+      onTimestampChange?.(null)
     } else {
-      onTimestampChange(timestamps[index].timestamp)
+      onTimestampChange?.(timestamps[index].timestamp)
     }
   }
 
@@ -165,14 +168,14 @@ export function EnhancedTimeMachine({
     setIsLive(true)
     setIsPlaying(false)
     setSelectedIndex(timestamps.length - 1)
-    onTimestampChange(null)
+    onTimestampChange?.(null)
   }
 
   function togglePlayPause() {
     if (isLive && timestamps.length > 0) {
       setSelectedIndex(0)
       setIsLive(false)
-      onTimestampChange(timestamps[0].timestamp)
+      onTimestampChange?.(timestamps[0].timestamp)
     }
     setIsPlaying(!isPlaying)
   }
