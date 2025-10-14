@@ -14,7 +14,7 @@ import { Slider } from '@/components/ui/slider'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Clock, SkipForward, Play, Pause, Calendar } from 'lucide-react'
+import { Clock, SkipForward, Play, Pause, Calendar, Activity } from 'lucide-react'
 
 interface TimestampInfo {
   timestamp: Date
@@ -55,6 +55,7 @@ export function EnhancedTimeMachine({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [optionData, setOptionData] = useState<any>(null)
+  const [healthStatus, setHealthStatus] = useState<'checking' | 'healthy' | 'unhealthy' | null>(null)
 
   useEffect(() => {
     fetchTimestamps()
@@ -81,16 +82,35 @@ export function EnhancedTimeMachine({
         }
         return nextIndex
       })
-    }, 2000)
+    }, 1000)
 
     return () => clearInterval(interval)
-  }, [isPlaying, timestamps, isLive])
+  }, [isPlaying, timestamps, selectedIndex])
+
+  async function checkHealth() {
+    setHealthStatus('checking')
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/health`)
+      if (response.ok) {
+        const result = await response.json()
+        setHealthStatus(result.status === 'ok' ? 'healthy' : 'unhealthy')
+      } else {
+        setHealthStatus('unhealthy')
+      }
+    } catch (err) {
+      console.error('Health check failed:', err)
+      setHealthStatus('unhealthy')
+    }
+    
+    // Reset status after 3 seconds
+    setTimeout(() => setHealthStatus(null), 3000)
+  }
 
   async function fetchTimestamps() {
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch(`${backendUrl}/api/timestamps?ticker=${ticker}`)
+      const response = await fetch(`${BACKEND_URL}/api/timestamps?ticker=${ticker}`)
       
       if (!response.ok) {
         throw new Error('Failed to fetch timestamps')
@@ -217,6 +237,42 @@ export function EnhancedTimeMachine({
             </div>
             
             <div className="flex items-center gap-2">
+              <Button
+                onClick={checkHealth}
+                variant="outline"
+                size="sm"
+                disabled={healthStatus === 'checking'}
+                className={
+                  healthStatus === 'healthy'
+                    ? 'bg-green-600 border-green-500 hover:bg-green-700 text-white'
+                    : healthStatus === 'unhealthy'
+                    ? 'bg-red-600 border-red-500 hover:bg-red-700 text-white'
+                    : 'bg-[#181C2A] border-gray-700 hover:bg-[#252A3A] text-white'
+                }
+              >
+                {healthStatus === 'checking' ? (
+                  <>
+                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-2"></div>
+                    Checking...
+                  </>
+                ) : healthStatus === 'healthy' ? (
+                  <>
+                    <Activity className="h-4 w-4 mr-1" />
+                    Backend OK
+                  </>
+                ) : healthStatus === 'unhealthy' ? (
+                  <>
+                    <Activity className="h-4 w-4 mr-1" />
+                    Backend Down
+                  </>
+                ) : (
+                  <>
+                    <Activity className="h-4 w-4 mr-1" />
+                    Check Backend
+                  </>
+                )}
+              </Button>
+              
               <Button
                 onClick={togglePlayPause}
                 disabled={isLive || timestamps.length === 0}
