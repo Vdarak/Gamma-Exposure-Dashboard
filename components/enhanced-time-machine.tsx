@@ -9,12 +9,18 @@
  * - Right: GEX by Strike chart (aligned strikes)
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Slider } from '@/components/ui/slider'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Clock, SkipForward, Play, Pause, Calendar, Activity } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import dynamic from 'next/dynamic'
+
+// Dynamically import Plotly to avoid SSR issues
+const Plot = dynamic(() => import('react-plotly.js'), { ssr: false })
 
 interface TimestampInfo {
   timestamp: Date
@@ -32,15 +38,27 @@ interface OptionData {
   gamma?: number
 }
 
-interface EnhancedTimeMachineProps {
+interface SnapshotData {
+  id: number
   ticker: string
+  timestamp: string
+  spot_price: number
+  options: OptionData[]
+}
+
+interface EnhancedTimeMachineProps {
+  ticker?: string
   onTimestampChange?: (timestamp: Date | null) => void
   onDataUpdate?: (data: any) => void
   backendUrl?: string
 }
 
+// Market and ticker configuration
+const US_TICKERS = ['SPX', 'SPY']
+const INDIA_TICKERS = ['NIFTY', 'BANKNIFTY']
+
 export function EnhancedTimeMachine({ 
-  ticker, 
+  ticker: initialTicker, 
   onTimestampChange, 
   onDataUpdate,
   backendUrl 
@@ -48,14 +66,88 @@ export function EnhancedTimeMachine({
   // Use environment variable for backend URL or fallback
   const BACKEND_URL = backendUrl || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'
   
+  // Market and ticker state
+  const [market, setMarket] = useState<'us' | 'india'>('india')
+  const [ticker, setTicker] = useState<string>(initialTicker || 'NIFTY')
+  
   const [timestamps, setTimestamps] = useState<TimestampInfo[]>([])
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [isLive, setIsLive] = useState(true)
   const [isPlaying, setIsPlaying] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [optionData, setOptionData] = useState<any>(null)
+  const [optionData, setOptionData] = useState<SnapshotData | null>(null)
   const [healthStatus, setHealthStatus] = useState<'checking' | 'healthy' | 'unhealthy' | null>(null)
+  
+  // GEX visualization controls
+  const [strikeCount, setStrikeCount] = useState<number>(12)
+  const [selectedExpiry, setSelectedExpiry] = useState<string>('nearest')
+  
+  // Get available expiries from option data
+  const availableExpiries = useMemo(() => {
+    if (!optionData?.options) return []
+    const expiries = [...new Set(optionData.options.map(opt => 
+      new Date(opt.expiration).toISOString().split('T')[0]
+    ))].sort()
+    return expiries
+  }, [optionData])
+  
+  // Calculate GEX by strike
+  const gexByStrike = useMemo(() => {
+    if (!optionData?.options) return { strikes: [], callGEX: [], putGEX: [], netGEX: [], spotPrice: 0 }
+    
+    const spotPrice = optionData.spot_price
+    let filteredOptions = optionData.options
+    
+    // Filter by selected expiry
+    if (selectedExpiry !== 'all' && selectedExpiry !== 'nearest') {
+      filteredOptions = filteredOptions.filter(opt => 
+        new Date(opt.expiration).toISOString().split('T')[0] === selectedExpiry
+      )
+    } else if (selectedExpiry === 'nearest' && availableExpiries.length > 0) {
+      filteredOptions = filteredOptions.filter(opt =>
+        new Date(opt.expiration).toISOString().split('T')[0] === availableExpiries[0]
+      )
+    }
+    
+    // Group by strike and calculate GEX
+    const strikeMap = new Map<number, { callGEX: number; putGEX: number }>()
+    
+    filteredOptions.forEach(opt => {
+      if (!opt.gamma) return
+      
+      const gex = opt.openInterest * opt.gamma * spotPrice * spotPrice * 0.01
+      const current = strikeMap.get(opt.strike) || { callGEX: 0, putGEX: 0 }
+      
+      if (opt.type === 'C') {
+        current.callGEX += gex
+      } else {
+        current.putGEX -= gex // Negative for puts (dealer short gamma)
+      }
+      
+      strikeMap.set(opt.strike, current)
+    })
+    
+    // Convert to sorted arrays
+    const sortedStrikes = Array.from(strikeMap.keys()).sort((a, b) => a - b)
+    
+    // Filter to show strikes around spot price
+    let displayStrikes = sortedStrikes
+    if (strikeCount !== 0) { // 0 means 'all'
+      const spotIndex = sortedStrikes.findIndex(s => s >= spotPrice)
+      const halfCount = Math.floor(strikeCount / 2)
+      const startIdx = Math.max(0, spotIndex - halfCount)
+      const endIdx = Math.min(sortedStrikes.length, startIdx + strikeCount)
+      displayStrikes = sortedStrikes.slice(startIdx, endIdx)
+    }
+    
+    const strikes = displayStrikes
+    const callGEX = strikes.map(s => strikeMap.get(s)!.callGEX / 1e9) // Convert to billions
+    const putGEX = strikes.map(s => strikeMap.get(s)!.putGEX / 1e9)
+    const netGEX = strikes.map((s, i) => callGEX[i] + putGEX[i])
+    
+    return { strikes, callGEX, putGEX, netGEX, spotPrice }
+  }, [optionData, strikeCount, selectedExpiry, availableExpiries])
 
   useEffect(() => {
     fetchTimestamps()
@@ -86,6 +178,14 @@ export function EnhancedTimeMachine({
 
     return () => clearInterval(interval)
   }, [isPlaying, timestamps, selectedIndex])
+  
+  // Reset state when ticker changes
+  useEffect(() => {
+    setIsLive(true)
+    setSelectedIndex(null)
+    setSelectedExpiry('nearest')
+    fetchTimestamps()
+  }, [ticker])
 
   async function checkHealth() {
     setHealthStatus('checking')
@@ -222,6 +322,92 @@ export function EnhancedTimeMachine({
 
   return (
     <div className="space-y-4">
+      {/* Market & Ticker Selection */}
+      <Card className="bg-[#0A0E1A] border-gray-800">
+        <div className="p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-400">Market:</span>
+                <Tabs value={market} onValueChange={(v) => setMarket(v as 'us' | 'india')}>
+                  <TabsList className="bg-[#181C2A] border-gray-700">
+                    <TabsTrigger 
+                      value="us" 
+                      className="data-[state=active]:bg-blue-600 data-[state=active]:text-white"
+                    >
+                      US (CBOE)
+                    </TabsTrigger>
+                    <TabsTrigger 
+                      value="india"
+                      className="data-[state=active]:bg-blue-600 data-[state=active]:text-white"
+                    >
+                      India (NSE)
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-400">Ticker:</span>
+                <div className="flex gap-2">
+                  {(market === 'us' ? US_TICKERS : INDIA_TICKERS).map((t) => (
+                    <Button
+                      key={t}
+                      onClick={() => setTicker(t)}
+                      variant={ticker === t ? "default" : "outline"}
+                      size="sm"
+                      className={
+                        ticker === t
+                          ? "bg-blue-600 hover:bg-blue-700 text-white"
+                          : "bg-[#181C2A] border-gray-700 hover:bg-[#252A3A] text-white"
+                      }
+                    >
+                      {t}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            
+            <Button
+              onClick={checkHealth}
+              variant="outline"
+              size="sm"
+              disabled={healthStatus === 'checking'}
+              className={
+                healthStatus === 'healthy'
+                  ? 'bg-green-600 border-green-500 hover:bg-green-700 text-white'
+                  : healthStatus === 'unhealthy'
+                  ? 'bg-red-600 border-red-500 hover:bg-red-700 text-white'
+                  : 'bg-[#181C2A] border-gray-700 hover:bg-[#252A3A] text-white'
+              }
+            >
+              {healthStatus === 'checking' ? (
+                <>
+                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-2"></div>
+                  Checking...
+                </>
+              ) : healthStatus === 'healthy' ? (
+                <>
+                  <Activity className="h-4 w-4 mr-1" />
+                  Backend OK
+                </>
+              ) : healthStatus === 'unhealthy' ? (
+                <>
+                  <Activity className="h-4 w-4 mr-1" />
+                  Backend Down
+                </>
+              ) : (
+                <>
+                  <Activity className="h-4 w-4 mr-1" />
+                  Check Backend
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      </Card>
+      
       {/* Time Control Bar */}
       <Card className="bg-[#0A0E1A] border-gray-800">
         <div className="p-4">
@@ -237,42 +423,6 @@ export function EnhancedTimeMachine({
             </div>
             
             <div className="flex items-center gap-2">
-              <Button
-                onClick={checkHealth}
-                variant="outline"
-                size="sm"
-                disabled={healthStatus === 'checking'}
-                className={
-                  healthStatus === 'healthy'
-                    ? 'bg-green-600 border-green-500 hover:bg-green-700 text-white'
-                    : healthStatus === 'unhealthy'
-                    ? 'bg-red-600 border-red-500 hover:bg-red-700 text-white'
-                    : 'bg-[#181C2A] border-gray-700 hover:bg-[#252A3A] text-white'
-                }
-              >
-                {healthStatus === 'checking' ? (
-                  <>
-                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-2"></div>
-                    Checking...
-                  </>
-                ) : healthStatus === 'healthy' ? (
-                  <>
-                    <Activity className="h-4 w-4 mr-1" />
-                    Backend OK
-                  </>
-                ) : healthStatus === 'unhealthy' ? (
-                  <>
-                    <Activity className="h-4 w-4 mr-1" />
-                    Backend Down
-                  </>
-                ) : (
-                  <>
-                    <Activity className="h-4 w-4 mr-1" />
-                    Check Backend
-                  </>
-                )}
-              </Button>
-              
               <Button
                 onClick={togglePlayPause}
                 disabled={isLive || timestamps.length === 0}
@@ -408,18 +558,179 @@ export function EnhancedTimeMachine({
           </div>
         </Card>
 
-        {/* Right: GEX Chart (Your existing chart component will go here) */}
+        {/* Right: GEX Chart */}
         <Card className="bg-[#0A0E1A] border-gray-800">
           <div className="p-6">
-            <h3 className="text-lg font-semibold text-white mb-4">
-              Gamma Exposure by Strike
-            </h3>
-            <div className="h-[400px] flex items-center justify-center">
-              <p className="text-gray-500">
-                {optionData 
-                  ? `Loaded ${optionData.options?.length || 0} options`
-                  : 'Waiting for data...'}
-              </p>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">
+                Gamma Exposure by Strike
+              </h3>
+              
+              {/* GEX Controls */}
+              <div className="flex items-center gap-4">
+                {/* Strike Count Presets */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400">Strikes:</span>
+                  <div className="flex gap-1">
+                    {[6, 12, 18, 24].map((count) => (
+                      <Button
+                        key={count}
+                        onClick={() => setStrikeCount(count)}
+                        variant={strikeCount === count ? "default" : "outline"}
+                        size="sm"
+                        className={
+                          strikeCount === count
+                            ? "bg-blue-600 hover:bg-blue-700 text-white h-7 px-2 text-xs"
+                            : "bg-[#181C2A] border-gray-700 hover:bg-[#252A3A] text-white h-7 px-2 text-xs"
+                        }
+                      >
+                        {count}
+                      </Button>
+                    ))}
+                    <Button
+                      onClick={() => setStrikeCount(0)}
+                      variant={strikeCount === 0 ? "default" : "outline"}
+                      size="sm"
+                      className={
+                        strikeCount === 0
+                          ? "bg-blue-600 hover:bg-blue-700 text-white h-7 px-2 text-xs"
+                          : "bg-[#181C2A] border-gray-700 hover:bg-[#252A3A] text-white h-7 px-2 text-xs"
+                      }
+                    >
+                      All
+                    </Button>
+                  </div>
+                </div>
+                
+                {/* Expiry Selector */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400">Expiry:</span>
+                  <Select value={selectedExpiry} onValueChange={setSelectedExpiry}>
+                    <SelectTrigger className="w-[120px] h-7 text-xs bg-[#181C2A] border-gray-700 text-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#181C2A] border-gray-700">
+                      <SelectItem value="nearest" className="text-white hover:bg-[#252A3A]">
+                        Nearest
+                      </SelectItem>
+                      <SelectItem value="all" className="text-white hover:bg-[#252A3A]">
+                        All
+                      </SelectItem>
+                      {availableExpiries.map((expiry) => (
+                        <SelectItem 
+                          key={expiry} 
+                          value={expiry}
+                          className="text-white hover:bg-[#252A3A]"
+                        >
+                          {new Date(expiry).toLocaleDateString('en-US', { 
+                            month: 'short', 
+                            day: 'numeric',
+                            year: 'numeric'
+                          })}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+            
+            <div className="h-[400px]">
+              {!optionData ? (
+                <div className="h-full flex items-center justify-center">
+                  <p className="text-gray-500">Waiting for data...</p>
+                </div>
+              ) : gexByStrike.strikes.length === 0 ? (
+                <div className="h-full flex items-center justify-center">
+                  <p className="text-gray-500">No options data available for selected filters</p>
+                </div>
+              ) : (
+                <Plot
+                  data={[
+                    // Call GEX (Green Bars)
+                    {
+                      x: gexByStrike.strikes,
+                      y: gexByStrike.callGEX,
+                      type: 'bar',
+                      name: 'Call GEX',
+                      marker: { color: '#10b981' },
+                      yaxis: 'y',
+                    },
+                    // Put GEX (Red Bars)
+                    {
+                      x: gexByStrike.strikes,
+                      y: gexByStrike.putGEX,
+                      type: 'bar',
+                      name: 'Put GEX',
+                      marker: { color: '#ef4444' },
+                      yaxis: 'y',
+                    },
+                    // Net GEX (Blue Line)
+                    {
+                      x: gexByStrike.strikes,
+                      y: gexByStrike.netGEX,
+                      type: 'scatter',
+                      mode: 'lines+markers',
+                      name: 'Net GEX',
+                      line: { color: '#3b82f6', width: 2 },
+                      marker: { size: 6 },
+                      yaxis: 'y2',
+                    },
+                    // Spot Price Line
+                    {
+                      x: [gexByStrike.spotPrice, gexByStrike.spotPrice],
+                      y: [
+                        Math.min(...gexByStrike.putGEX) * 1.2,
+                        Math.max(...gexByStrike.callGEX) * 1.2
+                      ],
+                      type: 'scatter',
+                      mode: 'lines',
+                      name: 'Spot Price',
+                      line: { color: '#fbbf24', width: 2, dash: 'dash' },
+                      showlegend: true,
+                      yaxis: 'y',
+                    },
+                  ]}
+                  layout={{
+                    paper_bgcolor: 'rgba(0,0,0,0)',
+                    plot_bgcolor: 'rgba(0,0,0,0)',
+                    font: { color: '#9ca3af', size: 10 },
+                    margin: { l: 60, r: 60, t: 20, b: 40 },
+                    xaxis: {
+                      title: 'Strike Price',
+                      gridcolor: '#374151',
+                      color: '#9ca3af',
+                    },
+                    yaxis: {
+                      title: 'GEX (Billions)',
+                      gridcolor: '#374151',
+                      color: '#9ca3af',
+                      side: 'left',
+                    },
+                    yaxis2: {
+                      title: 'Net GEX (Billions)',
+                      overlaying: 'y',
+                      side: 'right',
+                      gridcolor: 'transparent',
+                      color: '#3b82f6',
+                    },
+                    legend: {
+                      orientation: 'h',
+                      yanchor: 'bottom',
+                      y: 1.02,
+                      xanchor: 'center',
+                      x: 0.5,
+                      font: { size: 10 },
+                    },
+                    hovermode: 'x unified',
+                  }}
+                  config={{
+                    displayModeBar: false,
+                    responsive: true,
+                  }}
+                  style={{ width: '100%', height: '100%' }}
+                />
+              )}
             </div>
           </div>
         </Card>
