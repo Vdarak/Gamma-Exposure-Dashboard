@@ -71,9 +71,12 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Add request logging
+// Add request logging (only for non-health/non-polling endpoints to reduce log spam)
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  // Skip logging for health checks and frequent polling endpoints
+  if (!req.path.includes('/health') && !req.path.includes('/current-data') && !req.path.includes('/timestamps')) {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  }
   next();
 });
 

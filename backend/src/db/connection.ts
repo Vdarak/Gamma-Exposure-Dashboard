@@ -11,11 +11,7 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
-// Test connection
-pool.on('connect', () => {
-  console.log('✅ Database connected successfully');
-});
-
+// Log only errors, not every connection (reduces log spam)
 pool.on('error', (err) => {
   console.error('❌ Unexpected database error:', err);
 });
