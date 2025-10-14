@@ -90,7 +90,7 @@ export function EnhancedTimeMachine({
   async function checkHealth() {
     setHealthStatus('checking')
     try {
-      const response = await fetch(`${BACKEND_URL}/api/health`)
+      const response = await fetch(`${BACKEND_URL}/health`)
       if (response.ok) {
         const result = await response.json()
         setHealthStatus(result.status === 'ok' ? 'healthy' : 'unhealthy')
