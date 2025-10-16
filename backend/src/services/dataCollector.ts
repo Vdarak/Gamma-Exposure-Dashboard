@@ -74,48 +74,79 @@ const INDIA_TICKERS = ['NIFTY', 'BANKNIFTY', 'RELIANCE'];
 
 /**
  * Fetch option chain data from CBOE API (US Market)
+ * Includes retry logic with exponential backoff for 403 errors
  */
 async function fetchOptionChainFromCBOE(ticker: string): Promise<CBOEResponse | null> {
-  try {
-    // Try with underscore prefix first
-    let response = await axios.get(
-      `https://cdn.cboe.com/api/global/delayed_quotes/options/_${ticker}.json`,
-      {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Accept': 'application/json',
-        },
-        timeout: 10000,
-      }
-    );
+  const maxRetries = 3;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`   [CBOE ${ticker}] Attempt ${attempt}/${maxRetries}...`);
+      
+      // Enhanced headers to avoid 403 Forbidden
+      const headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Referer': 'https://www.cboe.com/',
+        'Origin': 'https://www.cboe.com',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-site',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Connection': 'keep-alive',
+      };
 
-    let data = response.data;
-
-    // If request failed, try without underscore
-    if (!data || response.status !== 200) {
-      response = await axios.get(
-        `https://cdn.cboe.com/api/global/delayed_quotes/options/${ticker}.json`,
+      // Try with underscore prefix first
+      let response = await axios.get(
+        `https://cdn.cboe.com/api/global/delayed_quotes/options/_${ticker}.json`,
         {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'application/json',
-          },
+          headers,
           timeout: 10000,
         }
       );
-      data = response.data;
-    }
 
-    // If data is nested under a "data" key, extract it
-    if (data.data && typeof data.data === 'object') {
-      data = data.data;
-    }
+      let data = response.data;
 
-    return data;
-  } catch (error) {
-    console.error(`❌ Failed to fetch data for ${ticker} from CBOE:`, error);
-    return null;
+      // If request failed, try without underscore
+      if (!data || response.status !== 200) {
+        response = await axios.get(
+          `https://cdn.cboe.com/api/global/delayed_quotes/options/${ticker}.json`,
+          {
+            headers,
+            timeout: 10000,
+          }
+        );
+        data = response.data;
+      }
+
+      // If data is nested under a "data" key, extract it
+      if (data.data && typeof data.data === 'object') {
+        data = data.data;
+      }
+
+      console.log(`   [CBOE ${ticker}] ✅ Successfully fetched data`);
+      return data;
+    } catch (error: any) {
+      const statusCode = error.response?.status;
+      console.error(`   [CBOE ${ticker}] ❌ Attempt ${attempt}/${maxRetries} failed with status ${statusCode}:`, error.message);
+      
+      // If it's a 403, retry with backoff; otherwise give up
+      if (statusCode === 403 && attempt < maxRetries) {
+        const waitTime = Math.min(5000 * attempt, 15000); // 5s, 10s, 15s
+        console.log(`   [CBOE ${ticker}] 403 Forbidden - Retrying in ${waitTime}ms...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      } else if (statusCode !== 403) {
+        // Don't retry for non-403 errors
+        return null;
+      }
+    }
   }
+  
+  console.error(`❌ Failed to fetch data for ${ticker} from CBOE after ${maxRetries} attempts`);
+  return null;
 }
 
 /**
