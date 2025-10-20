@@ -1,4 +1,6 @@
 import axios from 'axios';
+import https from 'https';
+import http from 'http';
 import { pool } from '../db/connection';
 import { OptionData, OptionSnapshot } from '../types';
 
@@ -72,76 +74,102 @@ interface NSEResponse {
 const US_TICKERS = ['SPX', 'GLD', 'TSLA'];
 const INDIA_TICKERS = ['NIFTY', 'BANKNIFTY', 'RELIANCE'];
 
+// Create HTTPS agent with proper connection settings
+const httpsAgent = new https.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 30000,
+  rejectUnauthorized: true,
+  minVersion: 'TLSv1.2',
+  maxVersion: 'TLSv1.3',
+  ciphers: 'DEFAULT:!DH',
+});
+
+const httpAgent = new http.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 30000,
+});
+
 /**
  * Fetch option chain data from CBOE API (US Market)
  * Includes retry logic with exponential backoff for 403 errors
+ * Uses proper HTTP/2 compatible settings and connection pooling
  */
 async function fetchOptionChainFromCBOE(ticker: string): Promise<CBOEResponse | null> {
-  const maxRetries = 3;
+  const maxRetries = 4;
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       console.log(`   [CBOE ${ticker}] Attempt ${attempt}/${maxRetries}...`);
       
-      // Enhanced headers to avoid 403 Forbidden
+      // Enhanced headers to mimic real browser and avoid CloudFront blocking
       const headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'en-US,en;q=0.9',
         'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
         'Referer': 'https://www.cboe.com/',
         'Origin': 'https://www.cboe.com',
+        'Sec-CH-UA': '"Not A(Brand";v="99", "Google Chrome";v="131", "Chromium";v="131"',
+        'Sec-CH-UA-Mobile': '?0',
+        'Sec-CH-UA-Platform': '"macOS"',
         'Sec-Fetch-Dest': 'empty',
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-site',
         'Cache-Control': 'no-cache',
         'Pragma': 'no-cache',
-        'Connection': 'keep-alive',
       };
 
-      // Try with underscore prefix first
-      let response = await axios.get(
-        `https://cdn.cboe.com/api/global/delayed_quotes/options/_${ticker}.json`,
-        {
-          headers,
-          timeout: 10000,
+      // Add request ID to make each request unique (helps bypass caching)
+      const requestId = Math.random().toString(36).substr(2, 9);
+      const url = `https://cdn.cboe.com/api/global/delayed_quotes/options/_${ticker}.json?_=${requestId}`;
+
+      const response = await axios.get(url, {
+        headers,
+        timeout: 15000,
+        httpAgent,
+        httpsAgent,
+        validateStatus: (status) => status < 500, // Don't throw on 4xx, handle manually
+      });
+
+      if (response.status === 403) {
+        console.error(`   [CBOE ${ticker}] ❌ CloudFront 403 - Waiting before retry...`);
+        if (attempt < maxRetries) {
+          const waitTime = Math.min(3000 * attempt, 20000); // 3s, 6s, 9s, 12s
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          continue;
         }
-      );
+        return null;
+      }
+
+      if (response.status !== 200) {
+        console.error(`   [CBOE ${ticker}] ❌ HTTP ${response.status}`);
+        return null;
+      }
 
       let data = response.data;
-
-      // If request failed, try without underscore
-      if (!data || response.status !== 200) {
-        response = await axios.get(
-          `https://cdn.cboe.com/api/global/delayed_quotes/options/${ticker}.json`,
-          {
-            headers,
-            timeout: 10000,
-          }
-        );
-        data = response.data;
-      }
 
       // If data is nested under a "data" key, extract it
       if (data.data && typeof data.data === 'object') {
         data = data.data;
       }
 
-      console.log(`   [CBOE ${ticker}] ✅ Successfully fetched data`);
+      console.log(`   [CBOE ${ticker}] ✅ Successfully fetched data (status: ${response.status})`);
       return data;
     } catch (error: any) {
       const statusCode = error.response?.status;
-      console.error(`   [CBOE ${ticker}] ❌ Attempt ${attempt}/${maxRetries} failed with status ${statusCode}:`, error.message);
+      console.error(`   [CBOE ${ticker}] ❌ Attempt ${attempt}/${maxRetries} error (${statusCode}):`, error.message);
       
-      // If it's a 403, retry with backoff; otherwise give up
-      if (statusCode === 403 && attempt < maxRetries) {
-        const waitTime = Math.min(5000 * attempt, 15000); // 5s, 10s, 15s
-        console.log(`   [CBOE ${ticker}] 403 Forbidden - Retrying in ${waitTime}ms...`);
-        await new Promise(resolve => setTimeout(resolve, waitTime));
-      } else if (statusCode !== 403) {
-        // Don't retry for non-403 errors
+      if (attempt === maxRetries) {
+        console.error(`   [CBOE ${ticker}] Failed after ${maxRetries} attempts`);
         return null;
       }
+      
+      // Wait before retry
+      const waitTime = Math.min(3000 * attempt, 20000);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
     }
   }
   
@@ -181,6 +209,8 @@ async function fetchOptionChainFromNSE(ticker: string): Promise<NSEResponse | nu
         headers: optionChainHeaders,
         timeout: 10000,
         maxRedirects: 5,
+        httpAgent,
+        httpsAgent,
       });
 
       console.log(`   [NSE ${ticker}] Option-chain page status: ${optionChainResponse.status}`);
@@ -228,6 +258,8 @@ async function fetchOptionChainFromNSE(ticker: string): Promise<NSEResponse | nu
         headers: apiHeaders,
         timeout: 15000,
         maxRedirects: 5,
+        httpAgent,
+        httpsAgent,
       });
 
       console.log(`   [NSE ${ticker}] ✅ Successfully fetched data (status: ${response.status})`);
