@@ -126,6 +126,9 @@ async function fetchOptionChainFromCBOE(ticker: string): Promise<CBOEResponse | 
       const requestId = Math.random().toString(36).substr(2, 9);
       const url = `https://cdn.cboe.com/api/global/delayed_quotes/options/_${ticker}.json?_=${requestId}`;
 
+      console.log(`   [CBOE ${ticker}] Requesting: ${url}`);
+      console.log(`   [CBOE ${ticker}] User-Agent: ${headers['User-Agent'].substring(0, 50)}...`);
+
       const response = await axios.get(url, {
         headers,
         timeout: 15000,
@@ -135,7 +138,29 @@ async function fetchOptionChainFromCBOE(ticker: string): Promise<CBOEResponse | 
       });
 
       if (response.status === 403) {
-        console.error(`   [CBOE ${ticker}] ❌ CloudFront 403 - Waiting before retry...`);
+        console.error(`   [CBOE ${ticker}] ❌ CloudFront 403 - Trying fallback URL...`);
+        
+        // Try without underscore prefix as fallback
+        const fallbackUrl = `https://cdn.cboe.com/api/global/delayed_quotes/options/${ticker}.json?_=${requestId}`;
+        console.log(`   [CBOE ${ticker}] Fallback: ${fallbackUrl}`);
+        
+        const fallbackResponse = await axios.get(fallbackUrl, {
+          headers,
+          timeout: 15000,
+          httpAgent,
+          httpsAgent,
+          validateStatus: (status) => status < 500,
+        });
+        
+        if (fallbackResponse.status === 200) {
+          console.log(`   [CBOE ${ticker}] ✅ Fallback URL succeeded!`);
+          let data = fallbackResponse.data;
+          if (data.data && typeof data.data === 'object') {
+            data = data.data;
+          }
+          return data;
+        }
+        
         if (attempt < maxRetries) {
           const waitTime = Math.min(3000 * attempt, 20000); // 3s, 6s, 9s, 12s
           await new Promise(resolve => setTimeout(resolve, waitTime));
@@ -293,24 +318,46 @@ async function fetchOptionChainFromNSE(ticker: string): Promise<NSEResponse | nu
 
 /**
  * Normalize CBOE data to our internal format
+ * Includes validation for invalid dates and data
  */
 function normalizeCBOEOptionData(cboeOptions: CBOEOptionData[]): OptionData[] {
-  return cboeOptions.map(option => ({
-    strike: option.strike,
-    type: option.option_type === 'call' ? 'C' : 'P',
-    expiration: new Date(option.expiration_date),
-    lastPrice: option.last,
-    bid: option.bid,
-    ask: option.ask,
-    volume: option.volume || 0,
-    openInterest: option.open_interest || 0,
-    impliedVolatility: option.iv,
-    delta: option.delta,
-    gamma: option.gamma,
-    theta: option.theta,
-    vega: option.vega,
-    rho: option.rho,
-  }));
+  return cboeOptions
+    .filter(option => {
+      // Filter out invalid options
+      if (!option.expiration_date || !option.strike || !option.option_type) {
+        console.warn(`   [CBOE] Skipping invalid option: ${JSON.stringify(option)}`);
+        return false;
+      }
+      
+      // Check if date is valid
+      const expirationDate = new Date(option.expiration_date);
+      if (isNaN(expirationDate.getTime())) {
+        console.warn(`   [CBOE] Skipping option with invalid date: ${option.expiration_date}`);
+        return false;
+      }
+      
+      return true;
+    })
+    .map(option => {
+      const expirationDate = new Date(option.expiration_date);
+      
+      return {
+        strike: option.strike,
+        type: option.option_type === 'call' ? 'C' : 'P',
+        expiration: expirationDate,
+        lastPrice: option.last || 0,
+        bid: option.bid || 0,
+        ask: option.ask || 0,
+        volume: option.volume || 0,
+        openInterest: option.open_interest || 0,
+        impliedVolatility: option.iv || 0,
+        delta: option.delta || 0,
+        gamma: option.gamma || 0,
+        theta: option.theta || 0,
+        vega: option.vega || 0,
+        rho: option.rho || 0,
+      };
+    });
 }
 
 /**
@@ -356,6 +403,7 @@ function calculateBlackScholesGreeks(
 
 /**
  * Normalize NSE data to our internal format with calculated Greeks
+ * Includes validation for invalid dates and data
  */
 function normalizeNSEOptionData(nseData: NSEResponse, spotPrice: number): OptionData[] {
   const options: OptionData[] = [];
@@ -363,9 +411,25 @@ function normalizeNSEOptionData(nseData: NSEResponse, spotPrice: number): Option
   const riskFreeRate = 0.065; // India risk-free rate ~6.5%
 
   data.forEach(strike => {
+    // Validate expiration date
+    if (!strike.expiryDate) {
+      console.warn(`   [NSE] Skipping strike ${strike.strikePrice} - no expiry date`);
+      return;
+    }
+    
     const expirationDate = new Date(strike.expiryDate);
+    if (isNaN(expirationDate.getTime())) {
+      console.warn(`   [NSE] Skipping strike ${strike.strikePrice} - invalid expiry: ${strike.expiryDate}`);
+      return;
+    }
+    
     const now = new Date();
     const timeToExpiry = (expirationDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 365);
+
+    // Skip expired options or invalid time calculations
+    if (timeToExpiry <= 0) {
+      return;
+    }
 
     // Add Call option if available
     if (strike.CE) {
@@ -513,7 +577,10 @@ export async function fetchAndStoreOptionData(
       spotPrice = cboeData.current_price || cboeData.price || 0;
       normalizedOptions = normalizeCBOEOptionData(cboeData.options);
       
-      console.log(`📈 CBOE: Found ${normalizedOptions.length} options across ${new Set(normalizedOptions.map(o => o.expiration.toISOString().split('T')[0])).size} expiries`);
+      // Safe logging with date validation
+      const validDates = normalizedOptions.filter(o => !isNaN(o.expiration.getTime()));
+      const uniqueExpiries = new Set(validDates.map(o => o.expiration.toISOString().split('T')[0])).size;
+      console.log(`📈 CBOE: Found ${normalizedOptions.length} options across ${uniqueExpiries} expiries`);
     } else {
       // Fetch from NSE
       const nseData = await fetchOptionChainFromNSE(ticker);
@@ -526,7 +593,10 @@ export async function fetchAndStoreOptionData(
       spotPrice = nseData.records.underlyingValue || 0;
       normalizedOptions = normalizeNSEOptionData(nseData, spotPrice);
       
-      console.log(`📈 NSE: Found ${normalizedOptions.length} options with calculated Greeks across ${new Set(normalizedOptions.map(o => o.expiration.toISOString().split('T')[0])).size} expiries`);
+      // Safe logging with date validation
+      const validDates = normalizedOptions.filter(o => !isNaN(o.expiration.getTime()));
+      const uniqueExpiries = new Set(validDates.map(o => o.expiration.toISOString().split('T')[0])).size;
+      console.log(`📈 NSE: Found ${normalizedOptions.length} options with calculated Greeks across ${uniqueExpiries} expiries`);
     }
 
     // Store in database
