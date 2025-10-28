@@ -30,4 +30,5 @@ backend/.env
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
+next-env.d.ts/tmp
+tmp/
