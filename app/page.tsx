@@ -1,9 +1,10 @@
 import { GammaExposureDashboard } from "@/components/gamma-exposure-dashboard"
+import { DashboardShell } from "@/components/layout/DashboardShell"
 
 export default function HomePage() {
   return (
-    <div className="container mx-auto px-4 py-8">
+    <DashboardShell>
       <GammaExposureDashboard />
-    </div>
+    </DashboardShell>
   )
 }
