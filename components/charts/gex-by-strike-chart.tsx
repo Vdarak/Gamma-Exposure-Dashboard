@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useRef, useEffect, useState, useCallback } from "react"
+import { useMemo, useRef, useEffect, useState } from "react"
 import * as d3 from "d3"
 import type { OptionData } from "@/lib/types"
 import { computeGEXByStrike, computeVolumeByStrike, findZeroGammaLevel, type PricingMethod } from "@/lib/calculations"
@@ -39,6 +39,7 @@ export function GEXByStrikeChart({
   const svgRef = useRef<SVGSVGElement>(null)
   const volSvgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
 
   const [showAbsoluteGEX, setShowAbsoluteGEX] = useState(false)
@@ -47,6 +48,15 @@ export function GEXByStrikeChart({
   const [dims, setDims] = useState({ width: 800, height: 600 })
 
   const effectivePricingMethod = market === 'INDIA' ? 'black-scholes' : pricingMethod
+
+  // 1. Set default zoom based on ticker: 1% for SPX/SPY, 2% for others
+  useEffect(() => {
+    if (ticker === 'SPX' || ticker === 'SPY') {
+      setActiveZoom(1)
+    } else {
+      setActiveZoom(2)
+    }
+  }, [ticker])
 
   // Filter data by selected expiries
   const filteredData = useMemo(() => {
@@ -71,39 +81,82 @@ export function GEXByStrikeChart({
     ...volumeByStrike.map(item => item.strike)
   ])).sort((a, b) => a - b), [gexByStrike, volumeByStrike])
 
-  // ATM strike
-  const atmStrike = useMemo(() => {
-    if (allStrikes.length === 0) return spotPrice
-    return allStrikes.reduce((prev, curr) => Math.abs(curr - spotPrice) < Math.abs(prev - spotPrice) ? curr : prev, allStrikes[0])
+  // Filter scrollable strikes to ±15% range around spot price for premium readability & scroll performance
+  const scrollableStrikes = useMemo(() => {
+    return allStrikes.filter(s => s >= spotPrice * 0.85 && s <= spotPrice * 1.15)
   }, [allStrikes, spotPrice])
 
-  // Zoom filtering
-  const filteredStrikes = useMemo(() => {
-    if (!activeZoom) return allStrikes
-    const range = atmStrike * (activeZoom / 100)
-    return allStrikes.filter(s => s >= atmStrike - range && s <= atmStrike + range)
-  }, [allStrikes, atmStrike, activeZoom])
+  // ATM strike
+  const atmStrike = useMemo(() => {
+    if (scrollableStrikes.length === 0) return spotPrice
+    return scrollableStrikes.reduce((prev, curr) => Math.abs(curr - spotPrice) < Math.abs(prev - spotPrice) ? curr : prev, scrollableStrikes[0])
+  }, [scrollableStrikes, spotPrice])
 
-  // Map to filtered strikes
-  const gammaValues = useMemo(() => filteredStrikes.map(s => gexByStrike.find(i => i.strike === s)?.gex || 0), [filteredStrikes, gexByStrike])
-  const volumeValues = useMemo(() => filteredStrikes.map(s => volumeByStrike.find(i => i.strike === s)?.volume || 0), [filteredStrikes, volumeByStrike])
+  // Map to scrollable strikes (pre-computed values)
+  const gammaValues = useMemo(() => scrollableStrikes.map(s => gexByStrike.find(i => i.strike === s)?.gex || 0), [scrollableStrikes, gexByStrike])
+  const volumeValues = useMemo(() => scrollableStrikes.map(s => volumeByStrike.find(i => i.strike === s)?.volume || 0), [scrollableStrikes, volumeByStrike])
 
   // Absolute GEX
   const { callGEX, putGEX } = useMemo(() => {
-    const callGEX = filteredStrikes.map(strike => {
+    const callGEX = scrollableStrikes.map(strike => {
       const callOptions = filteredData.filter(o => o.strike === strike && o.type === "C")
       let gex = 0
       callOptions.forEach(o => { if (o.GEX_BS) gex += Math.abs(o.GEX_BS) })
       return gex / 1e9
     })
-    const putGEX = filteredStrikes.map(strike => {
+    const putGEX = scrollableStrikes.map(strike => {
       const putOptions = filteredData.filter(o => o.strike === strike && o.type === "P")
       let gex = 0
       putOptions.forEach(o => { if (o.GEX_BS) gex += Math.abs(o.GEX_BS) })
       return -gex / 1e9
     })
     return { callGEX, putGEX }
-  }, [filteredStrikes, filteredData])
+  }, [scrollableStrikes, filteredData])
+
+  // Zoom range constraints to compute the x-axis scale range
+  const xDomain = useMemo<[number, number]>(() => {
+    const zoomPct = activeZoom || 10 // Default to 10% bounds if zoom is null
+    const range = atmStrike * (zoomPct / 100)
+    
+    // Find strikes within the active zoom window to determine max x-axis scale
+    const zoomStrikes = scrollableStrikes.filter(s => s >= atmStrike - range && s <= atmStrike + range)
+    if (zoomStrikes.length === 0) return [-1, 1]
+
+    if (showAbsoluteGEX) {
+      const maxCall = d3.max(zoomStrikes.map(s => {
+        const idx = scrollableStrikes.indexOf(s)
+        return idx !== -1 ? Math.abs(callGEX[idx]) : 0
+      })) || 1
+      const maxPut = d3.max(zoomStrikes.map(s => {
+        const idx = scrollableStrikes.indexOf(s)
+        return idx !== -1 ? Math.abs(putGEX[idx]) : 0
+      })) || 1
+      const maxVal = Math.max(maxCall, maxPut) * 1.15
+      return [-maxVal, maxVal]
+    } else {
+      const maxNet = d3.max(zoomStrikes.map(s => {
+        const idx = scrollableStrikes.indexOf(s)
+        return idx !== -1 ? Math.abs(gammaValues[idx]) : 0
+      })) || 1
+      const maxVal = maxNet * 1.15
+      return [-maxVal, maxVal]
+    }
+  }, [scrollableStrikes, activeZoom, atmStrike, showAbsoluteGEX, callGEX, putGEX, gammaValues])
+
+  // Auto-scroll to center ATM strike
+  useEffect(() => {
+    if (!scrollContainerRef.current || !spotPrice || scrollableStrikes.length === 0) return
+
+    // Find the index of the ATM strike in the reversed array (since yScale domain is reversed)
+    const atmIndex = [...scrollableStrikes].reverse().findIndex(s => s === atmStrike)
+    if (atmIndex !== -1) {
+      const barHeight = 22
+      const margin = HORIZONTAL_MARGINS
+      const yPos = margin.top + atmIndex * barHeight
+      const containerHeight = scrollContainerRef.current.clientHeight || 500
+      scrollContainerRef.current.scrollTop = yPos - containerHeight / 2
+    }
+  }, [spotPrice, scrollableStrikes, atmStrike])
 
   // Resize observer
   useEffect(() => {
@@ -118,60 +171,66 @@ export function GEXByStrikeChart({
     return () => observer.disconnect()
   }, [])
 
+  // Fixed height per bar for perfect readability & scrolling
+  const barHeight = 22
+  const chartHeight = scrollableStrikes.length * barHeight
+
   // ─── D3 Gamma Chart ──────────────────────────────────────────
   useEffect(() => {
-    if (!svgRef.current || filteredStrikes.length === 0) return
+    if (!svgRef.current || scrollableStrikes.length === 0) return
 
     const chartWidth = showVolumeChart ? dims.width / 2 - 8 : dims.width
     const margin = HORIZONTAL_MARGINS
     const width = chartWidth - margin.left - margin.right
-    const height = dims.height - margin.top - margin.bottom
-    if (width <= 0 || height <= 0) return
+    if (width <= 0 || chartHeight <= 0) return
 
     const svg = d3.select(svgRef.current)
     svg.selectAll('*').remove()
-    svg.attr('width', chartWidth).attr('height', dims.height)
+    svg.attr('width', chartWidth).attr('height', chartHeight + margin.top + margin.bottom)
 
     const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
 
     // Scales
     const yScale = d3.scaleBand()
-      .domain([...filteredStrikes].reverse().map(String))
-      .range([0, height])
+      .domain([...scrollableStrikes].reverse().map(String))
+      .range([0, chartHeight])
       .padding(0.15)
-
-    let xDomain: [number, number]
-    if (showAbsoluteGEX) {
-      const maxCall = d3.max(callGEX.map(Math.abs)) || 1
-      const maxPut = d3.max(putGEX.map(Math.abs)) || 1
-      const maxVal = Math.max(maxCall, maxPut) * 1.1
-      xDomain = [-maxVal, maxVal]
-    } else {
-      const maxNet = (d3.max(gammaValues.map(Math.abs)) || 1) * 1.1
-      xDomain = [-maxNet, maxNet]
-    }
 
     const xScale = d3.scaleLinear().domain(xDomain).range([0, width])
 
     // Grid
-    drawGridLinesX(g, xScale, height, 8)
+    drawGridLinesX(g, xScale, chartHeight, 8)
 
     // Zero line
     g.append('line')
       .attr('x1', xScale(0)).attr('x2', xScale(0))
-      .attr('y1', 0).attr('y2', height)
+      .attr('y1', 0).attr('y2', chartHeight)
       .attr('stroke', '#2A2A2A').attr('stroke-width', 1)
 
     // Bars
     if (showAbsoluteGEX) {
       // Call bars
       g.selectAll('.bar-call')
-        .data(filteredStrikes)
+        .data(scrollableStrikes)
         .join('rect')
         .attr('class', 'bar-call')
-        .attr('y', (_, i) => yScale(String(filteredStrikes[i]))!)
-        .attr('x', (_, i) => xScale(Math.min(0, callGEX[i])))
-        .attr('width', (_, i) => Math.abs(xScale(callGEX[i]) - xScale(0)))
+        .attr('y', d => yScale(String(d))!)
+        .attr('x', (_, i) => {
+          const val = callGEX[i]
+          const x0 = xScale(0)
+          const x1 = xScale(val)
+          const clampedX0 = Math.max(0, Math.min(width, x0))
+          const clampedX1 = Math.max(0, Math.min(width, x1))
+          return Math.min(clampedX0, clampedX1)
+        })
+        .attr('width', (_, i) => {
+          const val = callGEX[i]
+          const x0 = xScale(0)
+          const x1 = xScale(val)
+          const clampedX0 = Math.max(0, Math.min(width, x0))
+          const clampedX1 = Math.max(0, Math.min(width, x1))
+          return Math.abs(clampedX1 - clampedX0)
+        })
         .attr('height', yScale.bandwidth() / 2)
         .attr('fill', colors.accentAlpha.green50)
         .attr('stroke', colors.accent.green)
@@ -180,12 +239,26 @@ export function GEXByStrikeChart({
 
       // Put bars
       g.selectAll('.bar-put')
-        .data(filteredStrikes)
+        .data(scrollableStrikes)
         .join('rect')
         .attr('class', 'bar-put')
-        .attr('y', (_, i) => yScale(String(filteredStrikes[i]))! + yScale.bandwidth() / 2)
-        .attr('x', (_, i) => xScale(Math.min(0, putGEX[i])))
-        .attr('width', (_, i) => Math.abs(xScale(putGEX[i]) - xScale(0)))
+        .attr('y', d => yScale(String(d))! + yScale.bandwidth() / 2)
+        .attr('x', (_, i) => {
+          const val = putGEX[i]
+          const x0 = xScale(0)
+          const x1 = xScale(val)
+          const clampedX0 = Math.max(0, Math.min(width, x0))
+          const clampedX1 = Math.max(0, Math.min(width, x1))
+          return Math.min(clampedX0, clampedX1)
+        })
+        .attr('width', (_, i) => {
+          const val = putGEX[i]
+          const x0 = xScale(0)
+          const x1 = xScale(val)
+          const clampedX0 = Math.max(0, Math.min(width, x0))
+          const clampedX1 = Math.max(0, Math.min(width, x1))
+          return Math.abs(clampedX1 - clampedX0)
+        })
         .attr('height', yScale.bandwidth() / 2)
         .attr('fill', colors.accentAlpha.red50)
         .attr('stroke', colors.accent.red)
@@ -194,12 +267,26 @@ export function GEXByStrikeChart({
     } else {
       // Net GEX bars
       g.selectAll('.bar-net')
-        .data(filteredStrikes)
+        .data(scrollableStrikes)
         .join('rect')
         .attr('class', 'bar-net')
-        .attr('y', (_, i) => yScale(String(filteredStrikes[i]))!)
-        .attr('x', (_, i) => xScale(Math.min(0, gammaValues[i])))
-        .attr('width', (_, i) => Math.abs(xScale(gammaValues[i]) - xScale(0)))
+        .attr('y', d => yScale(String(d))!)
+        .attr('x', (_, i) => {
+          const val = gammaValues[i]
+          const x0 = xScale(0)
+          const x1 = xScale(val)
+          const clampedX0 = Math.max(0, Math.min(width, x0))
+          const clampedX1 = Math.max(0, Math.min(width, x1))
+          return Math.min(clampedX0, clampedX1)
+        })
+        .attr('width', (_, i) => {
+          const val = gammaValues[i]
+          const x0 = xScale(0)
+          const x1 = xScale(val)
+          const clampedX0 = Math.max(0, Math.min(width, x0))
+          const clampedX1 = Math.max(0, Math.min(width, x1))
+          return Math.abs(clampedX1 - clampedX0)
+        })
         .attr('height', yScale.bandwidth())
         .attr('fill', (_, i) => gexFillColor(gammaValues[i]))
         .attr('stroke', (_, i) => gexColor(gammaValues[i]))
@@ -208,8 +295,8 @@ export function GEXByStrikeChart({
     }
 
     // Spot price reference line
-    const spotYStr = String(allStrikes.reduce((prev, curr) =>
-      Math.abs(curr - spotPrice) < Math.abs(prev - spotPrice) ? curr : prev, allStrikes[0]))
+    const spotYStr = String(scrollableStrikes.reduce((prev, curr) =>
+      Math.abs(curr - spotPrice) < Math.abs(prev - spotPrice) ? curr : prev, scrollableStrikes[0]))
     const spotY = yScale(spotYStr)
     if (spotY !== undefined) {
       drawHorizontalRefLine(g, spotY + yScale.bandwidth() / 2, width, colors.accent.amber, `SPOT ${spotPrice.toFixed(0)}`)
@@ -217,8 +304,8 @@ export function GEXByStrikeChart({
 
     // Gamma flip reference line
     if (zeroGammaLevel) {
-      const flipStr = String(allStrikes.reduce((prev, curr) =>
-        Math.abs(curr - zeroGammaLevel) < Math.abs(prev - zeroGammaLevel) ? curr : prev, allStrikes[0]))
+      const flipStr = String(scrollableStrikes.reduce((prev, curr) =>
+        Math.abs(curr - zeroGammaLevel) < Math.abs(prev - zeroGammaLevel) ? curr : prev, scrollableStrikes[0]))
       const flipY = yScale(flipStr)
       if (flipY !== undefined) {
         drawHorizontalRefLine(g, flipY + yScale.bandwidth() / 2, width, colors.accent.magenta, `Γ-FLIP ${zeroGammaLevel.toFixed(0)}`, { dashArray: '4,4' })
@@ -228,34 +315,28 @@ export function GEXByStrikeChart({
     // Axes
     const yAxis = d3.axisLeft(yScale).tickSize(0)
     const yAxisG = g.append('g').call(yAxis)
-    styleAxis(yAxisG, { fontSize: filteredStrikes.length > 40 ? 8 : 10 })
-
-    // Only show every Nth label if too many
-    if (filteredStrikes.length > 30) {
-      const step = Math.ceil(filteredStrikes.length / 30)
-      yAxisG.selectAll('.tick text').attr('display', (_, i) => i % step === 0 ? null : 'none')
-    }
+    styleAxis(yAxisG, { fontSize: 10 })
 
     const xAxis = d3.axisBottom(xScale).ticks(6).tickFormat(d => formatBillions(d as number))
-    const xAxisG = g.append('g').attr('transform', `translate(0,${height})`).call(xAxis)
+    const xAxisG = g.append('g').attr('transform', `translate(0,${chartHeight})`).call(xAxis)
     styleAxis(xAxisG)
 
     // X-axis label
     g.append('text')
-      .attr('x', width / 2).attr('y', height + 36)
+      .attr('x', width / 2).attr('y', chartHeight + 36)
       .attr('text-anchor', 'middle')
       .attr('fill', colors.text.secondary)
       .style('font-family', typography.fontSans)
       .style('font-size', '11px')
       .text(showAbsoluteGEX ? 'Gamma (Calls → | ← Puts)' : 'Net Gamma')
 
-    // Title
-    g.append('text')
-      .attr('x', width / 2).attr('y', -8)
+    // Title / Header (Fixed atop scroll container)
+    svg.append('text')
+      .attr('x', margin.left + width / 2).attr('y', 16)
       .attr('text-anchor', 'middle')
       .attr('fill', colors.text.primary)
       .style('font-family', typography.fontSans)
-      .style('font-size', '13px')
+      .style('font-size', '12px')
       .style('font-weight', '700')
       .text(`${ticker} ${showAbsoluteGEX ? 'Absolute' : 'Net'} Gamma by Strike (${selectedExpiryLabel})`)
 
@@ -266,24 +347,29 @@ export function GEXByStrikeChart({
       .style('opacity', 0).style('pointer-events', 'none')
 
     g.append('rect')
-      .attr('width', width).attr('height', height)
+      .attr('width', width).attr('height', chartHeight)
       .attr('fill', 'transparent')
       .on('mousemove', (event: MouseEvent) => {
         const [, my] = d3.pointer(event)
         const bandStep = yScale.step()
         const idx = Math.floor(my / bandStep)
-        if (idx < 0 || idx >= filteredStrikes.length) return
+        if (idx < 0 || idx >= scrollableStrikes.length) return
+
+        const domain = yScale.domain()
+        const strikeStr = domain[idx]
+        const strikeIdx = scrollableStrikes.findIndex(s => String(s) === strikeStr)
+        if (strikeIdx === -1) return
 
         hoverLine
-          .attr('y1', yScale(String(filteredStrikes[idx]))! + yScale.bandwidth() / 2)
-          .attr('y2', yScale(String(filteredStrikes[idx]))! + yScale.bandwidth() / 2)
+          .attr('y1', yScale(strikeStr)! + yScale.bandwidth() / 2)
+          .attr('y2', yScale(strikeStr)! + yScale.bandwidth() / 2)
           .style('opacity', 1)
 
         if (tooltipRef.current && containerRef.current) {
-          const strike = filteredStrikes[idx]
+          const strike = scrollableStrikes[strikeIdx]
           const value = showAbsoluteGEX
-            ? `Call: ${callGEX[idx].toFixed(3)}B | Put: ${Math.abs(putGEX[idx]).toFixed(3)}B`
-            : `Net GEX: ${gammaValues[idx] >= 0 ? '+' : ''}${gammaValues[idx].toFixed(3)}B`
+            ? `Call: ${callGEX[strikeIdx].toFixed(3)}B | Put: ${Math.abs(putGEX[strikeIdx]).toFixed(3)}B`
+            : `Net GEX: ${gammaValues[strikeIdx] >= 0 ? '+' : ''}${gammaValues[strikeIdx].toFixed(3)}B`
           tooltipRef.current.innerHTML = `
             <div style="font-family:${typography.fontSans};font-size:12px;color:${colors.text.primary};font-weight:600">
               Strike ${strike.toFixed(0)}
@@ -305,41 +391,40 @@ export function GEXByStrikeChart({
         if (tooltipRef.current) tooltipRef.current.style.opacity = '0'
       })
 
-  }, [filteredStrikes, gammaValues, callGEX, putGEX, showAbsoluteGEX, dims, showVolumeChart, spotPrice, zeroGammaLevel, ticker, selectedExpiryLabel, allStrikes])
+  }, [scrollableStrikes, gammaValues, callGEX, putGEX, showAbsoluteGEX, dims, showVolumeChart, spotPrice, zeroGammaLevel, ticker, selectedExpiryLabel, xDomain])
 
   // ─── D3 Volume Chart ─────────────────────────────────────────
   useEffect(() => {
-    if (!volSvgRef.current || !showVolumeChart || filteredStrikes.length === 0) return
+    if (!volSvgRef.current || !showVolumeChart || scrollableStrikes.length === 0) return
 
     const chartWidth = dims.width / 2 - 8
     const margin = HORIZONTAL_MARGINS
     const width = chartWidth - margin.left - margin.right
-    const height = dims.height - margin.top - margin.bottom
-    if (width <= 0 || height <= 0) return
+    if (width <= 0 || chartHeight <= 0) return
 
     const svg = d3.select(volSvgRef.current)
     svg.selectAll('*').remove()
-    svg.attr('width', chartWidth).attr('height', dims.height)
+    svg.attr('width', chartWidth).attr('height', chartHeight + margin.top + margin.bottom)
 
     const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
 
     const yScale = d3.scaleBand()
-      .domain([...filteredStrikes].reverse().map(String))
-      .range([0, height])
+      .domain([...scrollableStrikes].reverse().map(String))
+      .range([0, chartHeight])
       .padding(0.15)
 
-    const maxVol = (d3.max(volumeValues) || 1) * 1.1
+    const maxVol = (d3.max(volumeValues) || 1) * 1.15
     const xScale = d3.scaleLinear().domain([0, maxVol]).range([0, width])
 
     // Grid
-    drawGridLinesX(g, xScale, height, 6)
+    drawGridLinesX(g, xScale, chartHeight, 6)
 
     // Bars
     g.selectAll('.bar-vol')
-      .data(filteredStrikes)
+      .data(scrollableStrikes)
       .join('rect')
       .attr('class', 'bar-vol')
-      .attr('y', (_, i) => yScale(String(filteredStrikes[i]))!)
+      .attr('y', d => yScale(String(d))!)
       .attr('x', 0)
       .attr('width', (_, i) => xScale(volumeValues[i]))
       .attr('height', yScale.bandwidth())
@@ -351,36 +436,32 @@ export function GEXByStrikeChart({
     // Axes
     const yAxis = d3.axisLeft(yScale).tickSize(0)
     const yAxisG = g.append('g').call(yAxis)
-    styleAxis(yAxisG, { fontSize: filteredStrikes.length > 40 ? 8 : 10 })
-    if (filteredStrikes.length > 30) {
-      const step = Math.ceil(filteredStrikes.length / 30)
-      yAxisG.selectAll('.tick text').attr('display', (_, i) => i % step === 0 ? null : 'none')
-    }
+    styleAxis(yAxisG, { fontSize: 10 })
 
     const xAxis = d3.axisBottom(xScale).ticks(5).tickFormat(d => formatCompact(d as number))
-    const xAxisG = g.append('g').attr('transform', `translate(0,${height})`).call(xAxis)
+    const xAxisG = g.append('g').attr('transform', `translate(0,${chartHeight})`).call(xAxis)
     styleAxis(xAxisG)
 
     g.append('text')
-      .attr('x', width / 2).attr('y', height + 36)
+      .attr('x', width / 2).attr('y', chartHeight + 36)
       .attr('text-anchor', 'middle')
       .attr('fill', colors.text.secondary)
       .style('font-family', typography.fontSans)
       .style('font-size', '11px')
       .text('Volume (Contracts)')
 
-    g.append('text')
-      .attr('x', width / 2).attr('y', -8)
+    svg.append('text')
+      .attr('x', margin.left + width / 2).attr('y', 16)
       .attr('text-anchor', 'middle')
       .attr('fill', colors.text.primary)
       .style('font-family', typography.fontSans)
-      .style('font-size', '13px')
+      .style('font-size', '12px')
       .style('font-weight', '700')
       .text(`${ticker} Volume by Strike`)
 
-  }, [filteredStrikes, volumeValues, dims, showVolumeChart, ticker])
+  }, [scrollableStrikes, volumeValues, dims, showVolumeChart, ticker])
 
-  // ─── Zoom controls ──────────────────────────────────────────
+  // Zoom controls
   const zoomPercents = [1, 2, 3, 5, 10, 20, 30]
 
   return (
@@ -456,16 +537,21 @@ export function GEXByStrikeChart({
         </div>
       </div>
       
-      {/* Charts */}
-      <div className={`flex gap-4 w-full flex-1 min-h-0`}>
-        <div className="flex-1 min-h-[300px]">
-          <svg ref={svgRef} className="w-full h-full" />
-        </div>
-        {showVolumeChart && (
-          <div className="flex-1 min-h-[300px]">
-            <svg ref={volSvgRef} className="w-full h-full" />
+      {/* Scrollable wrapper for charts */}
+      <div 
+        ref={scrollContainerRef}
+        className="flex-1 min-h-[300px] overflow-y-auto max-h-[600px] border border-[#1A1A1A] rounded bg-black terminal-scrollbar relative"
+      >
+        <div className="flex gap-4 w-full">
+          <div className="flex-1">
+            <svg ref={svgRef} className="w-full" style={{ height: `${chartHeight + HORIZONTAL_MARGINS.top + HORIZONTAL_MARGINS.bottom}px` }} />
           </div>
-        )}
+          {showVolumeChart && (
+            <div className="flex-1">
+              <svg ref={volSvgRef} className="w-full" style={{ height: `${chartHeight + HORIZONTAL_MARGINS.top + HORIZONTAL_MARGINS.bottom}px` }} />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Tooltip */}
