@@ -12,14 +12,15 @@ import {
   Tooltip,
   Legend,
   type ChartOptions,
-  TimeScale, // Import TimeScale
+  TimeScale,
 } from "chart.js"
-import "chartjs-adapter-date-fns" // Import adapter
+import "chartjs-adapter-date-fns"
 
 import type { OptionData } from "@/lib/types"
 import { calculateExpectedMove } from "@/lib/calculations"
+import { colors, chartTheme, typography } from "@/lib/design-tokens"
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, TimeScale) // Register TimeScale
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, TimeScale)
 
 interface ExpectedMoveChartProps {
   data: OptionData[]
@@ -30,13 +31,12 @@ interface ExpectedMoveChartProps {
 
 export function ExpectedMoveChart({ data, ticker, spotPrice, selectedExpiry }: ExpectedMoveChartProps) {
   const chartData = useMemo(() => {
-    const selectedDate = selectedExpiry !== "All Dates" ? new Date(selectedExpiry + "T00:00:00Z") : undefined // Ensure UTC
-    const expectedMoves = calculateExpectedMove(data, spotPrice, selectedDate) // expectedMoves returns { date: Date, ... }
+    const selectedDate = selectedExpiry !== "All Dates" ? new Date(selectedExpiry + "T00:00:00Z") : undefined
+    const expectedMoves = calculateExpectedMove(data, spotPrice, selectedDate)
 
     return {
-      // dates are already Date objects
       datasets: expectedMoves.map((move) => ({
-        date: move.date, // Already a Date object
+        date: move.date,
         upperBound: move.upper,
         lowerBound: move.lower,
         upperPct: move.upperPct,
@@ -52,67 +52,66 @@ export function ExpectedMoveChart({ data, ticker, spotPrice, selectedExpiry }: E
       legend: {
         display: true,
         labels: {
-          color: "#FFF",
+          color: colors.text.secondary,
+          font: { family: typography.fontSans, size: 11 },
+          usePointStyle: true,
+          padding: 16,
         },
       },
       title: {
         display: true,
         text: `${ticker} Expected Move${selectedExpiry !== "All Dates" ? ` (Expiry: ${selectedExpiry})` : " (All Expiries)"}`,
-        color: "#FFF",
-        font: {
-          size: 16,
-          weight: "bold",
-        },
+        color: colors.text.primary,
+        font: { family: typography.fontSans, size: 13, weight: "bold" as const },
+        padding: { top: 8, bottom: 16 },
       },
       tooltip: {
+        backgroundColor: chartTheme.tooltip.bg,
+        titleColor: chartTheme.tooltip.text,
+        bodyColor: chartTheme.tooltip.text,
+        borderColor: chartTheme.tooltip.border,
+        borderWidth: 1,
+        padding: 10,
+        titleFont: { family: typography.fontSans, size: 12 },
+        bodyFont: { family: typography.fontMono, size: 11 },
         callbacks: {
-          title: (tooltipItems) => {
-            if (tooltipItems.length > 0) {
-              const date = new Date(tooltipItems[0].parsed.x)
-              return date.toLocaleDateString("en-CA") // YYYY-MM-DD
+          title: (items) => {
+            if (items.length > 0) {
+              const date = new Date(items[0].parsed.x)
+              return date.toLocaleDateString("en-CA")
             }
             return ""
           },
-          label: (context) => {
-            const datasetIndex = context.datasetIndex
-            const dataIndex = context.dataIndex
+          label: (ctx) => {
+            const dataIndex = ctx.dataIndex
             const moveData = chartData.datasets[dataIndex]
 
-            if (datasetIndex === 1) {
-              // Upper Bound
+            if (ctx.datasetIndex === 1) {
               return `Upper: ${moveData.upperBound.toFixed(2)} (${moveData.upperPct > 0 ? "+" : ""}${moveData.upperPct}%)`
-            } else if (datasetIndex === 2) {
-              // Lower Bound
+            } else if (ctx.datasetIndex === 2) {
               return `Lower: ${moveData.lowerBound.toFixed(2)} (${moveData.lowerPct > 0 ? "+" : ""}${moveData.lowerPct}%)`
             }
-            return `Spot: ${context.parsed.y.toFixed(2)}`
+            return `Spot: ${ctx.parsed.y.toFixed(2)}`
           },
         },
       },
     },
     scales: {
       x: {
-        type: "time", // Use time scale
+        type: "time",
         time: {
           unit: "month",
           tooltipFormat: "yyyy-MM-dd",
           displayFormats: {
-            millisecond: "HH:mm:ss.SSS",
-            second: "HH:mm:ss",
-            minute: "HH:mm",
-            hour: "HH:mm",
             day: "MMM dd",
             week: "MMM dd",
             month: "MMM yyyy",
-            quarter: "QQQ yyyy",
-            year: "yyyy",
           },
         },
-        grid: {
-          color: "#2A3459",
-        },
+        grid: { color: chartTheme.gridSubtle },
         ticks: {
-          color: "#FFF",
+          color: colors.text.muted,
+          font: { family: typography.fontMono, size: 10 },
           source: "auto",
           maxRotation: 45,
           minRotation: 45,
@@ -120,59 +119,58 @@ export function ExpectedMoveChart({ data, ticker, spotPrice, selectedExpiry }: E
         title: {
           display: true,
           text: "Expiration Date",
-          color: "#FFF",
-          font: {
-            weight: "bold",
-          },
+          color: colors.text.secondary,
+          font: { family: typography.fontSans, size: 11, weight: "normal" as const },
         },
+        border: { color: chartTheme.grid },
       },
       y: {
-        grid: {
-          color: "#2A3459",
-        },
+        grid: { color: chartTheme.gridSubtle },
         ticks: {
-          color: "#FFF",
+          color: colors.text.muted,
+          font: { family: typography.fontMono, size: 10 },
         },
         title: {
           display: true,
           text: "Strike Price",
-          color: "#FFF",
-          font: {
-            weight: "bold",
-          },
+          color: colors.text.secondary,
+          font: { family: typography.fontSans, size: 11, weight: "normal" as const },
         },
+        border: { color: chartTheme.grid },
       },
     },
   }
 
   const chartDataConfig = {
-    // labels are implicitly handled by the x values in datasets
     datasets: [
       {
         label: "Current Price",
         data: chartData.datasets.map((move) => ({ x: move.date, y: spotPrice })),
-        borderColor: "rgba(255, 255, 255, 1)",
-        backgroundColor: "rgba(255, 255, 255, 0.1)",
+        borderColor: colors.accent.amber,
+        backgroundColor: colors.accentMuted.amber,
         borderDash: [5, 5],
         pointRadius: 0,
+        borderWidth: 1.5,
       },
       {
         label: "Upper Bound (16Δ Call)",
         data: chartData.datasets.map((move) => ({ x: move.date, y: move.upperBound })),
-        borderColor: "rgba(34, 197, 94, 1)",
-        backgroundColor: "rgba(34, 197, 94, 0.1)",
+        borderColor: colors.accent.green,
+        backgroundColor: colors.accentMuted.green,
         borderDash: [3, 3],
-        pointRadius: 6,
-        pointBackgroundColor: "rgba(34, 197, 94, 1)",
+        pointRadius: 5,
+        pointBackgroundColor: colors.accent.green,
+        borderWidth: 1.5,
       },
       {
         label: "Lower Bound (16Δ Put)",
         data: chartData.datasets.map((move) => ({ x: move.date, y: move.lowerBound })),
-        borderColor: "rgba(239, 68, 68, 1)",
-        backgroundColor: "rgba(239, 68, 68, 0.1)",
+        borderColor: colors.accent.red,
+        backgroundColor: colors.accentMuted.red,
         borderDash: [3, 3],
-        pointRadius: 6,
-        pointBackgroundColor: "rgba(239, 68, 68, 1)",
+        pointRadius: 5,
+        pointBackgroundColor: colors.accent.red,
+        borderWidth: 1.5,
       },
     ],
   }

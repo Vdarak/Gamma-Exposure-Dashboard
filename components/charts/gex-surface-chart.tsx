@@ -3,8 +3,8 @@
 import { useMemo, useState } from "react"
 import type { OptionData } from "@/lib/types"
 import dynamic from "next/dynamic"
+import { colors, chartTheme, typography } from "@/lib/design-tokens"
 
-// Lazy load Plotly only on the client
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false })
 
 interface GEXSurfaceChartProps {
@@ -15,135 +15,115 @@ interface GEXSurfaceChartProps {
 
 export function GEXSurfaceChart({ data, ticker, spotPrice }: GEXSurfaceChartProps) {
   const [plotLoaded, setPlotLoaded] = useState(false)
-  // Prepare data for 3D surface plot
+
   const { x, y, z, zRange } = useMemo(() => {
     const oneYear = new Date()
     oneYear.setFullYear(oneYear.getFullYear() + 1)
     const filtered = data.filter(
       (option) => option.expiration < oneYear && option.strike > spotPrice * 0.8 && option.strike < spotPrice * 1.2,
     )
-    // Group by expiration (Y) and strike (X)
+
     const expirations = Array.from(new Set(filtered.map((o) => o.expiration.toISOString().split("T")[0]))).sort()
     const strikes = Array.from(new Set(filtered.map((o) => o.strike))).sort((a, b) => a - b)
     
-    // Build Z matrix (GEX) - converting to millions for better readability
     const z: number[][] = expirations.map((exp) =>
       strikes.map((strike) => {
         const match = filtered.find((o) => o.expiration.toISOString().split("T")[0] === exp && o.strike === strike)
         if (!match) return 0
         
-        // Ensure GEX is calculated if not present
         let gexValue = match.GEX
         if (typeof gexValue !== 'number') {
-          // Calculate GEX: spot * gamma * open_interest * CONTRACT_SIZE * spot * 0.01
           const CONTRACT_SIZE = 100
           gexValue = spotPrice * match.gamma * match.open_interest * CONTRACT_SIZE * spotPrice * 0.01
-          // For puts, make it negative (dealer perspective)
-          if (match.type === "P") {
-            gexValue = -gexValue
-          }
+          if (match.type === "P") gexValue = -gexValue
         }
         
-        return gexValue / 1e6 // Convert to millions
+        return gexValue / 1e6
       }),
     )
     
-    // Calculate z-axis range to ensure negative values are properly displayed
-    const allZValues = z.flat() // Include zeros for proper centering
+    const allZValues = z.flat()
     const zMin = allZValues.length > 0 ? Math.min(...allZValues) : -1
     const zMax = allZValues.length > 0 ? Math.max(...allZValues) : 1
-    
-    // Create symmetric range around zero for better visualization
-    const maxAbsValue = Math.max(Math.abs(zMin), Math.abs(zMax), 0.1) // Minimum range of 0.1
-    const padding = maxAbsValue * 0.15 // 15% padding for better visibility
-    const zRange: [number, number] = [
-      -(maxAbsValue + padding), // Force negative range
-      (maxAbsValue + padding)   // Force positive range
-    ]
-    
-    // Debug log to check if we have negative values
-    if (process.env.NODE_ENV === 'development') {
-      console.log('GEX Surface Data:', {
-        totalValues: allZValues.length,
-        negativeValues: allZValues.filter(v => v < 0).length,
-        positiveValues: allZValues.filter(v => v > 0).length,
-        zeroValues: allZValues.filter(v => v === 0).length,
-        zMin,
-        zMax,
-        maxAbsValue: Math.max(Math.abs(zMin), Math.abs(zMax)),
-        zRange,
-        sampleNegativeValues: allZValues.filter(v => v < 0).slice(0, 5),
-        samplePositiveValues: allZValues.filter(v => v > 0).slice(0, 5)
-      })
-    }
+    const maxAbsValue = Math.max(Math.abs(zMin), Math.abs(zMax), 0.1)
+    const padding = maxAbsValue * 0.15
+    const zRange: [number, number] = [-(maxAbsValue + padding), (maxAbsValue + padding)]
     
     return { x: strikes, y: expirations, z, zRange }
   }, [data, spotPrice])
 
   return (
-    <div className="h-full w-full flex items-center justify-center bg-[#212946] rounded-lg relative">
+    <div className="h-full w-full flex items-center justify-center bg-black rounded relative">
       {!plotLoaded && (
         <div className="absolute inset-0 flex items-center justify-center z-10">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
+          <div className="flex items-center gap-3 text-[#525252]">
+            <div className="w-4 h-4 border-2 border-[#333] border-t-terminal-green rounded-full animate-spin" />
+            <span className="text-xs font-mono">RENDERING SURFACE...</span>
+          </div>
         </div>
       )}
       <Plot
         data={[
           {
             type: "surface",
-            x,
-            y,
-            z,
-            colorscale: "RdBu",
-            reversescale: false, // Blue for negative (puts), Red for positive (calls)
+            x, y, z,
+            colorscale: chartTheme.surface.colorscale,
+            reversescale: false,
             colorbar: { 
               title: "Gamma (M$ / %)",
               titleside: "right",
-              tickmode: "linear",
-              dtick: Math.max(0.1, Math.abs(zRange[1] - zRange[0]) / 10) // Better tick spacing
+              titlefont: { color: colors.text.secondary, size: 11, family: typography.fontSans },
+              tickfont: { color: colors.text.muted, size: 10, family: typography.fontMono },
             },
             showscale: true,
-            cmin: zRange[0], // Explicit color range minimum
-            cmax: zRange[1], // Explicit color range maximum
-            cmid: 0, // Center the colorscale at zero
+            cmin: zRange[0],
+            cmax: zRange[1],
+            cmid: 0,
             name: "GEX Surface"
           },
-          // Add a zero reference plane for better visualization
           {
             type: "surface",
             x: [Math.min(...x), Math.max(...x)],
             y: [y[0], y[y.length - 1]],
-            z: [[0, 0], [0, 0]], // Zero plane
-            opacity: 0.3,
-            colorscale: [[0, "rgba(128,128,128,0.3)"], [1, "rgba(128,128,128,0.3)"]],
+            z: [[0, 0], [0, 0]],
+            opacity: 0.2,
+            colorscale: [[0, "rgba(255,255,255,0.1)"], [1, "rgba(255,255,255,0.1)"]],
             showscale: false,
             name: "Zero Reference",
             hoverinfo: "skip"
           }
         ]}
         layout={{
-          title: `${ticker} GEX Surface (3D)`,
+          title: {
+            text: `${ticker} GEX Surface (3D)`,
+            font: { color: colors.text.primary, family: typography.fontSans, size: 14 },
+          },
           autosize: true,
           scene: {
-            xaxis: { title: "Strike Price" },
-            yaxis: { title: "Expiration Date" },
-            zaxis: { 
-              title: "Gamma (M$ / %)",
-              range: zRange, // Explicit z-axis range to show negative values
-              zeroline: true, // Show zero line
-              zerolinecolor: "rgba(255,255,255,0.8)",
-              zerolinewidth: 2,
-              tickmode: "linear",
-              dtick: Math.max(0.5, Math.abs(zRange[1] - zRange[0]) / 8) // Better tick spacing
+            xaxis: {
+              title: { text: "Strike Price", font: { color: colors.text.secondary, size: 11 } },
+              gridcolor: chartTheme.grid,
+              zerolinecolor: chartTheme.zeroLine,
             },
-            bgcolor: "#212946",
-            camera: {
-              eye: { x: 1.5, y: 1.5, z: 1.2 } // Better default viewing angle
-            }
+            yaxis: {
+              title: { text: "Expiration", font: { color: colors.text.secondary, size: 11 } },
+              gridcolor: chartTheme.grid,
+              zerolinecolor: chartTheme.zeroLine,
+            },
+            zaxis: { 
+              title: { text: "Gamma (M$ / %)", font: { color: colors.text.secondary, size: 11 } },
+              range: zRange,
+              zeroline: true,
+              zerolinecolor: "rgba(255,255,255,0.4)",
+              zerolinewidth: 2,
+              gridcolor: chartTheme.grid,
+            },
+            bgcolor: chartTheme.surface.bg,
+            camera: { eye: { x: 1.5, y: 1.5, z: 1.2 } },
           },
-          paper_bgcolor: "#212946",
-          plot_bgcolor: "#212946",
-          font: { color: "#FFF" },
+          paper_bgcolor: chartTheme.surface.bg,
+          plot_bgcolor: chartTheme.surface.bg,
+          font: { color: colors.text.primary, family: typography.fontSans },
           margin: { l: 40, r: 40, b: 40, t: 40 },
         }}
         useResizeHandler

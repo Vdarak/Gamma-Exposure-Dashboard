@@ -1,7 +1,5 @@
 "use client"
 
-import { Button } from "@/components/ui/button"
-import { Calculator, TrendingUp } from "lucide-react"
 import type { PricingMethod } from "@/lib/calculations"
 
 interface PricingMethodToggleProps {
@@ -11,35 +9,29 @@ interface PricingMethodToggleProps {
 
 export function PricingMethodToggle({ pricingMethod, onPricingMethodChange }: PricingMethodToggleProps) {
   return (
-    <div className="flex items-center gap-1 bg-[#1A1D36] border border-[#2A3459] rounded-lg p-1">
-      <Button
-        variant={pricingMethod === 'black-scholes' ? 'default' : 'ghost'}
-        size="sm"
+    <div className="flex items-center gap-0 border border-[#1A1A1A] rounded bg-[#0A0A0A] p-0.5">
+      <button
         onClick={() => onPricingMethodChange('black-scholes')}
-        className={`h-8 px-3 text-xs font-medium transition-all duration-200 ${
+        className={`px-2.5 py-1 text-xxs font-mono rounded transition-all ${
           pricingMethod === 'black-scholes'
-            ? 'bg-[#7C3AED] text-white border-[#8B5CF6] shadow-sm'
-            : 'text-gray-400 hover:text-white hover:bg-[#2A3459]'
+            ? 'bg-[#1A1A1A] text-terminal-purple'
+            : 'text-[#525252] hover:text-[#737373]'
         }`}
         title="Black-Scholes pricing model (European options)"
       >
-        <Calculator className="w-3 h-3 mr-1" />
-        Black-Scholes
-      </Button>
-      <Button
-        variant={pricingMethod === 'binomial' ? 'default' : 'ghost'}
-        size="sm"
+        B-S
+      </button>
+      <button
         onClick={() => onPricingMethodChange('binomial')}
-        className={`h-8 px-3 text-xs font-medium transition-all duration-200 ${
+        className={`px-2.5 py-1 text-xxs font-mono rounded transition-all ${
           pricingMethod === 'binomial'
-            ? 'bg-[#059669] text-white border-[#10B981] shadow-sm'
-            : 'text-gray-400 hover:text-white hover:bg-[#2A3459]'
+            ? 'bg-[#1A1A1A] text-terminal-green'
+            : 'text-[#525252] hover:text-[#737373]'
         }`}
-        title="Binomial Tree pricing model (American options with early exercise)"
+        title="Binomial Tree pricing model (American options)"
       >
-        <TrendingUp className="w-3 h-3 mr-1" />
-        Binomial Tree
-      </Button>
+        BIN
+      </button>
     </div>
   )
 }
