@@ -158,9 +158,21 @@ export function StatBar({ spotPrice, totalGEX, optionData, market, gammaFlipLeve
   return (
     <div className="border-b border-[#1A1A1A] bg-[#0A0A0A]">
       <div className="px-4 lg:px-6 py-4">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center justify-between gap-4 flex-wrap md:flex-nowrap">
           {/* Left: Numeric stats */}
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-6 flex-wrap">
+            <StatCell
+              label="SPOT PRICE"
+              value={spotPrice ? `${currencySymbol}${spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+              color="#E5E5E5"
+            />
+            <Divider />
+            <StatCell
+              label="TOTAL GEX"
+              value={totalGEX !== 0 ? `${totalGEX >= 0 ? '+' : ''}${totalGEX.toFixed(4)}B` : '—'}
+              color={totalGEX >= 0 ? '#00FF88' : '#FF3B3B'}
+            />
+            <Divider />
             <StatCell
               label="TOTAL Γ"
               value={formatLargeNumber(stats.totalGamma)}
@@ -180,7 +192,7 @@ export function StatBar({ spotPrice, totalGEX, optionData, market, gammaFlipLeve
           </div>
 
           {/* Right: Gauges */}
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-6 ml-auto md:ml-0 flex-shrink-0">
             <TerminalGauge
               value={totalGEX}
               min={-gexMax}
@@ -210,9 +222,9 @@ export function StatBar({ spotPrice, totalGEX, optionData, market, gammaFlipLeve
 function StatCell({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-xxs text-[#525252] font-medium uppercase tracking-wider">{label}</span>
+      <span className="text-[9px] text-[#525252] font-mono font-medium uppercase tracking-wider">{label}</span>
       <span
-        className="font-mono text-sm font-semibold"
+        className="font-mono text-base lg:text-lg font-bold tracking-tight"
         style={{ color: color || '#E5E5E5' }}
       >
         {value}

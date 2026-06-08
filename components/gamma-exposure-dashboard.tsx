@@ -488,6 +488,9 @@ export function GammaExposureDashboard() {
                     ticker={ticker}
                     spotPrice={spotPrice!}
                     selectedExpiries={activeExpiries}
+                    onModeChange={setExpiryMode}
+                    onSelectedExpiriesChange={setCustomSelectedExpiries}
+                    availableExpiries={futureExpiries}
                   />
                 </ChartWrapper>
               </div>

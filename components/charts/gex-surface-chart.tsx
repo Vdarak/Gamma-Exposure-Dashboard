@@ -12,9 +12,20 @@ interface GEXSurfaceChartProps {
   ticker: string
   spotPrice: number
   selectedExpiries: string[]
+  onModeChange?: (mode: '90d' | '0dte' | 'custom') => void
+  onSelectedExpiriesChange?: (expiries: string[]) => void
+  availableExpiries?: string[]
 }
 
-export function GEXSurfaceChart({ data, ticker, spotPrice, selectedExpiries }: GEXSurfaceChartProps) {
+export function GEXSurfaceChart({
+  data,
+  ticker,
+  spotPrice,
+  selectedExpiries,
+  onModeChange,
+  onSelectedExpiriesChange,
+  availableExpiries,
+}: GEXSurfaceChartProps) {
   const [plotLoaded, setPlotLoaded] = useState(false)
 
   const { x, y, z, zRange } = useMemo(() => {
@@ -74,10 +85,38 @@ export function GEXSurfaceChart({ data, ticker, spotPrice, selectedExpiries }: G
     return { x: strikes, y: expirations, z, zRange }
   }, [data, spotPrice, selectedExpiries])
 
-  if (x.length === 0 || y.length === 0) {
+  if (x.length === 0 || y.length < 2) {
     return (
-      <div className="h-[500px] w-full flex items-center justify-center bg-black border border-[#1A1A1A] rounded">
-        <span className="text-xs font-mono text-[#525252]">NO DATA AVAILABLE FOR SURFACE — SELECT EXPIRIES ABOVE</span>
+      <div className="h-[500px] w-full flex flex-col items-center justify-center bg-black border border-[#1A1A1A] rounded p-6 text-center">
+        <div className="max-w-md space-y-4">
+          <div className="text-terminal-red text-xs font-mono font-semibold uppercase tracking-wider">
+            [!] 3D SURFACE PLOT REQUIREMENT
+          </div>
+          <p className="text-xs text-[#737373] leading-relaxed font-mono">
+            Plotly's 3D surface generator requires a minimum of 2 expiration dates to construct a mesh grid. Currently, only {y.length} expiry is active.
+          </p>
+          <div className="flex items-center justify-center gap-3 pt-2">
+            {onModeChange && (
+              <button
+                onClick={() => onModeChange('90d')}
+                className="px-3 py-1.5 rounded text-xs font-mono border border-terminal-green/30 bg-terminal-green/10 text-terminal-green hover:bg-terminal-green/20 transition-all"
+              >
+                Switch to 90D Preset
+              </button>
+            )}
+            {onModeChange && onSelectedExpiriesChange && availableExpiries && (
+              <button
+                onClick={() => {
+                  onModeChange('custom')
+                  onSelectedExpiriesChange([...availableExpiries])
+                }}
+                className="px-3 py-1.5 rounded text-xs font-mono border border-[#333] hover:border-[#525252] text-[#E5E5E5] hover:bg-[#111] transition-all"
+              >
+                Select All Expiries
+              </button>
+            )}
+          </div>
+        </div>
       </div>
     )
   }

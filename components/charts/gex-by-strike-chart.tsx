@@ -231,7 +231,7 @@ export function GEXByStrikeChart({
           const clampedX1 = Math.max(0, Math.min(width, x1))
           return Math.abs(clampedX1 - clampedX0)
         })
-        .attr('height', yScale.bandwidth() / 2)
+        .attr('height', yScale.bandwidth())
         .attr('fill', colors.accentAlpha.green50)
         .attr('stroke', colors.accent.green)
         .attr('stroke-width', 0.5)
@@ -242,7 +242,7 @@ export function GEXByStrikeChart({
         .data(scrollableStrikes)
         .join('rect')
         .attr('class', 'bar-put')
-        .attr('y', d => yScale(String(d))! + yScale.bandwidth() / 2)
+        .attr('y', d => yScale(String(d))!)
         .attr('x', (_, i) => {
           const val = putGEX[i]
           const x0 = xScale(0)
@@ -259,7 +259,7 @@ export function GEXByStrikeChart({
           const clampedX1 = Math.max(0, Math.min(width, x1))
           return Math.abs(clampedX1 - clampedX0)
         })
-        .attr('height', yScale.bandwidth() / 2)
+        .attr('height', yScale.bandwidth())
         .attr('fill', colors.accentAlpha.red50)
         .attr('stroke', colors.accent.red)
         .attr('stroke-width', 0.5)
@@ -459,7 +459,56 @@ export function GEXByStrikeChart({
       .style('font-weight', '700')
       .text(`${ticker} Volume by Strike`)
 
-  }, [scrollableStrikes, volumeValues, dims, showVolumeChart, ticker])
+    // Hover interactions
+    const hoverLine = g.append('line')
+      .attr('stroke', '#444').attr('stroke-width', 1).attr('stroke-dasharray', '3,3')
+      .attr('x1', 0).attr('x2', width).attr('y1', 0).attr('y2', 0)
+      .style('opacity', 0).style('pointer-events', 'none')
+
+    g.append('rect')
+      .attr('width', width).attr('height', chartHeight)
+      .attr('fill', 'transparent')
+      .on('mousemove', (event: MouseEvent) => {
+        const [, my] = d3.pointer(event)
+        const bandStep = yScale.step()
+        const idx = Math.floor(my / bandStep)
+        if (idx < 0 || idx >= scrollableStrikes.length) return
+
+        const domain = yScale.domain()
+        const strikeStr = domain[idx]
+        const strikeIdx = scrollableStrikes.findIndex(s => String(s) === strikeStr)
+        if (strikeIdx === -1) return
+
+        hoverLine
+          .attr('y1', yScale(strikeStr)! + yScale.bandwidth() / 2)
+          .attr('y2', yScale(strikeStr)! + yScale.bandwidth() / 2)
+          .style('opacity', 1)
+
+        if (tooltipRef.current && containerRef.current) {
+          const strike = scrollableStrikes[strikeIdx]
+          const vol = volumeValues[strikeIdx]
+          tooltipRef.current.innerHTML = `
+            <div style="font-family:${typography.fontSans};font-size:12px;color:${colors.text.primary};font-weight:600">
+              Strike ${strike.toFixed(0)}
+            </div>
+            <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.accent.cyan};margin-top:2px">
+              Volume: ${vol.toLocaleString()} Contracts
+            </div>
+          `
+          const rect = containerRef.current.getBoundingClientRect()
+          const cx = event.clientX - rect.left
+          const cy = event.clientY - rect.top
+          tooltipRef.current.style.left = `${cx + 14}px`
+          tooltipRef.current.style.top = `${cy - 20}px`
+          tooltipRef.current.style.opacity = '1'
+        }
+      })
+      .on('mouseleave', () => {
+        hoverLine.style('opacity', 0)
+        if (tooltipRef.current) tooltipRef.current.style.opacity = '0'
+      })
+
+  }, [scrollableStrikes, volumeValues, dims, showVolumeChart, ticker, containerRef, tooltipRef])
 
   // Zoom controls
   const zoomPercents = [1, 2, 3, 5, 10, 20, 30]
