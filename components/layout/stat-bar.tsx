@@ -37,11 +37,9 @@ function TerminalGauge({ value, min, max, label, unit = '', color, colorMuted }:
   const trackStart = polarToCartesian(180)
   const trackEnd = polarToCartesian(360)
   const arcEnd = polarToCartesian(endAngle)
-  const largeArc = normalized > 0.5 ? 1 : 0
-
-  const trackPath = `M ${trackStart.x} ${trackStart.y} A ${radius} ${radius} 0 1 1 ${trackEnd.x} ${trackEnd.y}`
+  const trackPath = `M ${trackStart.x} ${trackStart.y} A ${radius} ${radius} 0 0 1 ${trackEnd.x} ${trackEnd.y}`
   const valuePath = normalized > 0.01
-    ? `M ${trackStart.x} ${trackStart.y} A ${radius} ${radius} 0 ${largeArc} 1 ${arcEnd.x} ${arcEnd.y}`
+    ? `M ${trackStart.x} ${trackStart.y} A ${radius} ${radius} 0 0 1 ${arcEnd.x} ${arcEnd.y}`
     : ''
 
   // Needle
