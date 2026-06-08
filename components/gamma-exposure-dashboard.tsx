@@ -21,6 +21,7 @@ import { GEXDataGraphDashboard } from "./charts/gex-data-graph-dashboard"
 import { ChartWrapper } from "./charts/chart-wrapper"
 import { PricingMethodToggle } from "./pricing-method-toggle"
 import { EnhancedTimeMachine } from "./enhanced-time-machine"
+import { ExpirySelector, type ExpiryMode } from "./controls/expiry-selector"
 
 // UI components
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -77,11 +78,14 @@ export function GammaExposureDashboard() {
   // UI state
   const [activeTab, setActiveTab] = useState("option-chain")
   const [gexSubTab, setGexSubTab] = useState("by-strike")
-  const [selectedGEXExpiry, setSelectedGEXExpiry] = useState<string>("All Dates")
   const [selectedMoveExpiry, setSelectedMoveExpiry] = useState<string>("All Dates")
   const [selectedWallExpiry, setSelectedWallExpiry] = useState<string>("")
-  const [selectedRampExpiry, setSelectedRampExpiry] = useState<string>("")
   const [strikesCount, setStrikesCount] = useState<number | "ALL">(12)
+  const [selectedRampExpiry, setSelectedRampExpiry] = useState<string>("")
+
+  // ─── Expiry selector state (shared across GEX Profile & Surface) ──
+  const [expiryMode, setExpiryMode] = useState<ExpiryMode>('90d')
+  const [customSelectedExpiries, setCustomSelectedExpiries] = useState<string[]>([])
 
   // ─── Derived data ────────────────────────────────────────────
 
@@ -101,6 +105,31 @@ export function GammaExposureDashboard() {
         .map((exp) => exp.toISOString().split("T")[0])
     )
   ).sort(), [optionData])
+
+  // Compute active expiries based on mode
+  const activeExpiries = useMemo(() => {
+    if (expiryMode === '90d') {
+      const now = new Date()
+      now.setHours(0, 0, 0, 0)
+      return futureExpiries.filter(exp => {
+        const expDate = new Date(exp + "T00:00:00Z")
+        const dte = Math.ceil((expDate.getTime() - now.getTime()) / 86400000)
+        return dte <= 90
+      })
+    }
+    if (expiryMode === '0dte') {
+      const now = new Date()
+      now.setHours(0, 0, 0, 0)
+      const today = futureExpiries.find(exp => {
+        const expDate = new Date(exp + "T00:00:00Z")
+        return Math.ceil((expDate.getTime() - now.getTime()) / 86400000) === 0
+      })
+      if (today) return [today]
+      return futureExpiries.length > 0 ? [futureExpiries[0]] : []
+    }
+    // Custom mode
+    return customSelectedExpiries
+  }, [expiryMode, futureExpiries, customSelectedExpiries])
 
   const gammaFlipLevel = useMemo(() => {
     if (!spotPrice || !optionData.length) return null
@@ -148,12 +177,10 @@ export function GammaExposureDashboard() {
       if (expiries.length > 0) {
         setSelectedWallExpiry(expiries[0])
         if (!expiries.includes(selectedRampExpiry)) setSelectedRampExpiry(expiries[0])
-        if (!expiries.includes(selectedGEXExpiry) && selectedGEXExpiry !== "All Dates") setSelectedGEXExpiry("All Dates")
         if (!expiries.includes(selectedMoveExpiry) && selectedMoveExpiry !== "All Dates") setSelectedMoveExpiry("All Dates")
       } else {
         setSelectedWallExpiry("")
         setSelectedRampExpiry("")
-        setSelectedGEXExpiry("All Dates")
         setSelectedMoveExpiry("All Dates")
       }
     } catch (err) {
@@ -165,7 +192,7 @@ export function GammaExposureDashboard() {
     } finally {
       setIsLoading(false)
     }
-  }, [market, pricingMethod, selectedRampExpiry, selectedGEXExpiry, selectedMoveExpiry])
+  }, [market, pricingMethod, selectedRampExpiry, selectedMoveExpiry])
 
   // ─── Handlers ────────────────────────────────────────────────
 
@@ -330,40 +357,36 @@ export function GammaExposureDashboard() {
             {/* ─── GEX Profile (merged view) ─── */}
             {activeTab === 'gex-profile' && (
               <div className="space-y-4">
-                {/* Sub-tab navigation */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-0 border border-[#1A1A1A] rounded bg-[#0A0A0A] p-0.5">
-                    {GEX_SUBTABS.map((st) => (
-                      <button
-                        key={st.id}
-                        onClick={() => setGexSubTab(st.id)}
-                        className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${
-                          gexSubTab === st.id
-                            ? 'bg-[#1A1A1A] text-[#E5E5E5]'
-                            : 'text-[#525252] hover:text-[#737373]'
-                        }`}
-                      >
-                        {st.label}
-                      </button>
-                    ))}
+                {/* Sub-tab navigation + Expiry selector */}
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-0 border border-[#1A1A1A] rounded bg-[#0A0A0A] p-0.5">
+                      {GEX_SUBTABS.map((st) => (
+                        <button
+                          key={st.id}
+                          onClick={() => setGexSubTab(st.id)}
+                          className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${
+                            gexSubTab === st.id
+                              ? 'bg-[#1A1A1A] text-[#E5E5E5]'
+                              : 'text-[#525252] hover:text-[#737373]'
+                          }`}
+                        >
+                          {st.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   {/* Controls for active sub-tab */}
                   <div className="flex items-center gap-3">
-                    {(gexSubTab === 'by-strike' || gexSubTab === 'call-put-walls') && (
+                    {gexSubTab === 'call-put-walls' && (
                       <div className="flex items-center gap-2">
-                        <span className="text-xxs text-[#525252] uppercase">Expiry</span>
-                        <Select
-                          value={gexSubTab === 'by-strike' ? selectedGEXExpiry : selectedWallExpiry}
-                          onValueChange={gexSubTab === 'by-strike' ? setSelectedGEXExpiry : setSelectedWallExpiry}
-                        >
+                        <span className="text-xxs text-[#525252] uppercase">Wall Expiry</span>
+                        <Select value={selectedWallExpiry} onValueChange={setSelectedWallExpiry}>
                           <SelectTrigger className="w-36 h-7 text-xs bg-[#0A0A0A] border-[#1A1A1A]">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {gexSubTab === 'by-strike' && (
-                              <SelectItem value="All Dates">All Dates</SelectItem>
-                            )}
                             {futureExpiries.map((exp) => (
                               <SelectItem key={exp} value={exp}>{exp}</SelectItem>
                             ))}
@@ -380,6 +403,17 @@ export function GammaExposureDashboard() {
                   </div>
                 </div>
 
+                {/* Expiry selector — shared for profile charts */}
+                {(gexSubTab === 'by-strike' || gexSubTab === 'by-expiration' || gexSubTab === 'data-graph') && (
+                  <ExpirySelector
+                    availableExpiries={futureExpiries}
+                    mode={expiryMode}
+                    onModeChange={setExpiryMode}
+                    selectedExpiries={customSelectedExpiries}
+                    onSelectedExpiriesChange={setCustomSelectedExpiries}
+                  />
+                )}
+
                 {/* Sub-tab content */}
                 {gexSubTab === 'by-strike' && (
                   <ChartWrapper title="" height="700px">
@@ -387,7 +421,7 @@ export function GammaExposureDashboard() {
                       data={optionData}
                       ticker={ticker}
                       spotPrice={spotPrice!}
-                      selectedExpiry={selectedGEXExpiry}
+                      selectedExpiries={activeExpiries}
                       pricingMethod={pricingMethod}
                       onPricingMethodChange={handlePricingMethodChange}
                       market={market}
@@ -400,7 +434,11 @@ export function GammaExposureDashboard() {
                     subtitle="Gamma exposure distribution across expiration dates"
                     height="500px"
                   >
-                    <GEXByExpirationChart data={optionData} ticker={ticker} />
+                    <GEXByExpirationChart
+                      data={optionData}
+                      ticker={ticker}
+                      selectedExpiries={activeExpiries}
+                    />
                   </ChartWrapper>
                 )}
                 {gexSubTab === 'call-put-walls' && (
@@ -432,13 +470,27 @@ export function GammaExposureDashboard() {
 
             {/* ─── GEX Surface ─── */}
             {activeTab === 'gex-surface' && (
-              <ChartWrapper
-                title="GEX Surface (3D)"
-                subtitle="Interactive 3D visualization across strike prices and expiration dates"
-                height="600px"
-              >
-                <GEXSurfaceChart data={optionData} ticker={ticker} spotPrice={spotPrice!} />
-              </ChartWrapper>
+              <div className="space-y-4">
+                <ExpirySelector
+                  availableExpiries={futureExpiries}
+                  mode={expiryMode}
+                  onModeChange={setExpiryMode}
+                  selectedExpiries={customSelectedExpiries}
+                  onSelectedExpiriesChange={setCustomSelectedExpiries}
+                />
+                <ChartWrapper
+                  title="GEX Surface (3D)"
+                  subtitle="Interactive 3D visualization across strike prices and expiration dates"
+                  height="600px"
+                >
+                  <GEXSurfaceChart
+                    data={optionData}
+                    ticker={ticker}
+                    spotPrice={spotPrice!}
+                    selectedExpiries={activeExpiries}
+                  />
+                </ChartWrapper>
+              </div>
             )}
 
             {/* ─── Expected Move ─── */}

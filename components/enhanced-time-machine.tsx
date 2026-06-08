@@ -521,7 +521,7 @@ export function EnhancedTimeMachine({
                 data={convertedOptions}
                 ticker={ticker}
                 spotPrice={optionData?.spot_price || 0}
-                selectedExpiry={selectedExpiry}
+                selectedExpiries={selectedExpiry === 'All Dates' ? [] : [selectedExpiry]}
                 pricingMethod={pricingMethod}
                 onPricingMethodChange={setPricingMethod}
                 market={market === 'us' ? 'USA' : 'INDIA'}
