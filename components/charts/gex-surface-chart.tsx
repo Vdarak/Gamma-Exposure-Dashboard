@@ -17,40 +17,80 @@ export function GEXSurfaceChart({ data, ticker, spotPrice }: GEXSurfaceChartProp
   const [plotLoaded, setPlotLoaded] = useState(false)
 
   const { x, y, z, zRange } = useMemo(() => {
-    const oneYear = new Date()
-    oneYear.setFullYear(oneYear.getFullYear() + 1)
-    const filtered = data.filter(
-      (option) => option.expiration < oneYear && option.strike > spotPrice * 0.8 && option.strike < spotPrice * 1.2,
+    // Filter to near-term expiries (90 days) and standard strike range (+-10%)
+    const maxDTE = new Date()
+    maxDTE.setDate(maxDTE.getDate() + 90)
+    let filtered = data.filter(
+      (option) => option.expiration < maxDTE && option.strike > spotPrice * 0.9 && option.strike < spotPrice * 1.1,
     )
+
+    // Fallback if near-term filter yields too little data
+    if (filtered.length < 50) {
+      const oneYear = new Date()
+      oneYear.setFullYear(oneYear.getFullYear() + 1)
+      filtered = data.filter(
+        (option) => option.expiration < oneYear && option.strike > spotPrice * 0.85 && option.strike < spotPrice * 1.15,
+      )
+    }
 
     const expirations = Array.from(new Set(filtered.map((o) => o.expiration.toISOString().split("T")[0]))).sort()
     const strikes = Array.from(new Set(filtered.map((o) => o.strike))).sort((a, b) => a - b)
-    
-    const z: number[][] = expirations.map((exp) =>
-      strikes.map((strike) => {
-        const match = filtered.find((o) => o.expiration.toISOString().split("T")[0] === exp && o.strike === strike)
-        if (!match) return 0
-        
-        let gexValue = match.GEX
-        if (typeof gexValue !== 'number') {
-          const CONTRACT_SIZE = 100
-          gexValue = spotPrice * match.gamma * match.open_interest * CONTRACT_SIZE * spotPrice * 0.01
-          if (match.type === "P") gexValue = -gexValue
-        }
-        
-        return gexValue / 1e6
+
+    // Downsample strikes if there are too many to prevent WebGL lag (max 60 strikes)
+    let finalStrikes = strikes
+    if (strikes.length > 60) {
+      const step = Math.ceil(strikes.length / 60)
+      finalStrikes = strikes.filter((_, idx) => idx % step === 0)
+    }
+
+    // Downsample expirations if there are too many (max 20 expirations)
+    let finalExpirations = expirations
+    if (expirations.length > 20) {
+      const step = Math.ceil(expirations.length / 20)
+      finalExpirations = expirations.filter((_, idx) => idx % step === 0)
+    }
+
+    // Create a fast lookup map for O(1) queries and properly aggregate GEX (sum Call + Put GEX at same strike)
+    const gexLookup = new Map<string, number>()
+    filtered.forEach((o) => {
+      const expKey = o.expiration.toISOString().split("T")[0]
+      const key = `${expKey}_${o.strike}`
+      
+      let gexValue = o.GEX
+      if (typeof gexValue !== 'number') {
+        const CONTRACT_SIZE = 100
+        gexValue = spotPrice * o.gamma * o.open_interest * CONTRACT_SIZE * spotPrice * 0.01
+        if (o.type === "P") gexValue = -gexValue
+      }
+      
+      const current = gexLookup.get(key) || 0
+      gexLookup.set(key, current + gexValue)
+    })
+
+    const z: number[][] = finalExpirations.map((exp) =>
+      finalStrikes.map((strike) => {
+        const val = gexLookup.get(`${exp}_${strike}`) || 0
+        return val / 1e6 // Convert to millions
       }),
     )
-    
+
     const allZValues = z.flat()
     const zMin = allZValues.length > 0 ? Math.min(...allZValues) : -1
     const zMax = allZValues.length > 0 ? Math.max(...allZValues) : 1
     const maxAbsValue = Math.max(Math.abs(zMin), Math.abs(zMax), 0.1)
     const padding = maxAbsValue * 0.15
     const zRange: [number, number] = [-(maxAbsValue + padding), (maxAbsValue + padding)]
-    
-    return { x: strikes, y: expirations, z, zRange }
+
+    return { x: finalStrikes, y: finalExpirations, z, zRange }
   }, [data, spotPrice])
+
+  if (x.length === 0 || y.length === 0) {
+    return (
+      <div className="h-[500px] w-full flex items-center justify-center bg-black border border-[#1A1A1A] rounded">
+        <span className="text-xs font-mono text-[#525252]">NO DATA AVAILABLE FOR SURFACE</span>
+      </div>
+    )
+  }
 
   return (
     <div className="h-full w-full flex items-center justify-center bg-black rounded relative">

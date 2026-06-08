@@ -119,11 +119,11 @@ export const chartTheme = {
   // 3D surface
   surface: {
     colorscale: [
-      [0, '#FF3B3B'],
-      [0.2, 'rgba(255, 59, 59, 0.5)'],
-      [0.5, '#0A0A0A'],
-      [0.8, 'rgba(0, 255, 136, 0.5)'],
-      [1, '#00FF88'],
+      [0.0, '#FF3B3B'],    // Red (Negative GEX)
+      [0.25, '#FF8800'],   // Orange
+      [0.5, '#FFD700'],    // Yellow (Near Zero)
+      [0.75, '#00D4FF'],   // Cyan
+      [1.0, '#00FF88'],    // Green (Positive GEX)
     ] as [number, string][],
     bg: '#000000',
   },
