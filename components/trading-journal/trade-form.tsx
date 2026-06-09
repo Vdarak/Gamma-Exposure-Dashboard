@@ -30,7 +30,8 @@ export function TradeForm({ isOpen, onClose, onSubmit, initialTrade }: TradeForm
   const [tradeDate, setTradeDate] = useState("")
   const [timeEntered, setTimeEntered] = useState("")
   const [timeExited, setTimeExited] = useState("")
-  const [tradeType, setTradeType] = useState<"Equity" | "Option">("Equity")
+  const [tradeType, setTradeType] = useState<"Equity" | "Option">("Option")
+  const isFeesManualRef = useRef(false)
   
   // Option specific state
   const [strike, setStrike] = useState("")
@@ -96,10 +97,10 @@ export function TradeForm({ isOpen, onClose, onSubmit, initialTrade }: TradeForm
       setTicker("")
       setTimeEntered("")
       setTimeExited("")
-      setTradeType("Equity")
+      setTradeType("Option")
       setStrike("")
       setOptionType("C")
-      setExpiration("")
+      setExpiration(today)
       setDirection("Buy")
       setQuality("A")
       setStatus("Closed")
@@ -112,10 +113,23 @@ export function TradeForm({ isOpen, onClose, onSubmit, initialTrade }: TradeForm
       setExitPrice("")
       setCurrentPrice("")
       setFees("0")
+      isFeesManualRef.current = false
       setScreenshot(null)
     }
     setUploadError(null)
   }, [initialTrade, isOpen])
+
+  // Auto-calculate fees ($1.2 per 100 quantity) if not overridden manually
+  useEffect(() => {
+    if (initialTrade || isFeesManualRef.current) return
+    const qtyVal = parseFloat(quantity)
+    if (!isNaN(qtyVal)) {
+      const calcFees = (qtyVal / 100) * 1.2
+      setFees(calcFees.toFixed(2))
+    } else {
+      setFees("0")
+    }
+  }, [quantity, initialTrade])
 
   // Automatically calculate PnL and PnL% when variables change
   useEffect(() => {
@@ -488,7 +502,11 @@ export function TradeForm({ isOpen, onClose, onSubmit, initialTrade }: TradeForm
                   <label className="text-[#D4D4D4] text-[9px] uppercase font-bold">Contract Expiry</label>
                   <button
                     type="button"
-                    onClick={() => setExpiration(tradeDate || new Date().toISOString().split("T")[0])}
+                    onClick={() => {
+                      const today = new Date().toISOString().split("T")[0]
+                      setTradeDate(today)
+                      setExpiration(today)
+                    }}
                     className="text-[8px] bg-terminal-green/10 text-terminal-green border border-terminal-green/20 px-1.5 py-0.5 rounded hover:bg-terminal-green hover:text-black font-bold uppercase transition-all"
                   >
                     0DTE
@@ -568,7 +586,10 @@ export function TradeForm({ isOpen, onClose, onSubmit, initialTrade }: TradeForm
                 type="number"
                 step="any"
                 value={fees}
-                onChange={(e) => setFees(e.target.value)}
+                onChange={(e) => {
+                  isFeesManualRef.current = true
+                  setFees(e.target.value)
+                }}
                 className="bg-black border border-[#1A1A1E] text-white px-3 py-1.5 rounded outline-none focus:border-terminal-green/45"
               />
             </div>

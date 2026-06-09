@@ -13,6 +13,7 @@ interface CalendarViewProps {
 
 export function CalendarView({ trades, onSelectTrade, onAddTradeForDate, onSelectDate }: CalendarViewProps) {
   const [currentDate, setCurrentDate] = useState(new Date())
+  const [expandedDate, setExpandedDate] = useState<string | null>(null)
 
   const year = currentDate.getFullYear()
   const month = currentDate.getMonth()
@@ -46,17 +47,18 @@ export function CalendarView({ trades, onSelectTrade, onAddTradeForDate, onSelec
     const grouped: Record<number, JournalTrade[]> = {}
     
     trades.forEach((trade) => {
-      const tDate = new Date(trade.tradeDate)
-      // Account for local timezone offsets when extracting month/year
-      const tYear = tDate.getFullYear()
-      const tMonth = tDate.getMonth()
-      const tDay = tDate.getDate()
-      
-      if (tYear === year && tMonth === month) {
-        if (!grouped[tDay]) {
-          grouped[tDay] = []
+      const parts = trade.tradeDate.split("-")
+      if (parts.length === 3) {
+        const tYear = parseInt(parts[0], 10)
+        const tMonth = parseInt(parts[1], 10) - 1
+        const tDay = parseInt(parts[2], 10)
+        
+        if (tYear === year && tMonth === month) {
+          if (!grouped[tDay]) {
+            grouped[tDay] = []
+          }
+          grouped[tDay].push(trade)
         }
-        grouped[tDay].push(trade)
       }
     })
     
@@ -144,11 +146,14 @@ export function CalendarView({ trades, onSelectTrade, onAddTradeForDate, onSelec
           const dateStr = `${year}-${monthStr}-${dayStr}`
 
           // Determine card style states
+          const isExpanded = expandedDate === dateStr
+
+          // Determine card style states
           const cardBorderClass = !hasTrades
             ? "border-[#1A1A1E] hover:border-[#333]"
             : dayPnl >= 0
-            ? "border-terminal-green/30 hover:border-terminal-green bg-[#03150D] glow-green"
-            : "border-terminal-red/30 hover:border-terminal-red bg-[#160609] glow-red"
+            ? `border-terminal-green/30 hover:border-terminal-green bg-[#03150D] glow-green ${isExpanded ? "border-terminal-green/80 shadow-md" : ""}`
+            : `border-terminal-red/30 hover:border-terminal-red bg-[#160609] glow-red ${isExpanded ? "border-terminal-red/80 shadow-md" : ""}`
 
           const pnlColorClass = dayPnl > 0
             ? "text-terminal-green"
@@ -162,7 +167,9 @@ export function CalendarView({ trades, onSelectTrade, onAddTradeForDate, onSelec
           return (
             <div
               key={`day-${day}`}
-              className={`rounded-lg border bg-[#050507] p-2.5 min-h-[135px] flex flex-col justify-between relative group transition-all overflow-hidden ${cardBorderClass}`}
+              className={`rounded-lg border bg-[#050507] p-2.5 flex flex-col justify-between relative group transition-all overflow-hidden ${
+                isExpanded ? "min-h-[220px] h-auto" : "min-h-[135px]"
+              } ${cardBorderClass}`}
             >
               {/* Fade screenshot overlay background */}
               {dayScreenshot && (
@@ -237,7 +244,14 @@ export function CalendarView({ trades, onSelectTrade, onAddTradeForDate, onSelec
                 <div className="absolute inset-0 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-transparent">
                   {hasTrades ? (
                     <button
-                      onClick={() => onSelectDate(dateStr)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (tradeCount > 1) {
+                          setExpandedDate(isExpanded ? null : dateStr)
+                        } else {
+                          onSelectTrade(dayTrades[0])
+                        }
+                      }}
                       className="flex items-center gap-1 text-[8px] bg-black/90 border border-[#222] hover:border-white text-[#E5E5E5] px-1.5 py-0.5 rounded font-bold uppercase"
                       title="Inspect Trades"
                     >
@@ -256,6 +270,49 @@ export function CalendarView({ trades, onSelectTrade, onAddTradeForDate, onSelec
                   </button>
                 </div>
               </div>
+
+              {/* Horizontal scroll list of trades when expanded */}
+              {isExpanded && dayTrades.length > 0 && (
+                <div className="mt-3 pt-2.5 border-t border-[#1A1A1E] w-full relative z-20 animate-fade-in flex flex-col gap-1">
+                  <div className="flex gap-1.5 overflow-x-auto pb-1 terminal-scrollbar max-w-full">
+                    {dayTrades.map((t) => {
+                      const strikeLabel = t.tradeType === "Option" && t.strike
+                        ? ` $${t.strike}${t.optionType}`
+                        : ""
+                      return (
+                        <div
+                          key={t.id}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onSelectTrade(t)
+                          }}
+                          className="flex-shrink-0 w-[78px] bg-black border border-[#15151C] hover:border-[#333] rounded p-1 flex flex-col justify-between h-14 cursor-pointer relative group/item overflow-hidden"
+                        >
+                          {t.screenshot && (
+                            <div
+                              className="absolute inset-0 bg-cover bg-center opacity-15 filter blur-[0.2px] group-hover/item:opacity-25 transition-opacity"
+                              style={{ backgroundImage: `url(${t.screenshot})` }}
+                            />
+                          )}
+                          <div className="relative z-10 flex flex-col gap-0.5">
+                            <span className="text-[7px] font-bold text-white uppercase truncate">
+                              {t.ticker}{strikeLabel}
+                            </span>
+                            <span className={`text-[8px] font-bold font-data leading-none ${t.pnl >= 0 ? "text-terminal-green" : "text-terminal-red"}`}>
+                              {t.pnl >= 0 ? "+" : ""}${Math.round(t.pnl)}
+                            </span>
+                          </div>
+                          <span className={`text-[6px] font-bold px-1 py-0.2 rounded self-start ${
+                            t.direction === "Buy" ? "bg-terminal-green/10 text-terminal-green" : "bg-terminal-red/10 text-terminal-red"
+                          } relative z-10`}>
+                            {t.direction === "Buy" ? "BUY" : "SELL"}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )
         })}

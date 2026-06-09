@@ -147,7 +147,7 @@ export function Heatmap({ trades, onSelectDate }: HeatmapProps) {
               {gridData.map((week, wIdx) => (
                 <div key={`week-${wIdx}`} className="flex flex-col gap-[3px]">
                   {week.map((day) => {
-                    const dateStr = day.toISOString().split("T")[0]
+                    const dateStr = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`
                     const stat = dailyStats[dateStr]
                     const pnl = stat?.pnl
                     const count = stat?.count || 0
