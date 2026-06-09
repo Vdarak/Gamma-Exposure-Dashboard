@@ -50,8 +50,7 @@ export function EnhancedTimeMachine({
   onDataUpdate,
   backendUrl 
 }: EnhancedTimeMachineProps) {
-  // Use environment variable for backend URL or fallback
-  const BACKEND_URL = backendUrl || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'
+  const BACKEND_URL = (backendUrl || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001').replace(/\/+$/, '')
   
   // Market and ticker state
   const [market, setMarket] = useState<'us' | 'india'>('india')
