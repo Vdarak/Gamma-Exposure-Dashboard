@@ -89,6 +89,17 @@ app.use((req, res, next) => {
 // ============= API ROUTES =============
 
 /**
+ * Root landing endpoint
+ */
+app.get('/', (req: Request, res: Response) => {
+  res.json({
+    message: 'Gamma Exposure Terminal API is active',
+    health: '/health',
+    status: 'online'
+  });
+});
+
+/**
  * Health check endpoint
  */
 app.get('/health', (req: Request, res: Response) => {
