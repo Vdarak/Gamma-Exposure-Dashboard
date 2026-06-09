@@ -1,26 +1,34 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { colors } from "@/lib/design-tokens"
-
-// ─── Types ────────────────────────────────────────────────────────
+import { useMemo } from "react"
+import type { OptionData } from "@/lib/types"
 
 export type ExpiryMode = '90d' | '0dte' | 'custom'
 
 interface ExpirySelectorProps {
-  /** All available expiry date strings (sorted, YYYY-MM-DD) */
   availableExpiries: string[]
-  /** Currently selected expiry mode */
   mode: ExpiryMode
-  /** Callback when mode changes */
   onModeChange: (mode: ExpiryMode) => void
-  /** Currently selected expiries in custom mode */
   selectedExpiries: string[]
-  /** Callback when selected expiries change */
   onSelectedExpiriesChange: (expiries: string[]) => void
+  optionData: OptionData[]
 }
 
-// ─── Component ────────────────────────────────────────────────────
+// Format number into compact millions/billions for buildup display
+function formatGexBuildup(num: number): string {
+  const absVal = Math.abs(num)
+  const sign = num >= 0 ? '+' : '−'
+  if (absVal >= 1000000000) {
+    return `${sign}${(absVal / 1000000000).toFixed(1)}B`
+  }
+  if (absVal >= 1000000) {
+    return `${sign}${(absVal / 1000000).toFixed(1)}M`
+  }
+  if (absVal >= 1000) {
+    return `${sign}${(absVal / 1000).toFixed(0)}K`
+  }
+  return `${sign}${absVal.toFixed(0)}`
+}
 
 export function ExpirySelector({
   availableExpiries,
@@ -28,186 +36,236 @@ export function ExpirySelector({
   onModeChange,
   selectedExpiries,
   onSelectedExpiriesChange,
+  optionData,
 }: ExpirySelectorProps) {
-  const [customExpanded, setCustomExpanded] = useState(false)
+  
+  // 1. Group GEX calls and puts by expiration date
+  const gexByExp = useMemo(() => {
+    const map = new Map<string, { call: number; put: number }>()
+    optionData.forEach(opt => {
+      const expStr = opt.expiration.toISOString().split("T")[0]
+      const current = map.get(expStr) || { call: 0, put: 0 }
+      const gexVal = opt.GEX || opt.GEX_BS || 0
 
-  // Compute DTE for each expiry
-  const expiriesWithDTE = useMemo(() => {
-    const now = new Date()
-    now.setHours(0, 0, 0, 0)
-    return availableExpiries.map(exp => {
-      const expDate = new Date(exp + "T00:00:00Z")
-      const dte = Math.max(0, Math.ceil((expDate.getTime() - now.getTime()) / 86400000))
-      return { date: exp, dte }
+      if (opt.type === 'C') {
+        current.call += gexVal
+      } else {
+        // Option GEX is stored with signs already, but we represent call/put buildups
+        current.put += gexVal
+      }
+      map.set(expStr, current)
     })
-  }, [availableExpiries])
+    return map
+  }, [optionData])
 
-  // Determine which expiries are "active" based on mode
-  const activeExpiries = useMemo(() => {
+  // 2. Parse calendar days and DTEs
+  const expiriesWithStats = useMemo(() => {
+    const getDTE = (expStr: string) => {
+      const parts = expStr.split('-')
+      const expUTC = Date.UTC(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10))
+      const today = new Date()
+      const todayUTC = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
+      return Math.max(0, Math.round((expUTC - todayUTC) / 86400000))
+    }
+
+    return availableExpiries.map(exp => {
+      const dte = getDTE(exp)
+      const expDate = new Date(exp + "T00:00:00Z")
+      const stats = gexByExp.get(exp) || { call: 0, put: 0 }
+
+      // Format a nice human readable weekday/date
+      const formattedDate = expDate.toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        timeZone: 'UTC'
+      })
+
+      return {
+        date: exp,
+        formattedDate,
+        dte,
+        callGex: stats.call,
+        putGex: stats.put,
+      }
+    })
+  }, [availableExpiries, gexByExp])
+
+  // 3. Helpers to check if card is active
+  const isSelected = (exp: string) => {
     if (mode === '90d') {
-      return expiriesWithDTE.filter(e => e.dte <= 90).map(e => e.date)
+      const info = expiriesWithStats.find(e => e.date === exp)
+      return info ? info.dte <= 90 : false
     }
     if (mode === '0dte') {
-      // Today's expiry, or nearest if none today
-      const today = expiriesWithDTE.find(e => e.dte === 0)
-      if (today) return [today.date]
-      const nearest = expiriesWithDTE[0]
-      return nearest ? [nearest.date] : []
+      const today = expiriesWithStats.find(e => e.dte === 0)
+      if (today) return exp === today.date
+      return exp === availableExpiries[0]
     }
-    // Custom mode — use selectedExpiries
-    return selectedExpiries
-  }, [mode, expiriesWithDTE, selectedExpiries])
-
-  const isSelected = (exp: string) => activeExpiries.includes(exp)
+    return selectedExpiries.includes(exp)
+  }
 
   const toggleExpiry = (exp: string) => {
-    if (mode !== 'custom') return
-    const next = isSelected(exp)
-      ? selectedExpiries.filter(e => e !== exp)
-      : [...selectedExpiries, exp].sort()
-    onSelectedExpiriesChange(next)
+    // If not in custom mode, clicking automatically activates custom mode
+    let nextExpiries = [...selectedExpiries]
+    if (mode !== 'custom') {
+      // Seed custom with currently active ones
+      if (mode === '90d') {
+        nextExpiries = expiriesWithStats.filter(e => e.dte <= 90).map(e => e.date)
+      } else if (mode === '0dte') {
+        const today = expiriesWithStats.find(e => e.dte === 0)
+        nextExpiries = today ? [today.date] : (availableExpiries[0] ? [availableExpiries[0]] : [])
+      }
+      onModeChange('custom')
+    }
+
+    if (nextExpiries.includes(exp)) {
+      nextExpiries = nextExpiries.filter(e => e !== exp)
+    } else {
+      nextExpiries = [...nextExpiries, exp].sort()
+    }
+    onSelectedExpiriesChange(nextExpiries)
   }
 
-  const selectAll = () => {
-    if (mode !== 'custom') return
-    onSelectedExpiriesChange([...availableExpiries])
+  const handlePresetChange = (preset: ExpiryMode) => {
+    onModeChange(preset)
+    if (preset === 'custom') {
+      // Seed with 90d
+      const presetList = expiriesWithStats.filter(e => e.dte <= 90).map(e => e.date)
+      onSelectedExpiriesChange(presetList)
+    }
   }
 
-  const clearAll = () => {
-    if (mode !== 'custom') return
+  const handleReset = () => {
+    onModeChange('90d')
     onSelectedExpiriesChange([])
   }
 
-  const handleModeChange = (newMode: ExpiryMode) => {
-    onModeChange(newMode)
-    if (newMode === 'custom' && selectedExpiries.length === 0) {
-      // Pre-select 90d expiries as starting point
-      const preset = expiriesWithDTE.filter(e => e.dte <= 90).map(e => e.date)
-      onSelectedExpiriesChange(preset)
-    }
-    if (newMode === 'custom') {
-      setCustomExpanded(true)
-    }
-  }
-
   return (
-    <div className="flex flex-col gap-2">
-      {/* Mode toggles */}
-      <div className="flex items-center gap-1">
-        <span className="text-xxs text-[#525252] uppercase mr-1.5 font-medium tracking-wider">EXPIRY</span>
-        {(['90d', '0dte', 'custom'] as ExpiryMode[]).map(m => (
+    <div className="flex flex-col h-full bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-3 select-none">
+      {/* Header Presets */}
+      <div className="flex items-center justify-between border-b border-[#1A1A1E] pb-2.5 mb-3">
+        <div className="flex items-center gap-1 bg-black p-0.5 rounded border border-[#1A1A1E]">
           <button
-            key={m}
-            onClick={() => handleModeChange(m)}
-            className={`px-2.5 py-1 rounded text-xxs font-mono border transition-all ${
-              mode === m
-                ? 'bg-[#1A1A1A] text-[#E5E5E5] border-[#333]'
-                : 'bg-transparent text-[#525252] border-[#1A1A1A] hover:border-[#333] hover:text-[#737373]'
+            onClick={() => handlePresetChange('90d')}
+            className={`px-2 py-1 text-[10px] font-mono rounded transition-all ${
+              mode === '90d'
+                ? 'bg-[#1A1A1E] text-terminal-green'
+                : 'text-[#525252] hover:text-[#888]'
             }`}
           >
-            {m === '90d' ? '90D' : m === '0dte' ? '0DTE' : 'CUSTOM'}
+            ALL
           </button>
-        ))}
+          <button
+            onClick={() => handlePresetChange('0dte')}
+            className={`px-2 py-1 text-[10px] font-mono rounded transition-all ${
+              mode === '0dte'
+                ? 'bg-[#1A1A1E] text-terminal-green'
+                : 'text-[#525252] hover:text-[#888]'
+            }`}
+          >
+            0DTE
+          </button>
+          <button
+            onClick={() => handlePresetChange('custom')}
+            className={`px-2.5 py-1 text-[10px] font-mono rounded transition-all ${
+              mode === 'custom'
+                ? 'bg-[#1A1A1E] text-terminal-green'
+                : 'text-[#525252] hover:text-[#888]'
+            }`}
+          >
+            CUSTOM
+          </button>
+        </div>
 
-        {/* Active count badge */}
-        <span className="ml-1.5 text-xxs font-mono text-[#525252]">
-          {activeExpiries.length}/{availableExpiries.length}
+        <span className="text-[10px] font-mono text-[#525252]">
+          ACTIVE: {expiriesWithStats.filter(e => isSelected(e.date)).length}
         </span>
       </div>
 
-      {/* Custom mode: expiry list */}
-      {mode === 'custom' && (
-        <div className="flex flex-col gap-1.5">
-          {/* Quick actions */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setCustomExpanded(!customExpanded)}
-              className="text-xxs font-mono text-[#525252] hover:text-[#E5E5E5] transition-colors"
+      {/* Expiries List */}
+      <div className="flex-1 overflow-y-auto space-y-2 pr-0.5 max-h-[380px] terminal-scrollbar">
+        {expiriesWithStats.map(item => {
+          const active = isSelected(item.date)
+          return (
+            <div
+              key={item.date}
+              className={`border rounded p-2 transition-all flex flex-col gap-1.5 cursor-pointer ${
+                active
+                  ? 'bg-[#121215] border-[#25252E] opacity-100'
+                  : 'bg-[#060608] border-[#101014] opacity-40 hover:opacity-75'
+              }`}
+              onClick={() => toggleExpiry(item.date)}
             >
-              {customExpanded ? '▼ HIDE LIST' : '▶ SHOW LIST'}
-            </button>
-            <button
-              onClick={selectAll}
-              className="text-xxs font-mono text-terminal-green/60 hover:text-terminal-green transition-colors"
-            >
-              +ALL
-            </button>
-            <button
-              onClick={clearAll}
-              className="text-xxs font-mono text-terminal-red/60 hover:text-terminal-red transition-colors"
-            >
-              −ALL
-            </button>
-          </div>
+              {/* Card Header */}
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold font-mono text-[#E5E5E5]">
+                  {item.dte === 0 ? '0 DTE' : `${item.dte} DTE`}
+                </span>
+                <span className="text-[9px] font-mono text-[#525252]">
+                  {item.formattedDate}
+                </span>
+              </div>
 
-          {/* Selected pills (always visible) */}
-          {selectedExpiries.length > 0 && selectedExpiries.length <= 8 && (
-            <div className="flex flex-wrap gap-1">
-              {selectedExpiries.map(exp => {
-                const info = expiriesWithDTE.find(e => e.date === exp)
-                return (
-                  <span
-                    key={exp}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#1A1A1A] border border-[#2A2A2A] text-xxs font-mono text-[#E5E5E5]"
-                  >
-                    {exp.slice(5)}
-                    <span className="text-[#525252]">{info ? `${info.dte}d` : ''}</span>
-                    <button
-                      onClick={() => toggleExpiry(exp)}
-                      className="text-terminal-red/60 hover:text-terminal-red ml-0.5 transition-colors"
-                    >
-                      ×
-                    </button>
+              {/* Card Body */}
+              <div className="flex items-center gap-1.5 mt-0.5">
+                {/* Call GEX Buildup */}
+                <div className="flex-1 bg-black/60 border border-terminal-green/20 rounded px-2 py-0.5 text-center">
+                  <span className="text-[9px] font-mono text-[#00FF88]">
+                    {formatGexBuildup(item.callGex)}
                   </span>
-                )
-              })}
-            </div>
-          )}
+                </div>
 
-          {selectedExpiries.length > 8 && (
-            <span className="text-xxs font-mono text-[#525252]">
-              {selectedExpiries.length} expiries selected
-            </span>
-          )}
+                {/* Put GEX Buildup */}
+                <div className="flex-1 bg-black/60 border border-terminal-red/20 rounded px-2 py-0.5 text-center">
+                  <span className="text-[9px] font-mono text-[#FF3B3B]">
+                    {formatGexBuildup(item.putGex)}
+                  </span>
+                </div>
 
-          {/* Full list */}
-          {customExpanded && (
-            <div className="max-h-48 overflow-y-auto border border-[#1A1A1A] rounded bg-[#080808] p-1.5 terminal-scrollbar">
-              {expiriesWithDTE.map(({ date, dte }) => {
-                const selected = isSelected(date)
-                return (
-                  <div
-                    key={date}
-                    className={`flex items-center justify-between px-2 py-1 rounded cursor-pointer transition-colors ${
-                      selected
-                        ? 'bg-[#1A1A1A] text-[#E5E5E5]'
-                        : 'text-[#525252] hover:bg-[#111] hover:text-[#737373]'
-                    }`}
-                    onClick={() => toggleExpiry(date)}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-xxs font-mono">{date}</span>
-                      <span className="text-xxs font-mono text-[#525252]">
-                        {dte === 0 ? '0DTE' : `${dte}d`}
-                      </span>
-                    </div>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); toggleExpiry(date) }}
-                      className={`w-5 h-5 flex items-center justify-center rounded text-xs font-mono border transition-all ${
-                        selected
-                          ? 'border-terminal-red/30 text-terminal-red hover:bg-terminal-red/10'
-                          : 'border-terminal-green/30 text-terminal-green hover:bg-terminal-green/10'
-                      }`}
-                    >
-                      {selected ? '−' : '+'}
-                    </button>
-                  </div>
-                )
-              })}
+                {/* Remove button */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    toggleExpiry(item.date)
+                  }}
+                  className={`w-5 h-5 flex items-center justify-center rounded-full transition-all flex-shrink-0 ${
+                    active
+                      ? 'bg-terminal-red/10 border border-terminal-red/30 text-terminal-red hover:bg-terminal-red/20'
+                      : 'bg-terminal-green/10 border border-terminal-green/30 text-terminal-green hover:bg-terminal-green/20'
+                  }`}
+                >
+                  <span className="text-xs font-bold leading-none">
+                    {active ? '−' : '+'}
+                  </span>
+                </button>
+              </div>
             </div>
-          )}
-        </div>
-      )}
+          )
+        })}
+      </div>
+
+      {/* Bottom Checkboxes and Reset */}
+      <div className="border-t border-[#1A1A1E] pt-3.5 mt-3 flex items-center justify-between">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            defaultChecked
+            className="w-3 h-3 rounded bg-black border-[#1A1A1E] text-terminal-green focus:ring-0 focus:ring-offset-0"
+          />
+          <span className="text-[10px] font-mono text-[#525252] hover:text-[#737373] transition-colors">
+            APPLY TO VOL
+          </span>
+        </label>
+
+        <button
+          onClick={handleReset}
+          className="px-2 py-0.5 rounded text-[10px] font-mono border border-[#1A1A1E] text-[#525252] hover:text-[#E5E5E5] hover:border-[#333] transition-all"
+        >
+          RESET
+        </button>
+      </div>
     </div>
   )
 }

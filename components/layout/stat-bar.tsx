@@ -174,18 +174,18 @@ export function StatBar({ spotPrice, totalGEX, optionData, market, gammaFlipLeve
             />
             <Divider />
             <StatCell
-              label="TOTAL Γ"
+              label="TOTAL GAMMA"
               value={formatLargeNumber(stats.totalGamma)}
             />
             <Divider />
             <StatCell
-              label="NET Γ"
+              label="NET GAMMA"
               value={formatLargeNumber(stats.netGamma)}
               color={stats.netGamma >= 0 ? '#00FF88' : '#FF3B3B'}
             />
             <Divider />
             <StatCell
-              label="Γ FLIP"
+              label="GAMMA FLIP"
               value={gammaFlipLevel ? `${currencySymbol}${gammaFlipLevel.toFixed(0)}` : '—'}
               color="#FF00AA"
             />

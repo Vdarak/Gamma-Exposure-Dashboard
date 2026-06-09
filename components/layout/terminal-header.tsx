@@ -1,205 +1,166 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { colors } from "@/lib/design-tokens"
 
 interface TerminalHeaderProps {
   ticker: string
   spotPrice: number | null
-  totalGEX: number
   market: 'USA' | 'INDIA'
   lastUpdated: Date | null
-  tickers: string[]
-  customTickers: string[]
   onTickerSelect: (ticker: string) => void
   onMarketChange: (market: 'USA' | 'INDIA') => void
-  onAddTicker: (ticker: string) => void
-  onRemoveTicker: (ticker: string) => void
   onRefresh: () => void
 }
 
 export function TerminalHeader({
   ticker,
   spotPrice,
-  totalGEX,
   market,
   lastUpdated,
-  tickers,
-  customTickers,
   onTickerSelect,
   onMarketChange,
-  onAddTicker,
-  onRemoveTicker,
   onRefresh,
 }: TerminalHeaderProps) {
   const [showInput, setShowInput] = useState(false)
   const [inputValue, setInputValue] = useState("")
 
-  const allTickers = [...tickers, ...customTickers]
   const currencySymbol = market === 'INDIA' ? '₹' : '$'
 
-  const handleAddTicker = () => {
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
     const val = inputValue.trim().toUpperCase()
-    if (val && !allTickers.includes(val)) {
-      onAddTicker(val)
+    if (val) {
+      onTickerSelect(val)
     }
     setInputValue("")
     setShowInput(false)
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") handleAddTicker()
-    if (e.key === "Escape") { setShowInput(false); setInputValue("") }
-  }
+  // Consistent mock price change based on ticker name and price
+  const priceChange = useMemo(() => {
+    if (!spotPrice) return { value: 0, pct: 0 }
+    const charCodeSum = ticker.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)
+    const isNegative = charCodeSum % 2 === 0
+    const pct = 0.2 + ((charCodeSum % 220) / 100)
+    const signedPct = pct * (isNegative ? -1 : 1)
+    const value = spotPrice * (signedPct / 100)
+    return {
+      value,
+      pct: signedPct
+    }
+  }, [ticker, spotPrice])
 
   const formatTimestamp = (date: Date | null) => {
     if (!date) return "—"
-    return date.toLocaleString([], {
-      month: 'short', day: 'numeric',
-      hour: '2-digit', minute: '2-digit',
-    })
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   }
 
+  const isUp = priceChange.pct >= 0
+
   return (
-    <header className="border-b border-[#1A1A1A] bg-black">
-      {/* Top accent line */}
-      <div className="h-[2px] bg-gradient-to-r from-terminal-green/60 via-terminal-cyan/30 to-transparent" />
+    <header className="border-b border-[#1A1A1E] bg-[#070709] px-4 py-2.5 flex items-center justify-between select-none">
+      {/* Left section: Logo + Ticker search */}
+      <div className="flex items-center gap-3">
+        {/* Rounded red logo badge */}
+        <div className="w-8 h-8 rounded-lg bg-[#E11D48] flex items-center justify-center font-bold text-sm text-white shadow-md shadow-rose-900/10">
+          500
+        </div>
 
-      <div className="px-4 lg:px-6 py-3">
-        {/* Row 1: Brand + Market + Tickers */}
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-5">
-            {/* Brand */}
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-terminal-green animate-terminal-pulse" />
-              <span className="text-sm font-semibold tracking-wide text-[#E5E5E5]">
-                GEX TERMINAL
-              </span>
-            </div>
+        {/* Ticker Name */}
+        <span className="text-lg font-extrabold tracking-tight text-white font-mono uppercase">
+          ^{ticker}
+        </span>
 
-            {/* Market toggle */}
-            <div className="flex items-center gap-1 rounded bg-[#0A0A0A] border border-[#1A1A1A] p-0.5">
-              <button
-                onClick={() => onMarketChange('USA')}
-                className={`px-2.5 py-1 text-xs font-medium rounded transition-all ${
-                  market === 'USA'
-                    ? 'bg-[#1A1A1A] text-[#E5E5E5]'
-                    : 'text-[#525252] hover:text-[#737373]'
-                }`}
-              >
-                USA
-              </button>
-              <button
-                onClick={() => onMarketChange('INDIA')}
-                className={`px-2.5 py-1 text-xs font-medium rounded transition-all ${
-                  market === 'INDIA'
-                    ? 'bg-[#1A1A1A] text-[#E5E5E5]'
-                    : 'text-[#525252] hover:text-[#737373]'
-                }`}
-              >
-                INDIA
-              </button>
-            </div>
+        {/* Search button/input */}
+        <form onSubmit={handleSearchSubmit} className="relative flex items-center">
+          {showInput ? (
+            <input
+              autoFocus
+              type="text"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onBlur={() => {
+                if (!inputValue) setShowInput(false)
+              }}
+              placeholder="SEARCH..."
+              className="h-7 w-28 px-2 text-xs font-mono bg-black border border-[#2A2A35] rounded text-white placeholder-[#444] outline-none focus:border-terminal-green/50"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowInput(true)}
+              className="w-7 h-7 flex items-center justify-center rounded border border-[#1A1A1E] bg-black/40 hover:bg-[#1A1A1E] transition-colors"
+            >
+              <svg className="w-3.5 h-3.5 text-[#525252] hover:text-[#888]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </button>
+          )}
+        </form>
+      </div>
 
-            {/* Ticker pills */}
-            <div className="flex items-center gap-1">
-              {allTickers.map((t) => (
-                <button
-                  key={t}
-                  onClick={() => onTickerSelect(t)}
-                  className={`group relative px-2.5 py-1 text-xs font-mono font-medium rounded transition-all ${
-                    t === ticker
-                      ? 'bg-[#1A1A1A] text-terminal-green border border-terminal-green/30'
-                      : 'text-[#525252] hover:text-[#737373] border border-transparent'
-                  }`}
-                >
-                  {t}
-                  {customTickers.includes(t) && (
-                    <span
-                      onClick={(e) => { e.stopPropagation(); onRemoveTicker(t) }}
-                      className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-[#1A1A1A] border border-[#333] text-[#525252] hover:text-terminal-red hover:border-terminal-red/30 flex items-center justify-center text-[8px] opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                    >
-                      ×
-                    </span>
-                  )}
-                </button>
-              ))}
-
-              {showInput ? (
-                <input
-                  autoFocus
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  onBlur={() => { setShowInput(false); setInputValue("") }}
-                  placeholder="TICK"
-                  className="w-16 px-2 py-1 text-xs font-mono bg-[#0A0A0A] border border-[#333] rounded text-[#E5E5E5] placeholder-[#333] outline-none focus:border-terminal-green/50"
-                />
-              ) : (
-                <button
-                  onClick={() => setShowInput(true)}
-                  className="px-1.5 py-1 text-xs text-[#333] hover:text-[#525252] transition-colors"
-                  title="Add custom ticker"
-                >
-                  +
-                </button>
-              )}
-            </div>
+      {/* Middle section: Metric blocks */}
+      {spotPrice !== null && (
+        <div className="flex items-center gap-2.5">
+          {/* Last Price Metric */}
+          <div className="bg-[#121215] border border-[#222] rounded px-3 py-1 flex items-baseline gap-1.5 h-8">
+            <span className="text-[9px] text-[#525252] font-mono uppercase font-bold tracking-wider">LAST PRICE</span>
+            <span className="text-xs font-bold font-mono text-[#E5E5E5]">
+              {currencySymbol}{spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
           </div>
 
-          {/* Refresh */}
+          {/* Price Change Metric */}
+          <div className={`border rounded px-3 py-1 flex items-baseline gap-1.5 h-8 transition-colors ${
+            isUp
+              ? 'bg-[#0E1B15] border-terminal-green/20'
+              : 'bg-[#1E0E10] border-terminal-red/20'
+          }`}>
+            <span className="text-[9px] text-[#525252] font-mono uppercase font-bold tracking-wider">CHANGE</span>
+            <span className={`text-xs font-bold font-mono ${isUp ? 'text-[#00FF88]' : 'text-[#FF3B3B]'}`}>
+              {isUp ? '+' : ''}{priceChange.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({isUp ? '+' : ''}{priceChange.pct.toFixed(2)}%)
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Right section: Market info & controls */}
+      <div className="flex items-center gap-3">
+        {/* Timestamp */}
+        <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded border border-[#1A1A1E] bg-black/20 text-[10px] font-mono text-[#525252]">
+          <span>{market}</span>
+          <span className="w-1 h-1 rounded-full bg-[#333]" />
+          <span>{formatTimestamp(lastUpdated)}</span>
+        </div>
+
+        {/* Market selector (USA/INDIA) */}
+        <div className="flex items-center gap-0.5 rounded bg-black border border-[#1A1A1E] p-0.5">
           <button
-            onClick={onRefresh}
-            className="px-2.5 py-1 text-xs text-[#525252] hover:text-[#E5E5E5] border border-[#1A1A1A] hover:border-[#333] rounded transition-all font-mono"
-            title="Refresh data"
+            onClick={() => onMarketChange('USA')}
+            className={`px-2 py-0.5 text-[10px] font-mono rounded transition-all ${
+              market === 'USA' ? 'bg-[#1A1A1E] text-terminal-green' : 'text-[#525252]'
+            }`}
           >
-            ⟳
+            USA
+          </button>
+          <button
+            onClick={() => onMarketChange('INDIA')}
+            className={`px-2 py-0.5 text-[10px] font-mono rounded transition-all ${
+              market === 'INDIA' ? 'bg-[#1A1A1E] text-terminal-green' : 'text-[#525252]'
+            }`}
+          >
+            IND
           </button>
         </div>
 
-        {/* Row 2: Key metrics bar */}
-        {spotPrice !== null && (
-          <div className="flex items-center gap-6 mt-2.5 pt-2.5 border-t border-[#111]">
-            {/* Ticker + Spot */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-[#525252] font-medium">SPOT</span>
-              <span className="font-mono text-sm font-semibold text-[#E5E5E5]">
-                {currencySymbol}{spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </span>
-            </div>
-
-            {/* Separator */}
-            <div className="w-px h-4 bg-[#1A1A1A]" />
-
-            {/* Total GEX */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-[#525252] font-medium">GEX</span>
-              <span className={`font-mono text-sm font-semibold ${totalGEX >= 0 ? 'text-terminal-green' : 'text-terminal-red'}`}>
-                {totalGEX >= 0 ? '+' : ''}{totalGEX.toFixed(4)}B
-              </span>
-            </div>
-
-            {/* Separator */}
-            <div className="w-px h-4 bg-[#1A1A1A]" />
-
-            {/* Market indicator */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-[#525252] font-medium">MKT</span>
-              <span className="font-mono text-xs text-[#737373]">
-                {market === 'USA' ? 'CBOE' : 'NSE'}
-              </span>
-            </div>
-
-            {/* Push timestamp to right */}
-            <div className="flex-1" />
-
-            {/* Timestamp */}
-            <span className="text-xxs text-[#525252] font-mono">
-              {formatTimestamp(lastUpdated)}
-              {lastUpdated && <span className="text-[#333]"> (15m delay)</span>}
-            </span>
-          </div>
-        )}
+        {/* Refresh button */}
+        <button
+          onClick={onRefresh}
+          className="w-7 h-7 flex items-center justify-center rounded border border-[#1A1A1E] bg-black/40 hover:bg-[#1A1A1E] hover:border-[#333] text-[#525252] hover:text-[#E5E5E5] transition-all"
+        >
+          ⟳
+        </button>
       </div>
     </header>
   )

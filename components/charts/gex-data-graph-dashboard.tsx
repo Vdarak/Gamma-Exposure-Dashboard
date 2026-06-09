@@ -145,10 +145,10 @@ export const GEXDataGraphDashboard: React.FC<GEXDataGraphDashboardProps> = ({ da
           tooltipRef.current.innerHTML = `
             <div style="font-family:${typography.fontSans};font-size:12px;color:${colors.text.primary};font-weight:600">${d.date}</div>
             <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.accent.purple};margin-top:2px">
-              Total Γ: ${formatCompact(d.totalGamma)}
+              Total Gamma: ${formatCompact(d.totalGamma)}
             </div>
             <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.accent.green}">
-              Net Γ: ${formatCompact(d.netGamma)}
+              Net Gamma: ${formatCompact(d.netGamma)}
             </div>
           `
           tooltipRef.current.style.opacity = '1'

@@ -308,7 +308,7 @@ export function GEXByStrikeChart({
         Math.abs(curr - zeroGammaLevel) < Math.abs(prev - zeroGammaLevel) ? curr : prev, scrollableStrikes[0]))
       const flipY = yScale(flipStr)
       if (flipY !== undefined) {
-        drawHorizontalRefLine(g, flipY + yScale.bandwidth() / 2, width, colors.accent.magenta, `Γ-FLIP ${zeroGammaLevel.toFixed(0)}`, { dashArray: '4,4' })
+        drawHorizontalRefLine(g, flipY + yScale.bandwidth() / 2, width, colors.accent.magenta, `GAMMA FLIP ${zeroGammaLevel.toFixed(0)}`, { dashArray: '4,4' })
       }
     }
 
