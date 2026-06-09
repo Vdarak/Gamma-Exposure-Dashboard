@@ -63,3 +63,41 @@ BEGIN
   RETURN deleted_count;
 END;
 $$ LANGUAGE plpgsql;
+
+-- ==========================================
+-- Trading Journal Schema
+-- ==========================================
+
+CREATE TABLE IF NOT EXISTS journal_trades (
+  id VARCHAR(50) PRIMARY KEY,
+  trade_date DATE NOT NULL,
+  time_entered TIME,
+  time_exited TIME,
+  ticker VARCHAR(15) NOT NULL,
+  trade_type VARCHAR(10) NOT NULL CHECK (trade_type IN ('Equity', 'Option')),
+  strike DECIMAL(12, 4),
+  option_type CHAR(1) CHECK (option_type IN ('C', 'P')),
+  expiration DATE,
+  direction VARCHAR(10) NOT NULL CHECK (direction IN ('Buy', 'Sell')),
+  quality CHAR(1) NOT NULL CHECK (quality IN ('S', 'A', 'B')),
+  pnl DECIMAL(12, 2) NOT NULL,
+  pnl_percent DECIMAL(8, 2) NOT NULL,
+  screenshot TEXT, -- Base64 JPEG
+  rationale TEXT,
+  strategy VARCHAR(50),
+  quantity DECIMAL(12, 4) NOT NULL DEFAULT 0,
+  entry_price DECIMAL(12, 4) NOT NULL DEFAULT 0,
+  exit_price DECIMAL(12, 4) NOT NULL DEFAULT 0,
+  fees DECIMAL(12, 2) DEFAULT 0,
+  status VARCHAR(10) DEFAULT 'Closed' CHECK (status IN ('Open', 'Closed')),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index for sorting and filtering
+CREATE INDEX IF NOT EXISTS idx_journal_trades_date ON journal_trades(trade_date DESC);
+CREATE INDEX IF NOT EXISTS idx_journal_trades_ticker ON journal_trades(ticker);
+
+-- Migration for existing tables
+ALTER TABLE journal_trades ADD COLUMN IF NOT EXISTS status VARCHAR(10) DEFAULT 'Closed' CHECK (status IN ('Open', 'Closed'));
+
+

@@ -219,7 +219,7 @@ export function CallPutWallsChart({ data, ticker, selectedExpiry }: CallPutWalls
         {chartData.walls.callWall && (
           <div className="flex items-center gap-2 px-2 py-1 bg-[#0A0A0A] border border-[#1A1A1A] rounded">
             <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: colors.accent.green }} />
-            <span className="text-xxs font-mono text-[#737373]">
+            <span className="text-xxs font-mono text-[#B5B5B5]">
               Call Wall: <span className="text-terminal-green">{chartData.walls.callWall}</span>
             </span>
           </div>
@@ -227,7 +227,7 @@ export function CallPutWallsChart({ data, ticker, selectedExpiry }: CallPutWalls
         {chartData.walls.putWall && (
           <div className="flex items-center gap-2 px-2 py-1 bg-[#0A0A0A] border border-[#1A1A1A] rounded">
             <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: colors.accent.red }} />
-            <span className="text-xxs font-mono text-[#737373]">
+            <span className="text-xxs font-mono text-[#B5B5B5]">
               Put Wall: <span className="text-terminal-red">{chartData.walls.putWall}</span>
             </span>
           </div>

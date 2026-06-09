@@ -15,7 +15,7 @@ export function PricingMethodToggle({ pricingMethod, onPricingMethodChange }: Pr
         className={`px-2.5 py-1 text-xxs font-mono rounded transition-all ${
           pricingMethod === 'black-scholes'
             ? 'bg-[#1A1A1A] text-terminal-purple'
-            : 'text-[#525252] hover:text-[#737373]'
+            : 'text-[#949494] hover:text-[#B5B5B5]'
         }`}
         title="Black-Scholes pricing model (European options)"
       >
@@ -26,7 +26,7 @@ export function PricingMethodToggle({ pricingMethod, onPricingMethodChange }: Pr
         className={`px-2.5 py-1 text-xxs font-mono rounded transition-all ${
           pricingMethod === 'binomial'
             ? 'bg-[#1A1A1A] text-terminal-green'
-            : 'text-[#525252] hover:text-[#737373]'
+            : 'text-[#949494] hover:text-[#B5B5B5]'
         }`}
         title="Binomial Tree pricing model (American options)"
       >

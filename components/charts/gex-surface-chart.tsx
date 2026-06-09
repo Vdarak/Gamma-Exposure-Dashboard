@@ -92,7 +92,7 @@ export function GEXSurfaceChart({
           <div className="text-terminal-red text-xs font-mono font-semibold uppercase tracking-wider">
             [!] 3D SURFACE PLOT REQUIREMENT
           </div>
-          <p className="text-xs text-[#737373] leading-relaxed font-mono">
+          <p className="text-xs text-[#B5B5B5] leading-relaxed font-mono">
             Plotly's 3D surface generator requires a minimum of 2 expiration dates to construct a mesh grid. Currently, only {y.length} expiry is active.
           </p>
           <div className="flex items-center justify-center gap-3 pt-2">
@@ -110,7 +110,7 @@ export function GEXSurfaceChart({
                   onModeChange('custom')
                   onSelectedExpiriesChange([...availableExpiries])
                 }}
-                className="px-3 py-1.5 rounded text-xs font-mono border border-[#333] hover:border-[#525252] text-[#E5E5E5] hover:bg-[#111] transition-all"
+                className="px-3 py-1.5 rounded text-xs font-mono border border-[#333] hover:border-[#949494] text-[#E5E5E5] hover:bg-[#111] transition-all"
               >
                 Select All Expiries
               </button>
@@ -125,7 +125,7 @@ export function GEXSurfaceChart({
     <div className="h-full w-full flex items-center justify-center bg-black rounded relative">
       {!plotLoaded && (
         <div className="absolute inset-0 flex items-center justify-center z-10">
-          <div className="flex items-center gap-3 text-[#525252]">
+          <div className="flex items-center gap-3 text-[#949494]">
             <div className="w-4 h-4 border-2 border-[#333] border-t-terminal-green rounded-full animate-spin" />
             <span className="text-xs font-mono">RENDERING SURFACE ({y.length} expiries × {x.length} strikes)...</span>
           </div>

@@ -12,6 +12,12 @@ import {
   getDataStatistics,
   getAvailableExpiries,
 } from './services/dataRetrieval';
+import {
+  getTrades,
+  createTrade,
+  updateTrade,
+  deleteTrade,
+} from './services/journalService';
 
 dotenv.config();
 
@@ -249,6 +255,89 @@ app.get('/api/expiries', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error in /api/expiries:', error);
     res.status(500).json({ error: 'Failed to fetch expiries' });
+  }
+});
+
+// ============= JOURNAL API ROUTES =============
+
+/**
+ * Get all trades
+ */
+app.get('/api/journal/trades', async (req: Request, res: Response) => {
+  try {
+    const trades = await getTrades();
+    res.json({
+      success: true,
+      data: trades,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error fetching journal trades:', error);
+    res.status(500).json({ error: 'Failed to fetch journal trades' });
+  }
+});
+
+/**
+ * Create a new trade
+ */
+app.post('/api/journal/trades', async (req: Request, res: Response) => {
+  try {
+    const tradeData = req.body;
+    if (!tradeData.id || !tradeData.ticker || !tradeData.tradeDate || !tradeData.tradeType || !tradeData.direction || !tradeData.quality || tradeData.pnl === undefined) {
+      return res.status(400).json({ error: 'Missing required trade parameters' });
+    }
+    const created = await createTrade(tradeData);
+    res.status(201).json({
+      success: true,
+      data: created,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error creating journal trade:', error);
+    res.status(500).json({ error: 'Failed to create journal trade' });
+  }
+});
+
+/**
+ * Update an existing trade
+ */
+app.put('/api/journal/trades/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    const tradeData = req.body;
+    const updated = await updateTrade(id, tradeData);
+    if (!updated) {
+      return res.status(404).json({ error: `Trade with ID ${id} not found` });
+    }
+    res.json({
+      success: true,
+      data: updated,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error(`Error updating journal trade ${id}:`, error);
+    res.status(500).json({ error: 'Failed to update journal trade' });
+  }
+});
+
+/**
+ * Delete a trade
+ */
+app.delete('/api/journal/trades/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    const deleted = await deleteTrade(id);
+    if (!deleted) {
+      return res.status(404).json({ error: `Trade with ID ${id} not found` });
+    }
+    res.json({
+      success: true,
+      message: 'Trade deleted successfully',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error(`Error deleting journal trade ${id}:`, error);
+    res.status(500).json({ error: 'Failed to delete journal trade' });
   }
 });
 

@@ -29,7 +29,7 @@
     /* ─── Structure ─── */
     --border: 0 0% 10%;
     --input: 0 0% 5%;
-    --ring: 153 100% 50%;
+    --ring: 122 100% 39%;
 
     /* ─── Geometry ─── */
     --radius: 4px;
@@ -55,7 +55,7 @@
     --destructive-foreground: 0 0% 90%;
     --border: 0 0% 10%;
     --input: 0 0% 5%;
-    --ring: 153 100% 50%;
+    --ring: 122 100% 39%;
   }
 }
 
@@ -77,8 +77,8 @@
 
   /* ─── Selection ─── */
   ::selection {
-    background: rgba(0, 255, 136, 0.2);
-    color: #00FF88;
+    background: rgba(0, 200, 5, 0.2);
+    color: #00C805;
   }
 
   /* ─── Scrollbar (thin, dark) ─── */
@@ -97,7 +97,7 @@
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: #333333;
+    background: #666666;
   }
 
   /* Firefox scrollbar */
@@ -117,12 +117,12 @@
 
   /* Terminal green glow for active indicators */
   .glow-green {
-    box-shadow: 0 0 8px rgba(0, 255, 136, 0.3);
+    box-shadow: 0 0 8px rgba(0, 200, 5, 0.3);
   }
 
   /* Terminal red glow */
   .glow-red {
-    box-shadow: 0 0 8px rgba(255, 59, 59, 0.3);
+    box-shadow: 0 0 8px rgba(255, 59, 96, 0.3);
   }
 
   /* Stat value — large monospace number */
@@ -142,7 +142,7 @@
   /* Active tab indicator */
   .tab-active {
     color: #E5E5E5;
-    border-bottom: 2px solid #00FF88;
+    border-bottom: 2px solid #00C805;
   }
 
   /* Pulse animation for live indicator */

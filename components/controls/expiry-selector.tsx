@@ -151,7 +151,7 @@ export function ExpirySelector({
             className={`px-2 py-1 text-[10px] font-mono rounded transition-all ${
               mode === '90d'
                 ? 'bg-[#1A1A1E] text-terminal-green'
-                : 'text-[#525252] hover:text-[#888]'
+                : 'text-[#949494] hover:text-[#888]'
             }`}
           >
             ALL
@@ -161,7 +161,7 @@ export function ExpirySelector({
             className={`px-2 py-1 text-[10px] font-mono rounded transition-all ${
               mode === '0dte'
                 ? 'bg-[#1A1A1E] text-terminal-green'
-                : 'text-[#525252] hover:text-[#888]'
+                : 'text-[#949494] hover:text-[#888]'
             }`}
           >
             0DTE
@@ -171,14 +171,14 @@ export function ExpirySelector({
             className={`px-2.5 py-1 text-[10px] font-mono rounded transition-all ${
               mode === 'custom'
                 ? 'bg-[#1A1A1E] text-terminal-green'
-                : 'text-[#525252] hover:text-[#888]'
+                : 'text-[#949494] hover:text-[#888]'
             }`}
           >
             CUSTOM
           </button>
         </div>
 
-        <span className="text-[10px] font-mono text-[#525252]">
+        <span className="text-[10px] font-mono text-[#949494]">
           ACTIVE: {expiriesWithStats.filter(e => isSelected(e.date)).length}
         </span>
       </div>
@@ -202,7 +202,7 @@ export function ExpirySelector({
                 <span className="text-xs font-bold font-mono text-[#E5E5E5]">
                   {item.dte === 0 ? '0 DTE' : `${item.dte} DTE`}
                 </span>
-                <span className="text-[9px] font-mono text-[#525252]">
+                <span className="text-[9px] font-mono text-[#949494]">
                   {item.formattedDate}
                 </span>
               </div>
@@ -211,14 +211,14 @@ export function ExpirySelector({
               <div className="flex items-center gap-1.5 mt-0.5">
                 {/* Call GEX Buildup */}
                 <div className="flex-1 bg-black/60 border border-terminal-green/20 rounded px-2 py-0.5 text-center">
-                  <span className="text-[9px] font-mono text-[#00FF88]">
+                  <span className="text-[9px] font-mono text-[#00C805]">
                     {formatGexBuildup(item.callGex)}
                   </span>
                 </div>
 
                 {/* Put GEX Buildup */}
                 <div className="flex-1 bg-black/60 border border-terminal-red/20 rounded px-2 py-0.5 text-center">
-                  <span className="text-[9px] font-mono text-[#FF3B3B]">
+                  <span className="text-[9px] font-mono text-[#FF3B60]">
                     {formatGexBuildup(item.putGex)}
                   </span>
                 </div>
@@ -254,14 +254,14 @@ export function ExpirySelector({
             defaultChecked
             className="w-3 h-3 rounded bg-black border-[#1A1A1E] text-terminal-green focus:ring-0 focus:ring-offset-0"
           />
-          <span className="text-[10px] font-mono text-[#525252] hover:text-[#737373] transition-colors">
+          <span className="text-[10px] font-mono text-[#949494] hover:text-[#B5B5B5] transition-colors">
             APPLY TO VOL
           </span>
         </label>
 
         <button
           onClick={handleReset}
-          className="px-2 py-0.5 rounded text-[10px] font-mono border border-[#1A1A1E] text-[#525252] hover:text-[#E5E5E5] hover:border-[#333] transition-all"
+          className="px-2 py-0.5 rounded text-[10px] font-mono border border-[#1A1A1E] text-[#949494] hover:text-[#E5E5E5] hover:border-[#333] transition-all"
         >
           RESET
         </button>

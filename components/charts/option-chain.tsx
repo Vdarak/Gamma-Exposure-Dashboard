@@ -248,7 +248,7 @@ export function OptionChain({
       <div className="relative border border-[#1A1A1A] rounded overflow-hidden">
         {/* Sticky Header */}
         <div className="sticky top-0 z-10 bg-black/95 backdrop-blur-sm border-b border-[#1A1A1A]">
-          <div className="grid grid-cols-7 gap-2 px-4 py-2.5 text-[10px] font-mono font-medium uppercase tracking-wider text-[#525252]">
+          <div className="grid grid-cols-7 gap-2 px-4 py-2.5 text-[10px] font-mono font-medium uppercase tracking-wider text-[#949494]">
             <div className="text-center text-terminal-green/80">Call Bid / Ask</div>
             <div className="text-center">Delta / IV</div>
             <div className="text-center">Vol / OI</div>
@@ -288,11 +288,11 @@ export function OptionChain({
                   <div>
                     {option.call ? formatGreek(option.call.greeks.delta, 3) : "-"}
                   </div>
-                  <div className="text-[#525252] text-[10px]">
+                  <div className="text-[#949494] text-[10px]">
                     {option.call ? formatPercent(option.call.greeks.iv) : "-"}
                   </div>
                 </div>
-                <div className="text-center flex flex-col justify-center text-[#737373]">
+                <div className="text-center flex flex-col justify-center text-[#B5B5B5]">
                   <div>
                     {option.call?.volume?.toLocaleString() || "-"}
                   </div>
@@ -308,14 +308,14 @@ export function OptionChain({
                 )}>
                   {formatPrice(option.strike)}
                   {isSelected ? (
-                    <ChevronUp className="w-3 h-3 ml-1 text-[#525252]" />
+                    <ChevronUp className="w-3 h-3 ml-1 text-[#949494]" />
                   ) : (
-                    <ChevronDown className="w-3 h-3 ml-1 text-[#525252]" />
+                    <ChevronDown className="w-3 h-3 ml-1 text-[#949494]" />
                   )}
                 </div>
 
                 {/* Put side */}
-                <div className="text-center flex flex-col justify-center text-[#737373]">
+                <div className="text-center flex flex-col justify-center text-[#B5B5B5]">
                   <div>
                     {option.put?.volume?.toLocaleString() || "-"}
                   </div>
@@ -327,7 +327,7 @@ export function OptionChain({
                   <div>
                     {option.put ? formatGreek(option.put.greeks.delta, 3) : "-"}
                   </div>
-                  <div className="text-[#525252] text-[10px]">
+                  <div className="text-[#949494] text-[10px]">
                     {option.put ? formatPercent(option.put.greeks.iv) : "-"}
                   </div>
                 </div>
@@ -348,7 +348,7 @@ export function OptionChain({
                     <h4 className="text-sm font-semibold font-mono text-[#E5E5E5]">
                       {ticker} {formatPrice(option.strike)} STRIKE METRICS
                     </h4>
-                    <p className="text-xxs text-[#525252] font-mono mt-0.5">
+                    <p className="text-xxs text-[#949494] font-mono mt-0.5">
                       EXPIRATION: {selectedExpiry}
                     </p>
                   </div>
@@ -360,49 +360,49 @@ export function OptionChain({
                         <div className="text-terminal-green text-xs font-mono font-bold border-b border-[#1A1A1A] pb-1.5 uppercase tracking-wider text-center">Call Contract</div>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs font-mono">
                           <div className="flex justify-between border-b border-[#111] pb-1">
-                            <span className="text-[#525252]">BID</span>
+                            <span className="text-[#949494]">BID</span>
                             <span className="text-terminal-green font-semibold">{getBidPrice(option.call)}</span>
                           </div>
                           <div className="flex justify-between border-b border-[#111] pb-1">
-                            <span className="text-[#525252]">DELTA</span>
+                            <span className="text-[#949494]">DELTA</span>
                             <span className="text-[#E5E5E5]">{formatGreek(option.call.greeks.delta, 4)}</span>
                           </div>
                           <div className="flex justify-between border-b border-[#111] pb-1">
-                            <span className="text-[#525252]">ASK</span>
+                            <span className="text-[#949494]">ASK</span>
                             <span className="text-terminal-green font-semibold">{getAskPrice(option.call)}</span>
                           </div>
                           <div className="flex justify-between border-b border-[#111] pb-1">
-                            <span className="text-[#525252]">GAMMA</span>
+                            <span className="text-[#949494]">GAMMA</span>
                             <span className="text-[#E5E5E5]">{formatGreek(option.call.greeks.gamma, 4)}</span>
                           </div>
                           {option.call.last && option.call.last > 0 && (
                             <div className="flex justify-between border-b border-[#111] pb-1 col-span-2">
-                              <span className="text-[#525252]">LAST</span>
+                              <span className="text-[#949494]">LAST</span>
                               <span className="text-[#E5E5E5]">{formatPrice(option.call.last)}</span>
                             </div>
                           )}
                           <div className="flex justify-between border-b border-[#111] pb-1">
-                            <span className="text-[#525252]">VOLUME</span>
+                            <span className="text-[#949494]">VOLUME</span>
                             <span className="text-[#E5E5E5]">{option.call.volume?.toLocaleString() || "0"}</span>
                           </div>
                           <div className="flex justify-between border-b border-[#111] pb-1">
-                            <span className="text-[#525252]">THETA</span>
+                            <span className="text-[#949494]">THETA</span>
                             <span className="text-[#E5E5E5]">{formatGreek(option.call.greeks.theta, 4)}</span>
                           </div>
                           <div className="flex justify-between border-b border-[#111] pb-1">
-                            <span className="text-[#525252]">OPEN INT</span>
+                            <span className="text-[#949494]">OPEN INT</span>
                             <span className="text-[#E5E5E5]">{option.call.open_interest.toLocaleString()}</span>
                           </div>
                           <div className="flex justify-between border-b border-[#111] pb-1">
-                            <span className="text-[#525252]">VEGA</span>
+                            <span className="text-[#949494]">VEGA</span>
                             <span className="text-[#E5E5E5]">{formatGreek(option.call.greeks.vega, 4)}</span>
                           </div>
                           <div className="flex justify-between border-b border-[#111] pb-1">
-                            <span className="text-[#525252]">IV</span>
+                            <span className="text-[#949494]">IV</span>
                             <span className="text-[#E5E5E5]">{formatPercent(option.call.greeks.iv)}</span>
                           </div>
                           <div className="flex justify-between border-b border-[#111] pb-1">
-                            <span className="text-[#525252]">RHO</span>
+                            <span className="text-[#949494]">RHO</span>
                             <span className="text-[#E5E5E5]">{formatGreek(option.call.greeks.rho, 4)}</span>
                           </div>
                         </div>
@@ -415,49 +415,49 @@ export function OptionChain({
                         <div className="text-terminal-red text-xs font-mono font-bold border-b border-[#1A1A1A] pb-1.5 uppercase tracking-wider text-center">Put Contract</div>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs font-mono">
                           <div className="flex justify-between border-b border-[#111] pb-1">
-                            <span className="text-[#525252]">BID</span>
+                            <span className="text-[#949494]">BID</span>
                             <span className="text-terminal-red font-semibold">{getBidPrice(option.put)}</span>
                           </div>
                           <div className="flex justify-between border-b border-[#111] pb-1">
-                            <span className="text-[#525252]">DELTA</span>
+                            <span className="text-[#949494]">DELTA</span>
                             <span className="text-[#E5E5E5]">{formatGreek(option.put.greeks.delta, 4)}</span>
                           </div>
                           <div className="flex justify-between border-b border-[#111] pb-1">
-                            <span className="text-[#525252]">ASK</span>
+                            <span className="text-[#949494]">ASK</span>
                             <span className="text-terminal-red font-semibold">{getAskPrice(option.put)}</span>
                           </div>
                           <div className="flex justify-between border-b border-[#111] pb-1">
-                            <span className="text-[#525252]">GAMMA</span>
+                            <span className="text-[#949494]">GAMMA</span>
                             <span className="text-[#E5E5E5]">{formatGreek(option.put.greeks.gamma, 4)}</span>
                           </div>
                           {option.put.last && option.put.last > 0 && (
                             <div className="flex justify-between border-b border-[#111] pb-1 col-span-2">
-                              <span className="text-[#525252]">LAST</span>
+                              <span className="text-[#949494]">LAST</span>
                               <span className="text-[#E5E5E5]">{formatPrice(option.put.last)}</span>
                             </div>
                           )}
                           <div className="flex justify-between border-b border-[#111] pb-1">
-                            <span className="text-[#525252]">VOLUME</span>
+                            <span className="text-[#949494]">VOLUME</span>
                             <span className="text-[#E5E5E5]">{option.put.volume?.toLocaleString() || "0"}</span>
                           </div>
                           <div className="flex justify-between border-b border-[#111] pb-1">
-                            <span className="text-[#525252]">THETA</span>
+                            <span className="text-[#949494]">THETA</span>
                             <span className="text-[#E5E5E5]">{formatGreek(option.put.greeks.theta, 4)}</span>
                           </div>
                           <div className="flex justify-between border-b border-[#111] pb-1">
-                            <span className="text-[#525252]">OPEN INT</span>
+                            <span className="text-[#949494]">OPEN INT</span>
                             <span className="text-[#E5E5E5]">{option.put.open_interest.toLocaleString()}</span>
                           </div>
                           <div className="flex justify-between border-b border-[#111] pb-1">
-                            <span className="text-[#525252]">VEGA</span>
+                            <span className="text-[#949494]">VEGA</span>
                             <span className="text-[#E5E5E5]">{formatGreek(option.put.greeks.vega, 4)}</span>
                           </div>
                           <div className="flex justify-between border-b border-[#111] pb-1">
-                            <span className="text-[#525252]">IV</span>
+                            <span className="text-[#949494]">IV</span>
                             <span className="text-[#E5E5E5]">{formatPercent(option.put.greeks.iv)}</span>
                           </div>
                           <div className="flex justify-between border-b border-[#111] pb-1">
-                            <span className="text-[#525252]">RHO</span>
+                            <span className="text-[#949494]">RHO</span>
                             <span className="text-[#E5E5E5]">{formatGreek(option.put.greeks.rho, 4)}</span>
                           </div>
                         </div>

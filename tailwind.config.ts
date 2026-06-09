@@ -31,6 +31,19 @@ const config = {
         'lg': ['0.9375rem', { lineHeight: '1.5rem' }],   // 15px
       },
       colors: {
+        white: '#F5F5F7',
+        gray: {
+          50: '#F9FAFB',
+          100: '#F3F4F6',
+          200: '#E5E7EB',
+          300: '#D1D5DB',
+          400: '#CCCCCC',
+          500: '#B5B5B5',
+          600: '#949494',
+          700: '#737373',
+          800: '#525252',
+          900: '#333333',
+        },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -66,8 +79,8 @@ const config = {
         },
         // Terminal semantic colors
         terminal: {
-          green: '#00FF88',
-          red: '#FF3B3B',
+          green: '#00C805',
+          red: '#FF3B60',
           cyan: '#00D4FF',
           amber: '#FFB800',
           magenta: '#FF00AA',

@@ -18,7 +18,7 @@ export function TabNavigation({ activeTab, onTabChange, tabs }: TabNavigationPro
               className={`relative px-4 py-2.5 text-xs font-medium uppercase tracking-wider transition-all ${
                 activeTab === tab.id
                   ? 'text-[#E5E5E5] border-b-2 border-terminal-green'
-                  : 'text-[#525252] hover:text-[#737373] border-b-2 border-transparent'
+                  : 'text-[#949494] hover:text-[#B5B5B5] border-b-2 border-transparent'
               }`}
             >
               {/* Terminal-style prefix */}

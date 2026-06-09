@@ -525,7 +525,7 @@ export function GEXByStrikeChart({
               className={`px-2 py-0.5 rounded text-xxs font-mono border transition-colors ${
                 activeZoom === p
                   ? 'bg-[#1A1A1A] text-terminal-green border-terminal-green/30'
-                  : 'bg-transparent text-[#525252] border-[#1A1A1A] hover:border-[#333]'
+                  : 'bg-transparent text-[#949494] border-[#1A1A1A] hover:border-[#333]'
               }`}
               onClick={() => setActiveZoom(p)}
               type="button"
@@ -537,7 +537,7 @@ export function GEXByStrikeChart({
             className={`px-2 py-0.5 rounded text-xxs font-mono border transition-colors ${
               activeZoom === null
                 ? 'bg-[#1A1A1A] text-terminal-green border-terminal-green/30'
-                : 'bg-transparent text-[#525252] border-[#1A1A1A] hover:border-[#333]'
+                : 'bg-transparent text-[#949494] border-[#1A1A1A] hover:border-[#333]'
             }`}
             onClick={() => setActiveZoom(null)}
             type="button"
@@ -554,7 +554,7 @@ export function GEXByStrikeChart({
               onPricingMethodChange={onPricingMethodChange}
             />
           ) : (
-            <span className="text-xxs text-[#525252] font-mono px-2 py-1 border border-[#1A1A1A] rounded">
+            <span className="text-xxs text-[#949494] font-mono px-2 py-1 border border-[#1A1A1A] rounded">
               BLACK-SCHOLES (EUR)
             </span>
           )}
@@ -575,7 +575,7 @@ export function GEXByStrikeChart({
             className={`px-1.5 py-0.5 rounded text-xxs font-mono border transition-colors ${
               showVolumeChart
                 ? 'text-terminal-cyan border-terminal-cyan/30'
-                : 'text-[#525252] border-[#1A1A1A]'
+                : 'text-[#949494] border-[#1A1A1A]'
             }`}
             onClick={() => setShowVolumeChart(!showVolumeChart)}
             type="button"

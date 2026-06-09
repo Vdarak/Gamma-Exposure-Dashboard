@@ -390,7 +390,7 @@ export function SyncedStrikeWorkspace({
       watermark.append('text')
         .attr('x', 15)
         .attr('y', 50)
-        .attr('fill', '#FFF')
+        .attr('fill', '#F5F5F7')
         .attr('font-size', '40px')
         .attr('font-weight', '900')
         .attr('font-family', typography.fontMono)
@@ -400,7 +400,7 @@ export function SyncedStrikeWorkspace({
       watermark.append('text')
         .attr('x', 15)
         .attr('y', 85)
-        .attr('fill', '#FFF')
+        .attr('fill', '#F5F5F7')
         .attr('font-size', '24px')
         .attr('font-weight', '700')
         .attr('font-family', typography.fontMono)
@@ -427,7 +427,7 @@ export function SyncedStrikeWorkspace({
         const x = xScale(i.toString())!
         const w = xScale.bandwidth()
         const isUp = c.close >= c.open
-        const color = isUp ? '#00FF88' : '#FF3B3B'
+        const color = isUp ? '#00C805' : '#FF3B60'
 
         // Wick
         g.append('line')
@@ -453,7 +453,7 @@ export function SyncedStrikeWorkspace({
       if (indicatorData.ema50.length > 0) {
         g.append('path')
           .attr('d', lineGen(indicatorData.ema50)!)
-          .attr('fill', 'none').attr('stroke', '#FF3B3B').attr('stroke-width', 1.2).style('opacity', 0.85)
+          .attr('fill', 'none').attr('stroke', '#FF3B60').attr('stroke-width', 1.2).style('opacity', 0.85)
       }
 
       // Y Axis on the RIGHT side of the Candlestick chart
@@ -461,7 +461,7 @@ export function SyncedStrikeWorkspace({
       const yAxisG = g.append('g').attr('transform', `translate(${width}, 0)`).call(yAxis)
       yAxisG.selectAll('line').attr('stroke', '#222')
       yAxisG.selectAll('path').attr('stroke', 'none')
-      yAxisG.selectAll('text').attr('fill', '#737373').style('font-family', typography.fontMono).style('font-size', '9px').attr('dx', '3px')
+      yAxisG.selectAll('text').attr('fill', '#B5B5B5').style('font-family', typography.fontMono).style('font-size', '9px').attr('dx', '3px')
 
       // X Axis (Time)
       const xTicks = xScale.domain().filter((_, i) => i % 10 === 0)
@@ -469,7 +469,7 @@ export function SyncedStrikeWorkspace({
       const xAxisG = g.append('g').attr('transform', `translate(0,${chartHeight})`).call(xAxis)
       xAxisG.selectAll('line').attr('stroke', 'none')
       xAxisG.selectAll('path').attr('stroke', '#1A1A1A')
-      xAxisG.selectAll('text').attr('fill', '#525252').style('font-family', typography.fontSans).style('font-size', '9px').attr('dy', '10px')
+      xAxisG.selectAll('text').attr('fill', '#949494').style('font-family', typography.fontSans).style('font-size', '9px').attr('dy', '10px')
     }
 
     // ─── 2. GEX PROFILE CHART (25%) ───
@@ -503,8 +503,8 @@ export function SyncedStrikeWorkspace({
           .attr('x', x).attr('y', y - 2)
           .attr('width', Math.max(1.5, barWidth))
           .attr('height', 5)
-          .attr('fill', val >= 0 ? 'rgba(0, 255, 136, 0.75)' : 'rgba(255, 59, 59, 0.75)')
-          .attr('stroke', val >= 0 ? '#00FF88' : '#FF3B3B')
+          .attr('fill', val >= 0 ? 'rgba(0, 200, 5, 0.75)' : 'rgba(255, 59, 96, 0.75)')
+          .attr('stroke', val >= 0 ? '#00C805' : '#FF3B60')
           .attr('stroke-width', 0.6)
           .attr('rx', 1)
       })
@@ -534,13 +534,13 @@ export function SyncedStrikeWorkspace({
       const xAxisG = g.append('g').attr('transform', `translate(0,${chartHeight})`).call(xAxis)
       xAxisG.selectAll('line').attr('stroke', 'none')
       xAxisG.selectAll('path').attr('stroke', '#1A1A1A')
-      xAxisG.selectAll('text').attr('fill', '#525252').style('font-family', typography.fontSans).style('font-size', '9px').attr('dy', '10px')
+      xAxisG.selectAll('text').attr('fill', '#949494').style('font-family', typography.fontSans).style('font-size', '9px').attr('dy', '10px')
 
       // Label
       g.append('text')
         .attr('x', width / 2).attr('y', chartHeight + 32)
         .attr('text-anchor', 'middle')
-        .attr('fill', '#525252').style('font-family', typography.fontSans).style('font-size', '9px')
+        .attr('fill', '#949494').style('font-family', typography.fontSans).style('font-size', '9px')
         .text('GEX Profile')
 
       // Hover overlay (tooltips only, crosshair elements removed)
@@ -559,7 +559,7 @@ export function SyncedStrikeWorkspace({
             const containerRect = containerRef.current.getBoundingClientRect()
             tooltipRef.current.innerHTML = `
               <div style="font-family:${typography.fontSans};font-size:12px;color:${colors.text.primary};font-weight:600">Strike ${closest.strike.toFixed(0)}</div>
-              <div style="font-family:${typography.fontMono};font-size:11px;color:${closest.gex >= 0 ? '#00FF88' : '#FF3B3B'};margin-top:2.5px">
+              <div style="font-family:${typography.fontMono};font-size:11px;color:${closest.gex >= 0 ? '#00C805' : '#FF3B60'};margin-top:2.5px">
                 Net GEX: ${formatBillions(closest.gex)}
               </div>
             `
@@ -615,13 +615,13 @@ export function SyncedStrikeWorkspace({
       const xAxisG = g.append('g').attr('transform', `translate(0,${chartHeight})`).call(xAxis)
       xAxisG.selectAll('line').attr('stroke', 'none')
       xAxisG.selectAll('path').attr('stroke', '#1A1A1A')
-      xAxisG.selectAll('text').attr('fill', '#525252').style('font-family', typography.fontSans).style('font-size', '9px').attr('dy', '10px')
+      xAxisG.selectAll('text').attr('fill', '#949494').style('font-family', typography.fontSans).style('font-size', '9px').attr('dy', '10px')
 
       // Label
       g.append('text')
         .attr('x', width / 2).attr('y', chartHeight + 32)
         .attr('text-anchor', 'middle')
-        .attr('fill', '#525252').style('font-family', typography.fontSans).style('font-size', '9px')
+        .attr('fill', '#949494').style('font-family', typography.fontSans).style('font-size', '9px')
         .text('Volume Profile')
 
       // Hover overlay

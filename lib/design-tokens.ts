@@ -22,23 +22,23 @@ export const colors = {
   border: {
     default: '#1A1A1A',    // Standard borders
     subtle: '#141414',     // Dividers within panels
-    active: '#333333',     // Focus / active borders
+    active: '#666666',     // Focus / active borders
     accent: '#2A2A2A',     // Slightly brighter for emphasis
   },
 
   // Text hierarchy
   text: {
     primary: '#E5E5E5',    // Primary content
-    secondary: '#737373',  // Labels, descriptions
-    muted: '#525252',      // Timestamps, tertiary info
+    secondary: '#B5B5B5',  // Labels, descriptions
+    muted: '#949494',      // Timestamps, tertiary info
     inverse: '#000000',    // Text on bright backgrounds
-    bright: '#FFFFFF',     // Maximum contrast (hero numbers)
+    bright: '#F5F5F7',     // Maximum contrast (hero numbers)
   },
 
   // Semantic accents (sharp, terminal-inspired)
   accent: {
-    green: '#00FF88',      // Calls, bullish, positive GEX
-    red: '#FF3B3B',        // Puts, bearish, negative GEX
+    green: '#00C805',      // Robinhood pastel green
+    red: '#FF3B60',        // Robinhood pinkish red
     cyan: '#00D4FF',       // Volume, informational
     amber: '#FFB800',      // Spot price reference
     magenta: '#FF00AA',    // Gamma flip level
@@ -47,8 +47,8 @@ export const colors = {
 
   // Muted versions for fills / chart backgrounds
   accentMuted: {
-    green: 'rgba(0, 255, 136, 0.12)',
-    red: 'rgba(255, 59, 59, 0.12)',
+    green: 'rgba(0, 200, 5, 0.12)',
+    red: 'rgba(255, 59, 96, 0.12)',
     cyan: 'rgba(0, 212, 255, 0.12)',
     amber: 'rgba(255, 184, 0, 0.12)',
     magenta: 'rgba(255, 0, 170, 0.12)',
@@ -57,10 +57,10 @@ export const colors = {
 
   // Semi-transparent versions for chart bar fills
   accentAlpha: {
-    green50: 'rgba(0, 255, 136, 0.50)',
-    green30: 'rgba(0, 255, 136, 0.30)',
-    red50: 'rgba(255, 59, 59, 0.50)',
-    red30: 'rgba(255, 59, 59, 0.30)',
+    green50: 'rgba(0, 200, 5, 0.50)',
+    green30: 'rgba(0, 200, 5, 0.30)',
+    red50: 'rgba(255, 59, 96, 0.50)',
+    red30: 'rgba(255, 59, 96, 0.30)',
     cyan40: 'rgba(0, 212, 255, 0.40)',
     cyan20: 'rgba(0, 212, 255, 0.20)',
     amber50: 'rgba(255, 184, 0, 0.50)',
@@ -75,8 +75,8 @@ export const chartTheme = {
   // Grid & axes
   grid: '#1A1A1A',
   gridSubtle: '#111111',
-  axisLabel: '#737373',
-  axisTick: '#525252',
+  axisLabel: '#B5B5B5',
+  axisTick: '#949494',
   zeroLine: '#2A2A2A',
 
   // Tooltip
@@ -84,7 +84,7 @@ export const chartTheme = {
     bg: '#111111',
     border: '#1A1A1A',
     text: '#E5E5E5',
-    textMuted: '#737373',
+    textMuted: '#B5B5B5',
   },
 
   // Bar chart colors

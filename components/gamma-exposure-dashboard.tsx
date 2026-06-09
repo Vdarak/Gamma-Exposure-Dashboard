@@ -22,6 +22,7 @@ import { ChartWrapper } from "./charts/chart-wrapper"
 import { PricingMethodToggle } from "./pricing-method-toggle"
 import { EnhancedTimeMachine } from "./enhanced-time-machine"
 import { ExpirySelector, type ExpiryMode } from "./controls/expiry-selector"
+import { TradingJournal } from "./trading-journal/trading-journal"
 
 // UI components
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -33,7 +34,7 @@ const SIDEBAR_TABS = [
   { id: 'flow', label: 'Option Flow', icon: 'flow' },
   { id: 'scanners', label: 'Scanners', icon: 'scanners' },
   { id: 'screener', label: 'Screener', icon: 'screener' },
-  { id: 'calendar', label: 'Calendar', icon: 'calendar' },
+  { id: 'journal', label: 'Journal', icon: 'calendar' },
   { id: 'algos', label: 'Algorithms', icon: 'algos' },
 ]
 
@@ -302,9 +303,9 @@ export function GammaExposureDashboard() {
   }, [])
 
   return (
-    <div className="min-h-screen bg-black flex flex-row">
-      {/* ─── LEFT ICON NAVIGATION SIDEBAR ─── */}
-      <aside className="w-16 bg-[#08080A] border-r border-[#15151A] flex flex-col items-center py-4 flex-shrink-0 justify-between select-none">
+    <div className="min-h-screen bg-black flex flex-col md:flex-row">
+      {/* ─── LEFT ICON NAVIGATION SIDEBAR (DESKTOP) ─── */}
+      <aside className="hidden md:flex w-16 bg-[#08080A] border-r border-[#15151A] flex-col items-center py-4 flex-shrink-0 justify-between select-none">
         <div className="flex flex-col items-center gap-6 w-full">
           {SIDEBAR_TABS.map(tab => {
             const active = activeSidebarTab === tab.id
@@ -374,25 +375,86 @@ export function GammaExposureDashboard() {
 
         {/* Footer info/settings placeholder */}
         <div className="w-6 h-6 rounded-full bg-[#111] border border-[#222] flex items-center justify-center cursor-pointer hover:border-[#444] transition-colors">
-          <span className="text-[9px] font-mono text-[#525252]">V</span>
+          <span className="text-[9px] font-mono text-[#949494]">V</span>
         </div>
       </aside>
 
+      {/* ─── BOTTOM ICON NAVIGATION BAR (MOBILE) ─── */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-[#08080A] border-t border-[#15151A] z-40 flex flex-row justify-around items-center px-2 select-none">
+        {SIDEBAR_TABS.map(tab => {
+          const active = activeSidebarTab === tab.id
+          return (
+            <button
+              key={tab.id}
+              onClick={() => {
+                setActiveSidebarTab(tab.id)
+                if (tab.id === 'gex') setActiveTab('gex-levels')
+              }}
+              className="flex flex-col items-center justify-center gap-1 w-12"
+            >
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center border transition-all ${
+                active
+                  ? 'bg-terminal-green/5 border-terminal-green/35 text-terminal-green'
+                  : 'bg-transparent border-transparent text-[#949494]'
+              }`}>
+                {tab.icon === 'gex' && (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+                  </svg>
+                )}
+                {tab.icon === 'flow' && (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+                  </svg>
+                )}
+                {tab.icon === 'scanners' && (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 21m0 0l-.813-5.096M9 21h3.75M9 21H5.25M12 3c-4.97 0-9 4.03-9 9 0 2.12.735 4.07 1.962 5.617a9.047 9.047 0 005.122-5.122 3.003 3.003 0 115.632 0 9.047 9.047 0 005.122 5.122A8.96 8.96 0 0021 12c0-4.97-4.03-9-9-9z" />
+                  </svg>
+                )}
+                {tab.icon === 'screener' && (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3c-1.2 0-2.4 1.05-3 2.25L4.5 13.5A3 3 0 007 18h10a3 3 0 002.5-4.5L15 5.25c-.6-1.2-1.8-2.25-3-2.25z" />
+                  </svg>
+                )}
+                {tab.icon === 'calendar' && (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5m-9-6h.008v.008H12v-.008zM12 15h.008v.008H12V15zm0 2.25h.008v.008H12v-.008zM9.75 15h.008v.008H9.75V15zm0 2.25h.008v.008H9.75v-.008zM7.5 15h.008v.008H7.5V15zm0 2.25h.008v.008H7.5v-.008zm6.75-4.5h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V15zm0 2.25h.008v.008h-.008v-.008zm2.25-4.5h.008v.008H16.5v-.008zm0 2.25h.008v.008H16.5V15z" />
+                  </svg>
+                )}
+                {tab.icon === 'algos' && (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+                  </svg>
+                )}
+              </div>
+              <span className={`text-[8px] font-mono leading-none tracking-tight ${
+                active ? 'text-[#E5E5E5]' : 'text-[#949494]'
+              }`}>
+                {tab.label.split(' ')[0]}
+              </span>
+            </button>
+          )
+        })}
+      </nav>
+
       {/* ─── MAIN WORKSPACE AND CONTENT GRID ─── */}
-      <main className="flex-1 flex flex-col min-w-0">
-        {/* Terminal Header */}
-        <TerminalHeader
-          ticker={ticker}
-          spotPrice={spotPrice}
-          market={market}
-          lastUpdated={lastUpdated}
-          onTickerSelect={handleTickerSelect}
-          onMarketChange={handleMarketChange}
-          onRefresh={handleRefresh}
-        />
+      <main className="flex-1 flex flex-col min-w-0 pb-16 md:pb-0">
+        {/* Terminal Header (Hidden inside Journal tab) */}
+        {activeSidebarTab !== 'journal' && (
+          <TerminalHeader
+            ticker={ticker}
+            spotPrice={spotPrice}
+            market={market}
+            lastUpdated={lastUpdated}
+            onTickerSelect={handleTickerSelect}
+            onMarketChange={handleMarketChange}
+            onRefresh={handleRefresh}
+          />
+        )}
 
         {/* Gauges Stat Bar */}
-        {activeSidebarTab === 'gex' && hasData && !isLoading && (
+        {activeSidebarTab === 'gex' && activeSidebarTab !== 'journal' && hasData && !isLoading && (
           <StatBar
             spotPrice={spotPrice}
             totalGEX={activeTotalGEX}
@@ -409,7 +471,7 @@ export function GammaExposureDashboard() {
             {/* Loading state */}
             {isLoading && (
               <div className="flex-1 flex items-center justify-center">
-                <div className="flex items-center gap-3 text-[#525252]">
+                <div className="flex items-center gap-3 text-[#949494]">
                   <div className="w-4 h-4 border-2 border-[#151515] border-t-terminal-green rounded-full animate-spin" />
                   <span className="text-sm font-mono tracking-widest">LOADING TERMINAL SNAPSHOT...</span>
                 </div>
@@ -438,8 +500,8 @@ export function GammaExposureDashboard() {
             )}
 
             {/* Interactive Sidebar mockups */}
-            {activeSidebarTab !== 'gex' && (
-              <div className="flex-1 flex flex-col items-center justify-center gap-4 text-[#525252]">
+            {activeSidebarTab !== 'gex' && activeSidebarTab !== 'journal' && (
+              <div className="flex-1 flex flex-col items-center justify-center gap-4 text-[#949494]">
                 <div className="w-12 h-12 rounded-full border border-[#1A1A1E] bg-[#0A0A0C] flex items-center justify-center">
                   <svg className="w-5 h-5 text-[#333]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
@@ -450,6 +512,11 @@ export function GammaExposureDashboard() {
                   <p className="text-[10px] font-mono text-[#444] mt-1">PENDING REALTIME WEBSOCKET INGESTION PIPELINE</p>
                 </div>
               </div>
+            )}
+
+            {/* Trading Journal Workspace */}
+            {activeSidebarTab === 'journal' && (
+              <TradingJournal />
             )}
 
             {/* Active GEX Workspace tabs content */}
@@ -467,7 +534,7 @@ export function GammaExposureDashboard() {
                           className={`px-3 py-1.5 text-xs font-mono font-bold rounded transition-all border ${
                             active
                               ? 'bg-[#121215] text-terminal-green border-[#25252E] shadow-sm'
-                              : 'bg-transparent text-[#525252] border-transparent hover:text-[#888]'
+                              : 'bg-transparent text-[#949494] border-transparent hover:text-[#888]'
                           }`}
                         >
                           {tab.label}
@@ -528,7 +595,7 @@ export function GammaExposureDashboard() {
                         controls={
                           <div className="flex items-center gap-3">
                             <div className="flex items-center gap-2">
-                              <span className="text-[10px] text-[#525252] font-mono uppercase">Strikes</span>
+                              <span className="text-[10px] text-[#949494] font-mono uppercase">Strikes</span>
                               <Select value={strikesCount.toString()} onValueChange={(v) => setStrikesCount(v === "ALL" ? "ALL" : parseInt(v))}>
                                 <SelectTrigger className="w-16 h-6 text-[10px] bg-black border-[#1A1A1E]">
                                   <SelectValue />
@@ -543,7 +610,7 @@ export function GammaExposureDashboard() {
                               </Select>
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className="text-[10px] text-[#525252] font-mono uppercase">Expiry</span>
+                              <span className="text-[10px] text-[#949494] font-mono uppercase">Expiry</span>
                               <Select value={selectedRampExpiry} onValueChange={setSelectedRampExpiry}>
                                 <SelectTrigger className="w-28 h-6 text-[10px] bg-black border-[#1A1A1E]">
                                   <SelectValue />
@@ -621,7 +688,7 @@ export function GammaExposureDashboard() {
                       height="500px"
                       controls={
                         <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-[#525252] font-mono uppercase font-bold">Expiry</span>
+                          <span className="text-[10px] text-[#949494] font-mono uppercase font-bold">Expiry</span>
                           <Select value={selectedMoveExpiry} onValueChange={setSelectedMoveExpiry}>
                             <SelectTrigger className="w-32 h-6 text-[10px] bg-black border-[#1A1A1E]">
                               <SelectValue />
@@ -666,7 +733,7 @@ export function GammaExposureDashboard() {
                     />
                     <button
                       type="submit"
-                      className="w-5 h-5 flex items-center justify-center rounded border border-[#222] bg-black/40 text-[10px] text-[#525252] hover:text-[#888] hover:border-[#333]"
+                      className="w-5 h-5 flex items-center justify-center rounded border border-[#222] bg-black/40 text-[10px] text-[#949494] hover:text-[#888] hover:border-[#333]"
                     >
                       +
                     </button>

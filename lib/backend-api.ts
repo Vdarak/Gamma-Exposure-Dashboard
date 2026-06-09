@@ -239,3 +239,106 @@ export function formatExpiry(expiry: string): string {
     year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined
   }) + ` (${diffDays}DTE)`
 }
+
+// ─── Trading Journal Backend Sync Services ───────────────────────────
+
+export interface JournalTrade {
+  id: string
+  tradeDate: string // YYYY-MM-DD
+  timeEntered: string | null // HH:MM
+  timeExited: string | null // HH:MM
+  ticker: string
+  tradeType: 'Equity' | 'Option'
+  strike?: number | null
+  optionType?: 'C' | 'P' | null
+  expiration?: string | null // YYYY-MM-DD
+  direction: 'Buy' | 'Sell'
+  quality: 'S' | 'A' | 'B'
+  pnl: number
+  pnlPercent: number
+  screenshot?: string | null // Base64 JPEG string
+  rationale?: string | null
+  strategy?: string | null
+  quantity: number
+  entryPrice: number
+  exitPrice: number
+  fees?: number | null
+  status?: 'Open' | 'Closed' | null
+  createdAt?: string
+}
+
+
+/**
+ * Get all journal trades from backend
+ */
+export async function getJournalTrades(): Promise<JournalTrade[]> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/journal/trades`)
+    if (!response.ok) throw new Error('Failed to fetch journal trades')
+    const data = await response.json()
+    return data.data
+  } catch (error) {
+    console.error('Error fetching journal trades from backend:', error)
+    throw error
+  }
+}
+
+/**
+ * Save a new journal trade to database via backend
+ */
+export async function createJournalTrade(trade: JournalTrade): Promise<JournalTrade> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/journal/trades`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(trade)
+    })
+    if (!response.ok) throw new Error('Failed to create journal trade')
+    const data = await response.json()
+    return data.data
+  } catch (error) {
+    console.error('Error creating journal trade via backend:', error)
+    throw error
+  }
+}
+
+/**
+ * Update an existing journal trade in database via backend
+ */
+export async function updateJournalTrade(id: string, trade: Partial<JournalTrade>): Promise<JournalTrade> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/journal/trades/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(trade)
+    })
+    if (!response.ok) throw new Error(`Failed to update journal trade ${id}`)
+    const data = await response.json()
+    return data.data
+  } catch (error) {
+    console.error(`Error updating journal trade ${id} via backend:`, error)
+    throw error
+  }
+}
+
+/**
+ * Delete a journal trade from database via backend
+ */
+export async function deleteJournalTrade(id: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/journal/trades/${id}`, {
+      method: 'DELETE'
+    })
+    if (!response.ok) throw new Error(`Failed to delete journal trade ${id}`)
+    const data = await response.json()
+    return data.success
+  } catch (error) {
+    console.error(`Error deleting journal trade ${id} via backend:`, error)
+    throw error
+  }
+}
+

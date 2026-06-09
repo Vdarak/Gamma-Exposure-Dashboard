@@ -100,7 +100,7 @@ function TerminalGauge({ value, min, max, label, unit = '', color, colorMuted }:
       </span>
 
       {/* Label */}
-      <span className="text-xxs text-[#525252] font-medium uppercase tracking-wider">
+      <span className="text-xxs text-[#949494] font-medium uppercase tracking-wider">
         {label}
       </span>
     </div>
@@ -170,7 +170,7 @@ export function StatBar({ spotPrice, totalGEX, optionData, market, gammaFlipLeve
             <StatCell
               label="TOTAL GEX"
               value={totalGEX !== 0 ? `${totalGEX >= 0 ? '+' : ''}${totalGEX.toFixed(4)}B` : '—'}
-              color={totalGEX >= 0 ? '#00FF88' : '#FF3B3B'}
+              color={totalGEX >= 0 ? '#00C805' : '#FF3B60'}
             />
             <Divider />
             <StatCell
@@ -181,7 +181,7 @@ export function StatBar({ spotPrice, totalGEX, optionData, market, gammaFlipLeve
             <StatCell
               label="NET GAMMA"
               value={formatLargeNumber(stats.netGamma)}
-              color={stats.netGamma >= 0 ? '#00FF88' : '#FF3B3B'}
+              color={stats.netGamma >= 0 ? '#00C805' : '#FF3B60'}
             />
             <Divider />
             <StatCell
@@ -199,16 +199,16 @@ export function StatBar({ spotPrice, totalGEX, optionData, market, gammaFlipLeve
               max={gexMax}
               label="GEX Intensity"
               unit="B"
-              color={totalGEX >= 0 ? '#00FF88' : '#FF3B3B'}
-              colorMuted={totalGEX >= 0 ? 'rgba(0, 255, 136, 0.12)' : 'rgba(255, 59, 59, 0.12)'}
+              color={totalGEX >= 0 ? '#00C805' : '#FF3B60'}
+              colorMuted={totalGEX >= 0 ? 'rgba(0, 200, 5, 0.12)' : 'rgba(255, 59, 96, 0.12)'}
             />
             <TerminalGauge
               value={stats.gexWeightedVol}
               min={0}
               max={volMax}
               label="GEX Wtd Vol"
-              color="#FF3B3B"
-              colorMuted="rgba(255, 59, 59, 0.12)"
+              color="#FF3B60"
+              colorMuted="rgba(255, 59, 96, 0.12)"
             />
           </div>
         </div>
@@ -222,7 +222,7 @@ export function StatBar({ spotPrice, totalGEX, optionData, market, gammaFlipLeve
 function StatCell({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[9px] text-[#525252] font-mono font-medium uppercase tracking-wider">{label}</span>
+      <span className="text-[9px] text-[#949494] font-mono font-medium uppercase tracking-wider">{label}</span>
       <span
         className="font-mono text-base lg:text-lg font-bold tracking-tight"
         style={{ color: color || '#E5E5E5' }}

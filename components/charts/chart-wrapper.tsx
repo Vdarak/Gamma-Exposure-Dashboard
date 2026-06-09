@@ -28,7 +28,7 @@ export function ChartWrapper({
         <div className="flex flex-col gap-0.5">
           <h3 className="text-sm font-semibold text-[#E5E5E5]">{title}</h3>
           {subtitle && (
-            <p className="text-xxs text-[#525252]">{subtitle}</p>
+            <p className="text-xxs text-[#949494]">{subtitle}</p>
           )}
         </div>
         {controls && (
@@ -42,7 +42,7 @@ export function ChartWrapper({
       <div className="px-4 pb-4" style={{ height }}>
         {loading ? (
           <div className="h-full flex items-center justify-center">
-            <div className="flex items-center gap-3 text-[#525252]">
+            <div className="flex items-center gap-3 text-[#949494]">
               <div className="w-4 h-4 border-2 border-[#333] border-t-terminal-green rounded-full animate-spin" />
               <span className="text-xs font-mono">LOADING...</span>
             </div>
