@@ -9,7 +9,7 @@ interface AnalyticsProps {
 }
 
 export function Analytics({ trades }: AnalyticsProps) {
-  const [startBalance, setStartBalance] = useState(100000) // Default starting balance
+  const [startBalance, setStartBalance] = useState(2566.19) // Default starting balance
 
   // 1. Chronological sort of trades
   const sortedTrades = useMemo(() => {

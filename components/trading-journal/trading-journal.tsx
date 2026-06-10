@@ -20,7 +20,7 @@ export function TradingJournal() {
   const [error, setError] = useState<string | null>(null)
 
   // Starting balance input
-  const [startBalance, setStartBalance] = useState(100000)
+  const [startBalance, setStartBalance] = useState(2566.19)
 
   // Modals & Panels State
   const [isFormOpen, setIsFormOpen] = useState(false)
@@ -126,7 +126,13 @@ export function TradingJournal() {
         kellyPercent: 0,
         currentStreak: { type: "Win" as const, count: 0 },
         maxWinStreak: 0,
-        maxLossStreak: 0
+        maxLossStreak: 0,
+        longPnl: 0,
+        shortPnl: 0,
+        avgWin: 0,
+        avgLoss: 0,
+        wins: 0,
+        losses: 0
       }
     }
 
@@ -134,12 +140,18 @@ export function TradingJournal() {
     const winsList = trades.filter((t) => t.pnl > 0)
     const lossesList = trades.filter((t) => t.pnl < 0)
     const wins = winsList.length
+    const losses = lossesList.length
     const winRate = (wins / totalTrades) * 100
 
     const grossWins = winsList.reduce((sum, t) => sum + t.pnl, 0)
     const grossLosses = Math.abs(lossesList.reduce((sum, t) => sum + t.pnl, 0))
     const avgWin = wins > 0 ? grossWins / wins : 0
     const avgLoss = lossesList.length > 0 ? grossLosses / lossesList.length : 0
+
+    const longTrades = trades.filter(t => t.direction === "Buy")
+    const shortTrades = trades.filter(t => t.direction === "Sell")
+    const longPnl = longTrades.reduce((sum, t) => sum + t.pnl, 0)
+    const shortPnl = shortTrades.reduce((sum, t) => sum + t.pnl, 0)
 
     // Kelly Percentage: W - (1 - W) / R
     let kellyPercent = 0
@@ -224,7 +236,13 @@ export function TradingJournal() {
       kellyPercent: kellyPercent * 100,
       currentStreak: { type: currentStreakType, count: currentStreakCount },
       maxWinStreak,
-      maxLossStreak
+      maxLossStreak,
+      longPnl,
+      shortPnl,
+      avgWin,
+      avgLoss,
+      wins,
+      losses
     }
   }, [trades, sortedTrades, startBalance])
 
@@ -297,14 +315,64 @@ export function TradingJournal() {
   const isPnlPositive = metrics.netPnl >= 0
   const isWinStreak = metrics.currentStreak.type === "Win"
 
+  const avgWin = metrics.avgWin
+  const avgLoss = metrics.avgLoss
+  const wins = metrics.wins
+  const losses = metrics.losses
+  const longPnl = metrics.longPnl
+  const shortPnl = metrics.shortPnl
+
+  // Trader's Edge Score Card calculations
+  const scoreWin = metrics.winRate
+  const scoreRR = Math.min(100, (avgWin / (avgLoss || 1)) * 33)
+  const scorePF = Math.min(100, (wins > 0 && losses > 0 ? (avgWin * wins) / (avgLoss * losses) : 1) * 33)
+  const compositeScore = Math.round((scoreWin + scoreRR + scorePF) / 3)
+
+  const sparklineWidth = 180
+  const sparklineHeight = 45
+  
+  const sparklinePoints = useMemo(() => {
+    if (equityPoints.length <= 1) return ""
+    const balances = equityPoints.map(p => p.balance)
+    const maxB = Math.max(...balances)
+    const minB = Math.min(...balances)
+    const range = maxB - minB || 100
+    return equityPoints.map((p, idx) => {
+      const x = (idx / (equityPoints.length - 1)) * sparklineWidth
+      const y = sparklineHeight - 2 - ((p.balance - minB) / range) * (sparklineHeight - 6)
+      return `${x},${y}`
+    }).join(" ")
+  }, [equityPoints])
+
+  const drawdownPoints = useMemo(() => {
+    let balance = startBalance
+    let maxB = startBalance
+    const points: number[] = [0]
+    sortedTrades.forEach((trade) => {
+      balance += trade.pnl
+      if (balance > maxB) {
+        maxB = balance
+      }
+      const ddPct = ((maxB - balance) / maxB) * 100
+      points.push(ddPct)
+    })
+    
+    const maxDD = Math.max(...points) || 1
+    return points.map((dd, idx) => {
+      const x = (idx / (points.length - 1)) * sparklineWidth
+      const y = sparklineHeight - 2 - (dd / maxDD) * (sparklineHeight - 6)
+      return `${x},${y}`
+    }).join(" ")
+  }, [sortedTrades, startBalance])
+
   return (
     <div className="flex-grow flex flex-col pt-2 md:pt-3 pb-20 px-4 md:px-6 bg-black text-[#E5E5E5] font-mono min-h-0 select-none overflow-y-auto gap-6">
       
-      {/* 1. Header (Clean, Large, Minimalistic, No Book Icon) */}
+      {/* 1. Header (TradeSync style) */}
       <header className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-[#15151C] pb-4 flex-shrink-0">
-        <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-white uppercase">
-            Journal
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-bold tracking-tight text-white uppercase">
+            Trading Journal
           </h1>
         </div>
 
@@ -322,210 +390,333 @@ export function TradingJournal() {
               />
             </div>
           </div>
-
-          <button
-            onClick={loadTrades}
-            disabled={loading}
-            className="p-2.5 rounded bg-[#0A0A0C] border border-[#1A1A1E] text-[#A3A3A3] hover:text-white transition-colors"
-            title="Refresh database snapshot"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-          </button>
           
           <button
             onClick={() => {
               setEditingTrade(null)
               setIsFormOpen(true)
             }}
-            className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#00C805] text-black border border-[#00C805] hover:bg-[#00C805]/95 rounded text-[11px] font-bold uppercase transition-all"
+            className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#00C805] text-black border border-[#00C805] hover:bg-[#00C805]/95 rounded text-[10px] font-bold uppercase transition-all"
           >
-            <Plus className="w-3.5 h-3.5 stroke-[3]" /> NEW TRADE
+            <Plus className="w-3 h-3 stroke-[3]" /> NEW TRADE
           </button>
         </div>
       </header>
 
-      {/* 2. Portfolio Balance & Change Indicator (Robinhood style) */}
+      {/* 1.2 Inner Tab Bar */}
+      <div className="flex items-center border-b border-[#15151C] pb-2 flex-shrink-0 gap-1.5">
+        <button className="px-3 py-1.5 text-xs font-mono font-bold rounded bg-[#121215] text-[#00C805] border border-[#25252E] shadow-sm">
+          Journal
+        </button>
+        <button 
+          onClick={() => alert("Comparison analytics pending data collection service integration.")}
+          className="px-3 py-1.5 text-xs font-mono font-bold rounded bg-transparent text-[#949494] border border-transparent hover:text-white"
+        >
+          Comparison
+        </button>
+        <button 
+          onClick={() => alert("Detailed stats curves pending historical database population.")}
+          className="px-3 py-1.5 text-xs font-mono font-bold rounded bg-transparent text-[#949494] border border-transparent hover:text-white"
+        >
+          Analysis
+        </button>
+      </div>
+
+      {/* 2. Portfolio Balance & Change Indicator */}
       <div className="flex flex-col gap-1 flex-shrink-0">
-        <div className="text-6xl font-bold font-data text-white leading-none tracking-tight">
+        <div className="text-5xl font-bold font-data text-white leading-none tracking-tight">
           ${portfolioValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </div>
-        <div className={`text-xs font-bold mt-2 flex items-center gap-1.5 ${isPnlPositive ? "text-[#00C805]" : "text-[#FF3B60]"}`}>
+        <div className={`text-[10px] font-bold mt-2 flex items-center gap-1.5 ${isPnlPositive ? "text-[#00C805]" : "text-[#FF3B60]"}`}>
           <span>{isPnlPositive ? "▲" : "▼"}</span>
           <span>
             ${Math.abs(metrics.netPnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} 
             ({isPnlPositive ? "+" : "-"}{Math.abs(startBalance > 0 ? (metrics.netPnl / startBalance * 100) : 0).toFixed(2)}%)
           </span>
-          <span className="text-[#A3A3A3] uppercase font-bold tracking-tight text-[10px] ml-1">ALL TIME</span>
+          <span className="text-[#A3A3A3] uppercase font-bold tracking-tight text-[9px] ml-1">ALL TIME</span>
         </div>
       </div>
 
-      {/* 3. Four key metrics in cards placed ABOVE the equity curve */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5 flex-shrink-0">
+      {/* 3. Five key metrics cards row */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5 flex-shrink-0 text-xs font-mono">
+        {/* Win Rate */}
+        <div className="bg-[#050507] border border-[#1A1A1E] rounded-lg pt-2 pb-3 px-4 flex flex-col justify-between h-[94px] hover:border-[#25252E] transition-all">
+          <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider">Win Rate</span>
+          <div className="text-2xl font-bold text-white font-data leading-none mt-1">
+            {metrics.winRate.toFixed(1)}%
+          </div>
+          <div className="flex flex-col gap-1 w-full mt-1">
+            <div className="flex justify-between text-[8px] text-[#A3A3A3] font-bold">
+              <span>{wins} WINS</span>
+              <span>{losses} LOSSES</span>
+            </div>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden flex">
+              <div style={{ width: `${metrics.winRate}%` }} className="bg-[#00C805] h-full" />
+              <div style={{ width: `${100 - metrics.winRate}%` }} className="bg-[#FF3B60] h-full" />
+            </div>
+          </div>
+        </div>
+
+        {/* Avg Win/Loss */}
+        <div className="bg-[#050507] border border-[#1A1A1E] rounded-lg pt-2 pb-3 px-4 flex flex-col justify-between h-[94px] hover:border-[#25252E] transition-all">
+          <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider">Avg Win/Loss</span>
+          <div className="text-2xl font-bold text-white font-data leading-none mt-1">
+            ${(metrics.netPnl / (trades.length || 1)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+          </div>
+          <div className="flex flex-col gap-1 w-full mt-1">
+            <div className="flex justify-between text-[8px] text-[#A3A3A3] font-bold">
+              <span className="text-[#00C805]">+${Math.round(avgWin)}</span>
+              <span className="text-[#FF3B60]">-${Math.round(avgLoss)}</span>
+            </div>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden flex">
+              <div style={{ width: `${avgWin / (avgWin + avgLoss || 1) * 100}%` }} className="bg-[#00C805] h-full" />
+              <div style={{ width: `${avgLoss / (avgWin + avgLoss || 1) * 100}%` }} className="bg-[#FF3B60] h-full" />
+            </div>
+          </div>
+        </div>
+
         {/* Sharpe Ratio */}
-        <div className="bg-[#050507] border border-[#1A1A1E] rounded-lg pt-2 pb-3 px-4 flex flex-col justify-between h-20 hover:border-[#25252E] transition-all">
-          <span className="text-lg font-bold text-[#F5F5F7] uppercase tracking-wider">
-            Sharpe Ratio
-          </span>
-          <div className="text-3xl font-bold font-data text-white">
+        <div className="bg-[#050507] border border-[#1A1A1E] rounded-lg pt-2 pb-3 px-4 flex flex-col justify-between h-[94px] hover:border-[#25252E] transition-all">
+          <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider">Sharpe Ratio</span>
+          <div className="text-2xl font-bold text-white font-data leading-none mt-1">
             {metrics.sharpeRatio.toFixed(2)}
           </div>
-        </div>
-
-        {/* Max Drawdown */}
-        <div className="bg-[#050507] border border-[#1A1A1E] rounded-lg pt-2 pb-3 px-4 flex flex-col justify-between h-20 hover:border-[#25252E] transition-all">
-          <span className="text-lg font-bold text-[#F5F5F7] uppercase tracking-wider">
-            Max Drawdown
-          </span>
-          <div className="text-3xl font-bold font-data text-[#FF3B60]">
-            -{metrics.maxDrawdownPercent.toFixed(2)}%
+          <div className="flex flex-col gap-1 w-full mt-1">
+            <span className="text-[8px] text-[#A3A3A3] font-bold uppercase">
+              {metrics.sharpeRatio > 2 ? "Excellent" : metrics.sharpeRatio > 1 ? "Good" : "Suboptimal"} Edge
+            </span>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden">
+              <div style={{ width: `${Math.min(100, Math.max(0, (metrics.sharpeRatio / 3) * 100))}%` }} className="bg-[#00D4FF] h-full" />
+            </div>
           </div>
         </div>
 
-        {/* Kelly Percentage */}
-        <div className="bg-[#050507] border border-[#1A1A1E] rounded-lg pt-2 pb-3 px-4 flex flex-col justify-between h-20 hover:border-[#25252E] transition-all">
-          <span className="text-lg font-bold text-[#F5F5F7] uppercase tracking-wider">
-            Kelly Sizing
-          </span>
-          <div className={`text-3xl font-bold font-data ${metrics.kellyPercent > 0 ? "text-[#00D4FF]" : "text-[#FF3B60]"}`}>
+        {/* Kelly Sizing / Long vs Short */}
+        <div className="bg-[#050507] border border-[#1A1A1E] rounded-lg pt-2 pb-3 px-4 flex flex-col justify-between h-[94px] hover:border-[#25252E] transition-all">
+          <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider">Kelly Sizing</span>
+          <div className={`text-2xl font-bold font-data leading-none mt-1 ${metrics.kellyPercent > 0 ? "text-[#00D4FF]" : "text-[#FF3B60]"}`}>
             {metrics.kellyPercent.toFixed(1)}%
           </div>
+          <div className="flex flex-col gap-1 w-full mt-1">
+            <div className="flex justify-between text-[8px] text-[#A3A3A3] font-bold">
+              <span className="text-[#00C805]">L: +${Math.round(longPnl)}</span>
+              <span className="text-[#FF3B60]">S: {shortPnl >= 0 ? "+" : ""}${Math.round(shortPnl)}</span>
+            </div>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden flex">
+              <div style={{ width: `${Math.max(10, Math.min(90, (Math.abs(longPnl) / (Math.abs(longPnl) + Math.abs(shortPnl) || 1)) * 100))}%` }} className="bg-[#00C805] h-full" />
+              <div style={{ width: `${Math.max(10, Math.min(90, (Math.abs(shortPnl) / (Math.abs(longPnl) + Math.abs(shortPnl) || 1)) * 100))}%` }} className="bg-[#FF3B60] h-full" />
+            </div>
+          </div>
         </div>
 
-        {/* Current & Max Streaks */}
-        <div className="bg-[#050507] border border-[#1A1A1E] rounded-lg pt-2 pb-3 px-4 flex flex-col justify-between h-20 hover:border-[#25252E] transition-all">
-          <span className="text-lg font-bold text-[#F5F5F7] uppercase tracking-wider">
-            Active Streak
-          </span>
-          <div className={`text-3xl font-bold font-data ${isWinStreak ? "text-[#00C805]" : "text-[#FF3B60]"}`}>
+        {/* Active Streak */}
+        <div className="bg-[#050507] border border-[#1A1A1E] rounded-lg pt-2 pb-3 px-4 flex flex-col justify-between h-[94px] hover:border-[#25252E] transition-all">
+          <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider">Active Streak</span>
+          <div className={`text-2xl font-bold font-data leading-none mt-1 ${isWinStreak ? "text-[#00C805]" : "text-[#FF3B60]"}`}>
             {metrics.currentStreak.count} {isWinStreak ? "W" : "L"}
+          </div>
+          <div className="flex flex-col gap-1 w-full mt-1">
+            <span className="text-[8px] text-[#A3A3A3] font-bold uppercase">
+              Max: {metrics.maxWinStreak}W / {metrics.maxLossStreak}L
+            </span>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden">
+              <div style={{ width: `${isWinStreak ? (metrics.currentStreak.count / (metrics.maxWinStreak || 1)) * 100 : (metrics.currentStreak.count / (metrics.maxLossStreak || 1)) * 100}%` }} className={`h-full ${isWinStreak ? "bg-[#00C805]" : "bg-[#FF3B60]"}`} />
+            </div>
           </div>
         </div>
       </div>
 
-      {/* 4. Full-width Robinhood-style SVG Equity curve */}
-      <div className="bg-[#050507] border border-[#1A1A1E] rounded-lg pt-2 pb-4 px-4 flex flex-col gap-2 flex-shrink-0 overflow-hidden">
-        <div className="flex items-center justify-between border-b border-[#131316] pb-2">
-          <span className="text-lg font-bold text-[#F5F5F7] uppercase tracking-wider">Equity Curve</span>
-        </div>
-        <div className="relative w-full h-[180px]">
-          {equityPoints.length > 1 ? (
-            <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full h-full overflow-visible" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={isPnlPositive ? "#00C805" : "#FF3B60"} stopOpacity="0.10" />
-                  <stop offset="100%" stopColor={isPnlPositive ? "#00C805" : "#FF3B60"} stopOpacity="0.0" />
-                </linearGradient>
-              </defs>
-              <path d={areaD} fill="url(#chartGradient)" />
-              <path
-                d={pathD}
-                fill="none"
-                stroke={isPnlPositive ? "#00C805" : "#FF3B60"}
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <circle
-                cx={lastPointX}
-                cy={lastPointY}
-                r="4.5"
-                fill={isPnlPositive ? "#00C805" : "#FF3B60"}
-                className="animate-terminal-pulse"
-              />
-            </svg>
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-[#949494] text-[10px]">
-              INSUFFICIENT HISTORICAL POINTS FOR PLOTTING
+      {/* 4. Mini Charts & Score Row (4 Columns Grid) */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 flex-shrink-0">
+        {/* Card 1: Trader's Edge (Radar) */}
+        <div className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-3 flex flex-col justify-between h-[180px]">
+          <div className="flex justify-between items-center border-b border-[#1A1A1E] pb-1">
+            <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider">Trader's Edge</span>
+            <span className="text-[10px] text-[#00C805] font-bold font-data">{compositeScore}/100</span>
+          </div>
+          
+          <div className="flex items-center justify-between gap-3 mt-2 mb-1 flex-1">
+            {/* Left: Radar SVG (Enlarged to 125x125) */}
+            <div className="flex-shrink-0 flex items-center justify-center">
+              <svg className="w-[125px] h-[125px] overflow-visible" viewBox="0 0 100 100">
+                {/* Background outer circle/rings */}
+                <circle cx="50" cy="50" r="35" fill="none" stroke="#25252E" strokeWidth="1" />
+                <circle cx="50" cy="50" r="22" fill="none" stroke="#25252E" strokeWidth="1" strokeDasharray="2,2" />
+                <circle cx="50" cy="50" r="10" fill="none" stroke="#25252E" strokeWidth="1" strokeDasharray="2,2" />
+                
+                {/* Three Axes */}
+                <line x1="50" y1="50" x2="50" y2="15" stroke="#25252E" strokeWidth="1" />
+                <line x1="50" y1="50" x2="80.3" y2="67.5" stroke="#25252E" strokeWidth="1" />
+                <line x1="50" y1="50" x2="19.7" y2="67.5" stroke="#25252E" strokeWidth="1" />
+                
+                {/* Skill Labels on Corners */}
+                <text x="50" y="8" textAnchor="middle" fill="#949494" fontSize="8" fontWeight="bold">WIN%</text>
+                <text x="83" y="71" textAnchor="start" fill="#949494" fontSize="8" fontWeight="bold">R:R</text>
+                <text x="17" y="71" textAnchor="end" fill="#949494" fontSize="8" fontWeight="bold">P.F.</text>
+                
+                {/* Polygon filled area */}
+                <polygon
+                  points={`${50},${50 - 35 * (scoreWin / 100)} ${50 + 30.3 * (scoreRR / 100)},${50 + 17.5 * (scoreRR / 100)} ${50 - 30.3 * (scorePF / 100)},${50 + 17.5 * (scorePF / 100)}`}
+                  fill="rgba(0, 200, 5, 0.2)"
+                  stroke="#00C805"
+                  strokeWidth="1.5"
+                />
+              </svg>
             </div>
-          )}
+            {/* Right: Metrics Stack (Tightly Grouped, Vertically Aligned Labels and Numerics, Equally Spaced) */}
+            <div className="flex flex-col justify-between h-[90px] pr-1 min-w-[95px] font-bold py-1">
+              <div className="flex justify-between items-center w-full">
+                <span className="text-[#949494] text-[8px] uppercase tracking-wider">WIN%</span>
+                <span className="text-white font-data text-xs leading-none">{metrics.winRate.toFixed(0)}%</span>
+              </div>
+              <div className="flex justify-between items-center w-full">
+                <span className="text-[#949494] text-[8px] uppercase tracking-wider">R:R</span>
+                <span className="text-white font-data text-xs leading-none">1:{(avgWin / (avgLoss || 1)).toFixed(1)}</span>
+              </div>
+              <div className="flex justify-between items-center w-full">
+                <span className="text-[#949494] text-[8px] uppercase tracking-wider">P.F.</span>
+                <span className="text-white font-data text-xs leading-none">{(wins > 0 && losses > 0 ? (avgWin * wins) / (avgLoss * losses) : 1).toFixed(1)}x</span>
+              </div>
+            </div>
+          </div>
+          {/* Bottom filled bar */}
+          <div className="w-full">
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden">
+              <div style={{ width: `${compositeScore}%` }} className="bg-[#00C805] h-full" />
+            </div>
+          </div>
+        </div>
+
+        {/* Card 2: Daily Cumulative P&L */}
+        <div className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-3 flex flex-col justify-between h-[180px]">
+          <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider">Cumulative P&L</span>
+          <div className="text-2xl font-bold font-data text-white leading-none mt-2 mb-1">
+            {metrics.netPnl >= 0 ? "+" : ""}${metrics.netPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+          <div className="flex-1 my-1.5 flex items-center justify-center overflow-hidden w-full h-[80px]">
+            {equityPoints.length > 1 ? (
+              <svg width="100%" height="80" viewBox={`0 0 ${sparklineWidth} ${sparklineHeight}`} preserveAspectRatio="none" className="overflow-visible">
+                <polyline
+                  fill="none"
+                  stroke={isPnlPositive ? "#00C805" : "#FF3B60"}
+                  strokeWidth="2"
+                  points={sparklinePoints}
+                />
+              </svg>
+            ) : (
+              <span className="text-[8px] text-[#666]">INS. POINTS</span>
+            )}
+          </div>
+        </div>
+
+        {/* Card 3: Drawdown sparkline */}
+        <div className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-3 flex flex-col justify-between h-[180px]">
+          <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider">Max Drawdown</span>
+          <div className="text-2xl font-bold font-data text-[#FF3B60] leading-none mt-2 mb-1">
+            -{metrics.maxDrawdownPercent.toFixed(2)}%
+          </div>
+          <div className="flex-1 my-1.5 flex items-center justify-center overflow-hidden w-full h-[80px]">
+            {sortedTrades.length > 0 ? (
+              <svg width="100%" height="80" viewBox={`0 0 ${sparklineWidth} ${sparklineHeight}`} preserveAspectRatio="none" className="overflow-visible">
+                <polyline
+                  fill="none"
+                  stroke="#FF3B60"
+                  strokeWidth="2"
+                  points={drawdownPoints}
+                />
+              </svg>
+            ) : (
+              <span className="text-[8px] text-[#666]">INS. POINTS</span>
+            )}
+          </div>
+        </div>
+
+        {/* Card 4: Active Open Positions */}
+        <div className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-3 flex flex-col justify-between h-[180px] overflow-hidden">
+          <div className="flex justify-between items-center border-b border-[#1A1A1E] pb-1">
+            <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider">Open Positions</span>
+            <span className="text-[8px] bg-black text-[#00D4FF] px-1.5 py-0.2 rounded font-bold">{openPositions.length} active</span>
+          </div>
+          <div className="flex-1 overflow-y-auto space-y-2 pr-0.5 mt-2.5 scrollbar-thin scrollbar-thumb-gray-800 text-[9px]">
+            {openPositions.length === 0 ? (
+              <div className="text-center py-4 text-[#666] text-[8px] uppercase font-bold">No active positions</div>
+            ) : (
+              <>
+                {openPositions.filter(p => p.tradeType === "Option").length > 0 && (
+                  <div className="space-y-1">
+                    {openPositions.filter(p => p.tradeType === "Equity").length > 0 && (
+                      <div className="text-[8px] text-[#888] font-bold uppercase tracking-wider mb-1">Options</div>
+                    )}
+                    {openPositions.filter(p => p.tradeType === "Option").map((t) => {
+                      const strikeText = t.strike ? ` $${t.strike}${t.optionType}` : ""
+                      return (
+                        <div
+                          key={t.id}
+                          onClick={() => {
+                            setSelectedTrade(t)
+                            setIsDetailOpen(true)
+                          }}
+                          className="flex justify-between items-center bg-black/60 p-1.5 border border-[#15151C] hover:border-[#333] rounded cursor-pointer transition-all"
+                        >
+                          <span className="font-bold text-white truncate max-w-[55%]">{t.ticker}{strikeText}</span>
+                          <span className={`font-data font-bold ${t.pnl >= 0 ? "text-[#00C805]" : "text-[#FF3B60]"}`}>
+                            {t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)} ({t.pnlPercent >= 0 ? "+" : ""}{t.pnlPercent.toFixed(1)}%)
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+                
+                {openPositions.filter(p => p.tradeType === "Equity").length > 0 && (
+                  <div className="space-y-1 mt-2">
+                    {openPositions.filter(p => p.tradeType === "Option").length > 0 && (
+                      <div className="text-[8px] text-[#888] font-bold uppercase tracking-wider mb-1">Equities</div>
+                    )}
+                    {openPositions.filter(p => p.tradeType === "Equity").map((t) => (
+                      <div
+                        key={t.id}
+                        onClick={() => {
+                          setSelectedTrade(t)
+                          setIsDetailOpen(true)
+                        }}
+                        className="flex justify-between items-center bg-black/60 p-1.5 border border-[#15151C] hover:border-[#333] rounded cursor-pointer transition-all"
+                      >
+                        <span className="font-bold text-white truncate max-w-[55%]">{t.ticker}</span>
+                        <span className={`font-data font-bold ${t.pnl >= 0 ? "text-[#00C805]" : "text-[#FF3B60]"}`}>
+                          {t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)} ({t.pnlPercent >= 0 ? "+" : ""}{t.pnlPercent.toFixed(1)}%)
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
 
       <hr className="border-[#1A1A1E] my-1 flex-shrink-0" />
 
-      {/* 5. Bottom Section: Split Columns (Desktop: Calendar grid left, Open positions right) */}
-      <div className="flex-1 flex flex-col lg:flex-row gap-5 min-h-0">
-        
-        {/* Left Side: Heatmap and Calendar View */}
-        <div className="flex-1 min-h-0 flex flex-col gap-4 bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg pt-2 pb-4 px-4 md:pb-5 md:px-5">
-          <div className="flex-shrink-0">
-            <Heatmap
-              trades={trades}
-              onSelectDate={(date) => setInspectedDate(date)}
-            />
-          </div>
-          <div className="flex-1 min-h-0">
-            <CalendarView
-              trades={trades}
-              onSelectTrade={(trade) => {
-                setSelectedTrade(trade)
-                setIsDetailOpen(true)
-              }}
-              onAddTradeForDate={handleAddTradeForDate}
-              onSelectDate={(date) => setInspectedDate(date)}
-            />
-          </div>
+      {/* 5. Bottom Section: Heatmap and Calendar View (Full Width) */}
+      <div className="flex-grow min-h-0 flex flex-col gap-4 bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg pt-2 pb-4 px-4 md:pb-5 md:px-5">
+        <div className="flex-shrink-0">
+          <Heatmap
+            trades={trades}
+            onSelectDate={(date) => setInspectedDate(date)}
+          />
         </div>
-
-        {/* Right Side: Open Positions panel (Robinhood option listing style) */}
-        <aside className="w-full lg:w-[320px] bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg pt-2 pb-4 px-4 flex flex-col gap-3 flex-shrink-0 min-h-[300px] lg:h-auto overflow-hidden">
-          <div className="border-b border-[#1A1A1E] pb-2 flex items-center justify-between">
-            <span className="text-[10px] font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-              <TrendingUp className="w-3.5 h-3.5 text-[#00C805]" /> Open Positions
-            </span>
-            <span className="text-[9px] bg-black border border-[#1A1A1E] text-[#00D4FF] px-1.5 py-0.5 rounded font-bold">
-              {openPositions.length} active
-            </span>
-          </div>
-
-          <div className="flex-1 overflow-y-auto space-y-2 pr-0.5 terminal-scrollbar min-h-0">
-            {openPositions.length === 0 ? (
-              <div className="text-center py-10 text-[#949494] text-[10px] uppercase font-bold leading-normal">
-                No active positions.<br />Log a trade with status "Open" to track here.
-              </div>
-            ) : (
-              openPositions.map((t) => {
-                const strikeText = t.tradeType === "Option" && t.strike
-                  ? ` $${t.strike} ${t.optionType === "C" ? "Call" : "Put"}`
-                  : ""
-                const contractsLabel = t.tradeType === "Option"
-                  ? `${t.expiration ? t.expiration.slice(5).replace("-", "/") : ""} · ${t.quantity} Buy`
-                  : `${t.quantity} Shares`
-                
-                const isPosProfit = t.pnl >= 0
-
-                return (
-                  <div
-                    key={t.id}
-                    onClick={() => {
-                      setSelectedTrade(t)
-                      setIsDetailOpen(true)
-                    }}
-                    className="flex items-center justify-between p-3 rounded bg-black/45 border border-[#15151C] hover:border-[#333] hover:bg-black/80 transition-all cursor-pointer"
-                  >
-                    <div className="flex flex-col gap-0.5 max-w-[65%]">
-                      <span className="text-xs font-bold text-white uppercase truncate">
-                        {t.ticker}{strikeText}
-                      </span>
-                      <span className="text-[9px] text-[#A3A3A3] truncate">
-                        {contractsLabel}
-                      </span>
-                    </div>
-
-                    {/* Right side Robinhood-style border pill (No solid fill, transparent background, colored border & text) */}
-                    <div className={`px-2.5 py-1 text-xs font-bold font-data text-right min-w-[75px] rounded border transition-colors ${
-                      isPosProfit 
-                        ? "border-[#00C805] text-[#00C805] bg-transparent" 
-                        : "border-[#FF3B60] text-[#FF3B60] bg-transparent"
-                    }`}>
-                      ${t.exitPrice.toFixed(2)}
-                    </div>
-                  </div>
-                )
-              })
-            )}
-          </div>
-        </aside>
+        <div className="flex-1 min-h-0">
+          <CalendarView
+            trades={trades}
+            onSelectTrade={(trade) => {
+              setSelectedTrade(trade)
+              setIsDetailOpen(true)
+            }}
+            onAddTradeForDate={handleAddTradeForDate}
+            onSelectDate={(date) => setInspectedDate(date)}
+          />
+        </div>
       </div>
 
       {/* Slide-over Form Overlay */}
