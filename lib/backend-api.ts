@@ -377,3 +377,41 @@ export async function updateJournalSetting(key: string, value: string): Promise<
     return false
   }
 }
+
+export interface OptionFlowItem {
+  id: string
+  time: string
+  ticker: string
+  contractName: string
+  optionType: 'Call' | 'Put'
+  strike: number
+  expiration: string
+  stockPrice: number
+  lastPrice: number
+  changePercent: number | null
+  volume: number
+  openInterest: number
+  oi5dChangePercent: number | null
+  otmPercent: number
+  ivPercent: number
+  iv5dPointDiff: number | null
+  delta: number
+  dte: number
+  earningsRemainingDays: number | null
+}
+
+/**
+ * Fetch options flow data from backend
+ */
+export async function getOptionsFlowData(ticker: string): Promise<OptionFlowItem[]> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/options/flow?ticker=${ticker}`)
+    if (!response.ok) throw new Error(`Failed to fetch options flow data for ${ticker}`)
+    const data = await response.json()
+    return data.data || []
+  } catch (error) {
+    console.error(`Error fetching options flow data for ${ticker}:`, error)
+    throw error
+  }
+}
+

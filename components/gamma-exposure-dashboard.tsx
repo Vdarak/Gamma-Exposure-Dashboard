@@ -22,6 +22,7 @@ import { PricingMethodToggle } from "./pricing-method-toggle"
 import { EnhancedTimeMachine } from "./enhanced-time-machine"
 import { ExpirySelector, type ExpiryMode } from "./controls/expiry-selector"
 import { TradingJournal } from "./trading-journal/trading-journal"
+import { OptionFlowDashboard } from "./option-flow-dashboard"
 
 // UI components
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -296,6 +297,17 @@ export function GammaExposureDashboard() {
 
   const handleRefresh = () => fetchData(ticker)
 
+  const handlePricingMethodChange = (newMethod: PricingMethod) => {
+    setPricingMethod(newMethod)
+  }
+
+  // Refetch when pricing method changes
+  useEffect(() => {
+    if (ticker) {
+      fetchData(ticker)
+    }
+  }, [pricingMethod])
+
   // Load initial data
   useEffect(() => {
     fetchData(market === 'USA' ? 'SPX' : 'NIFTY')
@@ -439,8 +451,8 @@ export function GammaExposureDashboard() {
 
       {/* ─── MAIN WORKSPACE AND CONTENT GRID ─── */}
       <main className="flex-1 flex flex-col min-w-0 pb-16 md:pb-0">
-        {/* Terminal Header (Hidden inside Journal tab) */}
-        {activeSidebarTab !== 'journal' && (
+        {/* Terminal Header (Hidden inside Journal and Flow tabs) */}
+        {activeSidebarTab !== 'journal' && activeSidebarTab !== 'flow' && (
           <TerminalHeader
             ticker={ticker}
             spotPrice={spotPrice}
@@ -493,7 +505,7 @@ export function GammaExposureDashboard() {
             )}
 
             {/* Interactive Sidebar mockups */}
-            {activeSidebarTab !== 'gex' && activeSidebarTab !== 'journal' && (
+            {activeSidebarTab !== 'gex' && activeSidebarTab !== 'journal' && activeSidebarTab !== 'flow' && (
               <div className="flex-1 flex flex-col items-center justify-center gap-4 text-[#949494]">
                 <div className="w-12 h-12 rounded-full border border-[#1A1A1E] bg-[#0A0A0C] flex items-center justify-center">
                   <svg className="w-5 h-5 text-[#333]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -504,6 +516,17 @@ export function GammaExposureDashboard() {
                   <h3 className="text-xs font-bold font-mono text-[#E5E5E5] uppercase tracking-wider">{activeSidebarTab} SYSTEM LOCK</h3>
                   <p className="text-[10px] font-mono text-[#444] mt-1">PENDING REALTIME WEBSOCKET INGESTION PIPELINE</p>
                 </div>
+              </div>
+            )}
+
+            {/* Options Flow Workspace */}
+            {activeSidebarTab === 'flow' && (
+              <div className="flex-1 p-4 flex flex-col min-h-0 bg-[#020203]">
+                <OptionFlowDashboard 
+                  ticker={ticker}
+                  onTickerSelect={handleTickerSelect}
+                  availableTickers={watchlistTickers}
+                />
               </div>
             )}
 

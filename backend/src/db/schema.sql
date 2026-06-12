@@ -108,3 +108,14 @@ CREATE TABLE IF NOT EXISTS journal_settings (
 
 -- Seed default balance if it doesn't exist
 INSERT INTO journal_settings (key, value) VALUES ('start_balance', '2566.19') ON CONFLICT (key) DO NOTHING;
+
+-- Earnings dates for companies
+CREATE TABLE IF NOT EXISTS earnings_dates (
+  ticker VARCHAR(10) PRIMARY KEY,
+  next_earnings_date DATE NOT NULL,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index to optimize 5-day delta queries
+CREATE INDEX IF NOT EXISTS idx_option_data_exp_strike_type ON option_data(expiration, strike, option_type);
+

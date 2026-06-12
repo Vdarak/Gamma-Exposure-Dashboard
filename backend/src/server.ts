@@ -20,6 +20,7 @@ import {
   getSetting,
   updateSetting,
 } from './services/journalService';
+import { getOptionsFlowData } from './services/optionsFlowService';
 
 dotenv.config();
 
@@ -146,6 +147,30 @@ app.get('/api/current-data', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error in /api/current-data:', error);
     res.status(500).json({ error: 'Failed to fetch current data' });
+  }
+});
+
+/**
+ * Get options flow data for a ticker
+ */
+app.get('/api/options/flow', async (req: Request, res: Response) => {
+  try {
+    const { ticker } = req.query;
+
+    if (!ticker || typeof ticker !== 'string') {
+      return res.status(400).json({ error: 'Ticker parameter is required' });
+    }
+
+    const data = await getOptionsFlowData(ticker.toUpperCase());
+
+    res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error in /api/options/flow:', error);
+    res.status(500).json({ error: 'Failed to fetch options flow data' });
   }
 });
 

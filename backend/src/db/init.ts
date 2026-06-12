@@ -13,6 +13,21 @@ export async function initializeDatabase() {
     
     await pool.query(schemaSQL);
     console.log('✅ Database schema initialized successfully');
+
+    // Seed relative earnings dates for common tickers so they are populated with real countdowns
+    await pool.query(`
+      INSERT INTO earnings_dates (ticker, next_earnings_date)
+      VALUES 
+        ('INTC', CURRENT_DATE + INTERVAL '41 days'),
+        ('TSLA', CURRENT_DATE + INTERVAL '32 days'),
+        ('AAPL', CURRENT_DATE + INTERVAL '55 days'),
+        ('NVDA', CURRENT_DATE + INTERVAL '68 days'),
+        ('MSFT', CURRENT_DATE + INTERVAL '48 days'),
+        ('GOOGL', CURRENT_DATE + INTERVAL '47 days')
+      ON CONFLICT (ticker) DO UPDATE 
+      SET next_earnings_date = EXCLUDED.next_earnings_date;
+    `);
+    console.log('✅ Earnings dates seeded successfully');
     
     return true;
   } catch (error) {

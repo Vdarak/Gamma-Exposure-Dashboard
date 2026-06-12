@@ -71,4 +71,27 @@ export interface JournalTrade {
   createdAt?: Date;
 }
 
+export interface OptionFlowItem {
+  id: string;
+  time: string;
+  ticker: string;
+  contractName: string;
+  optionType: 'Call' | 'Put';
+  strike: number;
+  expiration: string;
+  stockPrice: number;
+  lastPrice: number;
+  changePercent: number | null;
+  volume: number;
+  openInterest: number;
+  oi5dChangePercent: number | null;
+  otmPercent: number;
+  ivPercent: number;
+  iv5dPointDiff: number | null;
+  delta: number;
+  dte: number;
+  earningsRemainingDays: number | null;
+}
+
+
 
