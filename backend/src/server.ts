@@ -53,6 +53,8 @@ const INDIA_MARKET_END_MINUTE = parseInt(process.env.INDIA_MARKET_END_MINUTE || 
 const allowedOrigins = [
   FRONTEND_URL,
   'http://localhost:3000',
+  'http://localhost:3002',
+  'http://localhost:5173',
   'https://gamma-exposure-dashboard.vercel.app',
   /\.vercel\.app$/, // Allow all Vercel preview deployments
 ];
@@ -72,7 +74,6 @@ app.use(cors({
     if (isAllowed) {
       callback(null, true);
     } else {
-      console.warn(`⚠️  CORS blocked origin: ${origin}`);
       callback(null, true); // Allow anyway for now, remove in production
     }
   },

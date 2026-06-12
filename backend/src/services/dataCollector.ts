@@ -320,8 +320,44 @@ async function fetchOptionChainFromNSE(ticker: string): Promise<NSEResponse | nu
  * Normalize CBOE data to our internal format
  * Includes validation for invalid dates and data
  */
-function normalizeCBOEOptionData(cboeOptions: CBOEOptionData[]): OptionData[] {
+function normalizeCBOEOptionData(cboeOptions: any[]): OptionData[] {
   return cboeOptions
+    .map(option => {
+      // Parse from symbol if fields are missing
+      let strike = option.strike;
+      let optionType = option.option_type;
+      let expirationDateStr = option.expiration_date;
+      
+      const symbol = option.option || '';
+      // OSI symbol format: [Ticker][YYMMDD][C/P][Strike (8 digits)]
+      const match = symbol.match(/^([A-Z_]+)(\d{6})([CP])(\d{8})$/);
+      
+      if (match) {
+        const [, , yyymmdd, cp, strikeCode] = match;
+        
+        if (!strike) {
+          strike = parseInt(strikeCode, 10) / 1000;
+        }
+        
+        if (!optionType) {
+          optionType = cp === 'C' ? 'call' : 'put';
+        }
+        
+        if (!expirationDateStr) {
+          const yy = yyymmdd.substring(0, 2);
+          const mm = yyymmdd.substring(2, 4);
+          const dd = yyymmdd.substring(4, 6);
+          expirationDateStr = `20${yy}-${mm}-${dd}`;
+        }
+      }
+      
+      return {
+        ...option,
+        strike,
+        option_type: optionType,
+        expiration_date: expirationDateStr
+      };
+    })
     .filter(option => {
       // Filter out invalid options
       if (!option.expiration_date || !option.strike || !option.option_type) {
@@ -345,7 +381,7 @@ function normalizeCBOEOptionData(cboeOptions: CBOEOptionData[]): OptionData[] {
         strike: option.strike,
         type: option.option_type === 'call' ? 'C' : 'P',
         expiration: expirationDate,
-        lastPrice: option.last || 0,
+        lastPrice: option.last || option.last_trade_price || 0,
         bid: option.bid || 0,
         ask: option.ask || 0,
         volume: option.volume || 0,
