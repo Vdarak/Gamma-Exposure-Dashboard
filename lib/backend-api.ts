@@ -342,3 +342,38 @@ export async function deleteJournalTrade(id: string): Promise<boolean> {
   }
 }
 
+/**
+ * Get a configuration setting by key
+ */
+export async function getJournalSetting(key: string): Promise<string | null> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/journal/settings/${key}`)
+    if (!response.ok) return null
+    const data = await response.json()
+    return data.value
+  } catch (error) {
+    console.error(`Error fetching journal setting ${key} from backend:`, error)
+    return null
+  }
+}
+
+/**
+ * Update a configuration setting
+ */
+export async function updateJournalSetting(key: string, value: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/journal/settings/${key}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ value })
+    })
+    if (!response.ok) throw new Error(`Failed to update setting ${key}`)
+    const data = await response.json()
+    return data.success
+  } catch (error) {
+    console.error(`Error updating journal setting ${key} via backend:`, error)
+    return false
+  }
+}

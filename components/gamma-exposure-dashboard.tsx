@@ -7,7 +7,6 @@ import { computeTotalGEX, findZeroGammaLevel, type PricingMethod } from "@/lib/c
 
 // Layout components
 import { TerminalHeader } from "./layout/terminal-header"
-import { StatBar } from "./layout/stat-bar"
 
 // Chart components
 import { SyncedStrikeWorkspace } from "./charts/synced-strike-workspace"
@@ -88,7 +87,7 @@ export function GammaExposureDashboard() {
   const [isUpdating, setIsUpdating] = useState(false)
 
   // Expiry selector state
-  const [expiryMode, setExpiryMode] = useState<ExpiryMode>('90d')
+  const [expiryMode, setExpiryMode] = useState<ExpiryMode>('0dte')
   const [customSelectedExpiries, setCustomSelectedExpiries] = useState<string[]>([])
 
   // Trigger loading screen update on settings / expiry changes
@@ -450,19 +449,13 @@ export function GammaExposureDashboard() {
             onTickerSelect={handleTickerSelect}
             onMarketChange={handleMarketChange}
             onRefresh={handleRefresh}
-          />
-        )}
-
-        {/* Gauges Stat Bar */}
-        {activeSidebarTab === 'gex' && activeSidebarTab !== 'journal' && hasData && !isLoading && (
-          <StatBar
-            spotPrice={spotPrice}
             totalGEX={activeTotalGEX}
             optionData={activeOptionData}
-            market={market}
             gammaFlipLevel={gammaFlipLevel}
           />
         )}
+
+
 
         {/* Workspace body */}
         <div className="flex-1 flex flex-row min-h-0 bg-[#020203]">

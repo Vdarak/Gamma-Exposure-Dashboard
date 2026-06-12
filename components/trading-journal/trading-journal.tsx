@@ -10,7 +10,9 @@ import {
   getJournalTrades,
   createJournalTrade,
   updateJournalTrade,
-  deleteJournalTrade
+  deleteJournalTrade,
+  getJournalSetting,
+  updateJournalSetting
 } from "@/lib/backend-api"
 import { Plus, RefreshCw, X, TrendingUp, ArrowDownRight, Percent, Zap, Calendar as CalendarIcon } from "lucide-react"
 
@@ -47,10 +49,32 @@ export function TradingJournal() {
     }
   }, [])
 
+  // Fetch starting balance setting
+  const loadSettings = useCallback(async () => {
+    try {
+      const balStr = await getJournalSetting("start_balance")
+      if (balStr !== null) {
+        setStartBalance(parseFloat(balStr))
+      }
+    } catch (err) {
+      console.error("Failed to load starting balance setting:", err)
+    }
+  }, [])
+
   // Initial load
   useEffect(() => {
     loadTrades()
-  }, [loadTrades])
+    loadSettings()
+  }, [loadTrades, loadSettings])
+
+  // Save starting balance setting to backend
+  const handleSaveBalance = async (value: number) => {
+    try {
+      await updateJournalSetting("start_balance", value.toString())
+    } catch (err) {
+      console.error("Failed to save starting balance to backend:", err)
+    }
+  }
 
   // Create/Commit Trade
   const handleCreateTrade = async (newTrade: JournalTrade) => {
@@ -386,6 +410,13 @@ export function TradingJournal() {
                 type="number"
                 value={startBalance}
                 onChange={(e) => setStartBalance(Math.max(100, parseFloat(e.target.value) || 0))}
+                onBlur={(e) => handleSaveBalance(startBalance)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleSaveBalance(startBalance)
+                    e.currentTarget.blur()
+                  }
+                }}
                 className="bg-black border border-[#1A1A1E] text-white pl-4 pr-1.5 py-0.5 rounded text-[11px] font-mono w-24 outline-none focus:border-[#00C805]"
               />
             </div>

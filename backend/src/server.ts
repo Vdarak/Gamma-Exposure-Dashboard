@@ -17,6 +17,8 @@ import {
   createTrade,
   updateTrade,
   deleteTrade,
+  getSetting,
+  updateSetting,
 } from './services/journalService';
 
 dotenv.config();
@@ -349,6 +351,47 @@ app.delete('/api/journal/trades/:id', async (req: Request, res: Response) => {
   } catch (error) {
     console.error(`Error deleting journal trade ${id}:`, error);
     res.status(500).json({ error: 'Failed to delete journal trade' });
+  }
+});
+
+/**
+ * Get a configuration setting
+ */
+app.get('/api/journal/settings/:key', async (req: Request, res: Response) => {
+  const { key } = req.params;
+  try {
+    const value = await getSetting(key);
+    res.json({
+      success: true,
+      key,
+      value,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error(`Error fetching journal setting ${key}:`, error);
+    res.status(500).json({ error: 'Failed to fetch journal setting' });
+  }
+});
+
+/**
+ * Update a configuration setting
+ */
+app.put('/api/journal/settings/:key', async (req: Request, res: Response) => {
+  const { key } = req.params;
+  try {
+    const { value } = req.body;
+    if (value === undefined) {
+      return res.status(400).json({ error: 'Missing required value parameter' });
+    }
+    await updateSetting(key, String(value));
+    res.json({
+      success: true,
+      message: `Setting ${key} updated successfully`,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error(`Error updating journal setting ${key}:`, error);
+    res.status(500).json({ error: 'Failed to update journal setting' });
   }
 });
 

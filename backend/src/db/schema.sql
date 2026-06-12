@@ -100,4 +100,11 @@ CREATE INDEX IF NOT EXISTS idx_journal_trades_ticker ON journal_trades(ticker);
 -- Migration for existing tables
 ALTER TABLE journal_trades ADD COLUMN IF NOT EXISTS status VARCHAR(10) DEFAULT 'Closed' CHECK (status IN ('Open', 'Closed'));
 
+-- Settings table for journal configuration
+CREATE TABLE IF NOT EXISTS journal_settings (
+  key VARCHAR(50) PRIMARY KEY,
+  value VARCHAR(255) NOT NULL
+);
 
+-- Seed default balance if it doesn't exist
+INSERT INTO journal_settings (key, value) VALUES ('start_balance', '2566.19') ON CONFLICT (key) DO NOTHING;

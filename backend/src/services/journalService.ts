@@ -197,3 +197,37 @@ export async function deleteTrade(id: string): Promise<boolean> {
     throw error;
   }
 }
+
+/**
+ * Get a configuration setting by key
+ */
+export async function getSetting(key: string): Promise<string | null> {
+  try {
+    const result = await pool.query(
+      'SELECT value FROM journal_settings WHERE key = $1',
+      [key]
+    );
+    if (result.rows.length === 0) return null;
+    return result.rows[0].value;
+  } catch (error) {
+    console.error(`❌ Error getting setting ${key}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Update or insert a configuration setting
+ */
+export async function updateSetting(key: string, value: string): Promise<void> {
+  try {
+    await pool.query(
+      `INSERT INTO journal_settings (key, value)
+       VALUES ($1, $2)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [key, value]
+    );
+  } catch (error) {
+    console.error(`❌ Error updating setting ${key}:`, error);
+    throw error;
+  }
+}
