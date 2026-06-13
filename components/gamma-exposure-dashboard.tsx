@@ -786,6 +786,7 @@ export function GammaExposureDashboard() {
                         onCheckpointChange={handleCheckpointChange}
                         isLive={isLive}
                         setIsLive={setIsLive}
+                        parentLoading={isLoading}
                       />
                     </div>
                   )}

@@ -14,6 +14,7 @@ interface FlowHistoricalViewProps {
   onCheckpointChange?: (timestamp: string | null, isLive: boolean) => void
   isLive?: boolean
   setIsLive?: (live: boolean) => void
+  parentLoading?: boolean
 }
 
 interface IntradaySnapshot {
@@ -47,6 +48,7 @@ export function FlowHistoricalView({
   onCheckpointChange,
   isLive,
   setIsLive,
+  parentLoading,
 }: FlowHistoricalViewProps) {
   const leftSvgRef = useRef<SVGSVGElement>(null)
   const rightSvgRef = useRef<SVGSVGElement>(null)
@@ -80,6 +82,7 @@ export function FlowHistoricalView({
 
   // Fetch 30-day closing trends on mount / ticker change
   useEffect(() => {
+    if (parentLoading) return
     let active = true
     setLoadingHistorical(true)
     fetch(`${BACKEND_URL}/api/historical-gex?ticker=${ticker}`)
@@ -106,10 +109,11 @@ export function FlowHistoricalView({
       })
 
     return () => { active = false }
-  }, [ticker])
+  }, [ticker, parentLoading])
 
   // Fetch Intraday GEX Flow when selectedDate or ticker changes
   useEffect(() => {
+    if (parentLoading) return
     if (!selectedDate) return
     let active = true
     setLoadingIntraday(true)
@@ -132,7 +136,7 @@ export function FlowHistoricalView({
       })
 
     return () => { active = false }
-  }, [ticker, selectedDate])
+  }, [ticker, selectedDate, parentLoading])
 
   // Process Intraday Data to select 12 nearest strikes around opening spot
   const { intradaySeries, keyStrikes } = useMemo(() => {
