@@ -6,9 +6,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { typography } from "@/lib/design-tokens"
 import { RefreshCw } from "lucide-react"
 import { BACKEND_URL } from "@/lib/backend-api"
+import { Slider } from "@/components/ui/slider"
 
 interface FlowHistoricalViewProps {
   ticker: string
+  currentTimestamp?: string | null
+  onCheckpointChange?: (timestamp: string | null, isLive: boolean) => void
+  isLive?: boolean
+  setIsLive?: (live: boolean) => void
 }
 
 interface IntradaySnapshot {
@@ -36,7 +41,13 @@ function formatBillions(num: number): string {
   return `${num >= 0 ? "+" : "−"}${val.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
 }
 
-export function FlowHistoricalView({ ticker }: FlowHistoricalViewProps) {
+export function FlowHistoricalView({
+  ticker,
+  currentTimestamp,
+  onCheckpointChange,
+  isLive,
+  setIsLive,
+}: FlowHistoricalViewProps) {
   const leftSvgRef = useRef<SVGSVGElement>(null)
   const rightSvgRef = useRef<SVGSVGElement>(null)
   const leftContainerRef = useRef<HTMLDivElement>(null)
@@ -233,6 +244,34 @@ export function FlowHistoricalView({ ticker }: FlowHistoricalViewProps) {
         .style("opacity", 0.8)
     })
 
+    // Current Seek Time Line Indicator
+    if (currentTimestamp) {
+      const seekDate = new Date(currentTimestamp)
+      if (seekDate >= xDomain[0] && seekDate <= xDomain[1]) {
+        const seekX = xScale(seekDate)
+        
+        // Draw vertical line
+        g.append("line")
+          .attr("x1", seekX)
+          .attr("x2", seekX)
+          .attr("y1", 0)
+          .attr("y2", height)
+          .attr("stroke", "#FF00AA") // bright vibrant pink
+          .attr("stroke-width", 2)
+          .style("stroke-opacity", 0.85)
+          
+        // Add a badge/label at the top
+        g.append("text")
+          .attr("x", seekX + 5)
+          .attr("y", 12)
+          .attr("fill", "#FF00AA")
+          .style("font-family", typography.fontMono)
+          .style("font-size", "9px")
+          .style("font-weight", "bold")
+          .text(seekDate.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true }))
+      }
+    }
+
     // X Axis
     const xAxis = d3.axisBottom(xScale)
       .ticks(Math.max(2, Math.floor(width / 80)))
@@ -344,7 +383,7 @@ export function FlowHistoricalView({ ticker }: FlowHistoricalViewProps) {
       tooltipEl.style("opacity", 0)
     })
 
-  }, [dimensions, intradayData, intradaySeries, keyStrikes, strikeColors])
+  }, [dimensions, intradayData, intradaySeries, keyStrikes, strikeColors, currentTimestamp])
 
   // Render Right Chart (30-Day Historical GEX Trend)
   useEffect(() => {
@@ -581,13 +620,55 @@ export function FlowHistoricalView({ ticker }: FlowHistoricalViewProps) {
             </CardDescription>
           </div>
         </CardHeader>
-        <CardContent className="p-0 relative" ref={leftContainerRef}>
+        <CardContent className="p-0 relative flex flex-col" ref={leftContainerRef}>
           {intradayData.length === 0 && !loadingIntraday ? (
             <div className="h-[350px] flex items-center justify-center text-xs text-gray-500 font-mono">
               No intraday checkpoints available for {selectedDateLabel}
             </div>
           ) : (
-            <svg ref={leftSvgRef} width="100%" height={350} className="block overflow-visible" />
+            <>
+              <svg ref={leftSvgRef} width="100%" height={350} className="block overflow-visible" />
+              
+              {/* Playback Timer Slider just below the chart plotting area */}
+              {intradayData.length > 0 && currentTimestamp !== undefined && onCheckpointChange && (
+                <div 
+                  className="pb-4 pt-1 flex flex-col gap-1.5 select-none"
+                  style={{
+                    paddingLeft: "55px",
+                    paddingRight: "35px"
+                  }}
+                >
+                  <div className="flex items-center justify-between text-[9px] font-mono text-gray-500 mb-0.5">
+                    <span>9:30 AM (Open)</span>
+                    <span className="text-[#FF00AA] font-bold">
+                      SEEK TIME: {(() => {
+                        if (!currentTimestamp) return "--"
+                        const date = new Date(currentTimestamp)
+                        return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true })
+                      })()}
+                    </span>
+                    <span>4:00 PM (Close)</span>
+                  </div>
+                  <Slider
+                    min={0}
+                    max={intradayData.length - 1}
+                    step={1}
+                    value={[(() => {
+                      const idx = intradayData.findIndex(d => d.timestamp === currentTimestamp)
+                      return idx === -1 ? 0 : idx
+                    })()]}
+                    onValueChange={(values) => {
+                      const idx = values[0]
+                      const snap = intradayData[idx]
+                      if (snap) {
+                        onCheckpointChange(snap.timestamp, false)
+                      }
+                    }}
+                    className="cursor-pointer"
+                  />
+                </div>
+              )}
+            </>
           )}
           {/* Tooltip */}
           <div

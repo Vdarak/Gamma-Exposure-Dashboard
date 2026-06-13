@@ -222,65 +222,73 @@ export function GammaExposureDashboard() {
       setError(null)
       const mkt = targetMarket || market
 
-      // Try fetching from the database first
-      const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001').replace(/\/+$/, '')
-      let url = `${BACKEND_URL}/api/current-data?ticker=${selectedTicker.toUpperCase()}`
-      if (timestamp) {
-        url = `${BACKEND_URL}/api/historical-data?ticker=${selectedTicker.toUpperCase()}&timestamp=${encodeURIComponent(timestamp)}`
-      }
-
-      const response = await fetch(url)
-      
       let snapshot = null;
-      if (response.status === 404 && !timestamp) {
-        console.log(`No backend snapshot for ${selectedTicker} (404). Will fallback to live options fetch.`);
-      } else if (!response.ok) {
-        throw new Error(`Failed to fetch data from backend: ${response.statusText}`);
-      } else {
-        const json = await response.json()
+      
+      // Try fetching from the database first
+      try {
+        const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001').replace(/\/+$/, '')
+        let url = `${BACKEND_URL}/api/current-data?ticker=${selectedTicker.toUpperCase()}`
         if (timestamp) {
-          snapshot = json.data && json.data.length > 0 ? json.data[0] : null
-        } else {
-          snapshot = json.data
+          url = `${BACKEND_URL}/api/historical-data?ticker=${selectedTicker.toUpperCase()}&timestamp=${encodeURIComponent(timestamp)}`
         }
+
+        const response = await fetch(url)
+        
+        if (response.ok) {
+          const json = await response.json()
+          if (timestamp) {
+            snapshot = json.data && json.data.length > 0 ? json.data[0] : null
+          } else {
+            snapshot = json.data
+          }
+        } else {
+          console.warn(`Backend returned non-OK status: ${response.status} ${response.statusText}`);
+        }
+      } catch (backendError) {
+        console.warn("Backend data pipeline unreachable, falling back to frontend direct options fetch:", backendError);
       }
 
-      // Fallback to live data fetch if no DB snapshot yet (and not a specific historical checkpoint)
+      // Fallback to live frontend data fetch if no DB snapshot yet or backend failed
       if (!snapshot) {
-        if (!timestamp) {
-          console.log(`No backend snapshot found for ${selectedTicker}. Falling back to live fetch...`)
-          const { spotPrice: sp, optionData: od } = await dataService.fetchOptionData(
-            selectedTicker.toUpperCase(),
-            mkt,
-            pricingMethod
-          )
-          setTicker(selectedTicker.toUpperCase())
-          setSpotPrice(sp)
-          setOptionData(od)
-          setTotalGEX(computeTotalGEX(sp, od, pricingMethod))
-          setLastUpdated(new Date())
-          
-          // Auto-setup defaults
-          const today = new Date()
-          const todayUTC = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
-          const expiries = Array.from(new Set(
-            od.map((o) => {
-              const y = o.expiration.getUTCFullYear()
-              const m = String(o.expiration.getUTCMonth() + 1).padStart(2, '0')
-              const d = String(o.expiration.getUTCDate()).padStart(2, '0')
-              return { expStr: `${y}-${m}-${d}`, time: o.expiration.getTime() }
-            })
-            .filter((item) => item.time >= todayUTC)
-            .map((item) => item.expStr)
-          )).sort()
+        console.log(`No backend snapshot found for ${selectedTicker}. Falling back to live frontend fetch...`)
+        const { spotPrice: sp, optionData: od } = await dataService.fetchOptionData(
+          selectedTicker.toUpperCase(),
+          mkt,
+          pricingMethod
+        )
+        
+        setTicker(selectedTicker.toUpperCase())
+        setSpotPrice(sp)
+        setOptionData(od)
+        setTotalGEX(computeTotalGEX(sp, od, pricingMethod))
+        setLastUpdated(new Date())
+        setIsLive(true)
+        setCurrentTimestamp(null)
+        
+        // Auto-setup defaults
+        const today = new Date()
+        const todayUTC = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
+        const expiries = Array.from(new Set(
+          od.map((o) => {
+            const y = o.expiration.getUTCFullYear()
+            const m = String(o.expiration.getUTCMonth() + 1).padStart(2, '0')
+            const d = String(o.expiration.getUTCDate()).padStart(2, '0')
+            return { expStr: `${y}-${m}-${d}`, time: o.expiration.getTime() }
+          })
+          .filter((item) => item.time >= todayUTC)
+          .map((item) => item.expStr)
+        )).sort()
 
-          if (expiries.length > 0) {
-            setSelectedWallExpiry(expiries[0])
-            if (!expiries.includes(selectedRampExpiry)) setSelectedRampExpiry(expiries[0])
-          }
-          return
+        if (expiries.length > 0) {
+          setSelectedWallExpiry(expiries[0])
+          if (!expiries.includes(selectedRampExpiry)) setSelectedRampExpiry(expiries[0])
+          if (!expiries.includes(selectedMoveExpiry) && selectedMoveExpiry !== "All Dates") setSelectedMoveExpiry("All Dates")
+        } else {
+          setSelectedWallExpiry("")
+          setSelectedRampExpiry("")
+          setSelectedMoveExpiry("All Dates")
         }
-        throw new Error("No snapshot data found.")
+        return
       }
 
       // Map backend OptionData to frontend OptionData
@@ -772,7 +780,13 @@ export function GammaExposureDashboard() {
                   {/* 2. Flow/Historical Workspace */}
                   {activeTab === 'flow-historical' && (
                     <div className="flex-1 p-4 overflow-y-auto">
-                      <FlowHistoricalView ticker={ticker} />
+                      <FlowHistoricalView
+                        ticker={ticker}
+                        currentTimestamp={currentTimestamp}
+                        onCheckpointChange={handleCheckpointChange}
+                        isLive={isLive}
+                        setIsLive={setIsLive}
+                      />
                     </div>
                   )}
 
