@@ -19,7 +19,8 @@ import { OptionChain } from "./charts/option-chain"
 import { GEXDataGraphDashboard } from "./charts/gex-data-graph-dashboard"
 import { ChartWrapper } from "./charts/chart-wrapper"
 import { PricingMethodToggle } from "./pricing-method-toggle"
-import { EnhancedTimeMachine } from "./enhanced-time-machine"
+import { SessionTimer } from "./session-timer"
+import { FlowHistoricalView } from "./flow-historical-view"
 import { ExpirySelector, type ExpiryMode } from "./controls/expiry-selector"
 import { TradingJournal } from "./trading-journal/trading-journal"
 import { OptionFlowDashboard } from "./option-flow-dashboard"
@@ -203,35 +204,115 @@ export function GammaExposureDashboard() {
 
   const hasData = spotPrice !== null && optionData.length > 0
 
-  // ─── Data fetching ───────────────────────────────────────────
+  // Playback/Session timer states
+  const [currentTimestamp, setCurrentTimestamp] = useState<string | null>(null)
+  const [isLive, setIsLive] = useState(true)
+  const [allTimestamps, setAllTimestamps] = useState<string[]>([])
 
-  const fetchData = useCallback(async (
+  const fetchDashboardData = useCallback(async (
     selectedTicker: string,
-    targetMarket?: Market
+    targetMarket?: Market,
+    timestamp: string | null = null,
+    isSilent: boolean = false
   ) => {
     try {
-      setIsLoading(true)
+      if (!isSilent) {
+        setIsLoading(true)
+      }
       setError(null)
       const mkt = targetMarket || market
 
-      const { spotPrice: sp, optionData: od } = await dataService.fetchOptionData(
-        selectedTicker.toUpperCase(),
-        mkt,
-        pricingMethod
-      )
+      // Try fetching from the database first
+      const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001').replace(/\/+$/, '')
+      let url = `${BACKEND_URL}/api/current-data?ticker=${selectedTicker.toUpperCase()}`
+      if (timestamp) {
+        url = `${BACKEND_URL}/api/historical-data?ticker=${selectedTicker.toUpperCase()}&timestamp=${encodeURIComponent(timestamp)}`
+      }
+
+      const response = await fetch(url)
+      if (!response.ok) {
+        throw new Error(`Failed to fetch data from backend`)
+      }
+
+      const json = await response.json()
+      
+      let snapshot;
+      if (timestamp) {
+        snapshot = json.data && json.data.length > 0 ? json.data[0] : null
+      } else {
+        snapshot = json.data
+      }
+
+      // Fallback to CBOE if no DB snapshot yet
+      if (!snapshot) {
+        if (mkt === 'USA' && !timestamp) {
+          console.log("No backend snapshot found. Falling back to live CBOE fetch...")
+          const { spotPrice: sp, optionData: od } = await dataService.fetchOptionData(
+            selectedTicker.toUpperCase(),
+            mkt,
+            pricingMethod
+          )
+          setTicker(selectedTicker.toUpperCase())
+          setSpotPrice(sp)
+          setOptionData(od)
+          setTotalGEX(computeTotalGEX(sp, od, pricingMethod))
+          setLastUpdated(new Date())
+          
+          // Auto-setup defaults
+          const today = new Date()
+          const todayUTC = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
+          const expiries = Array.from(new Set(
+            od.map((o) => {
+              const y = o.expiration.getUTCFullYear()
+              const m = String(o.expiration.getUTCMonth() + 1).padStart(2, '0')
+              const d = String(o.expiration.getUTCDate()).padStart(2, '0')
+              return { expStr: `${y}-${m}-${d}`, time: o.expiration.getTime() }
+            })
+            .filter((item) => item.time >= todayUTC)
+            .map((item) => item.expStr)
+          )).sort()
+
+          if (expiries.length > 0) {
+            setSelectedWallExpiry(expiries[0])
+            if (!expiries.includes(selectedRampExpiry)) setSelectedRampExpiry(expiries[0])
+          }
+          return
+        }
+        throw new Error("No snapshot data found.")
+      }
+
+      // Map backend OptionData to frontend OptionData
+      const mappedOptions: OptionData[] = snapshot.options.map((opt: any) => ({
+        option: opt.option || `${selectedTicker}-${opt.strike}-${opt.option_type || opt.type}`,
+        type: opt.type || opt.option_type,
+        strike: parseFloat(opt.strike),
+        expiration: new Date(opt.expiration),
+        gamma: parseFloat(opt.gamma || 0),
+        open_interest: parseInt(opt.openInterest || opt.open_interest || 0, 10),
+        volume: parseInt(opt.volume || 0, 10),
+        iv: parseFloat(opt.impliedVolatility || opt.implied_volatility || opt.iv || 0) * 100, // fraction to percent
+        delta: parseFloat(opt.delta || 0),
+        bid: parseFloat(opt.bid || 0),
+        ask: parseFloat(opt.ask || 0),
+        last: parseFloat(opt.last || opt.lastPrice || opt.last_price || 0),
+      }))
 
       setTicker(selectedTicker.toUpperCase())
-      setSpotPrice(sp)
-      setOptionData(od)
-      setTotalGEX(computeTotalGEX(sp, od, pricingMethod))
-      setLastUpdated(new Date())
+      setSpotPrice(snapshot.spotPrice)
+      setOptionData(mappedOptions)
+      setTotalGEX(computeTotalGEX(snapshot.spotPrice, mappedOptions, pricingMethod))
+      setLastUpdated(new Date(snapshot.timestamp))
+      
+      if (!timestamp) {
+        setCurrentTimestamp(snapshot.timestamp)
+      }
 
       // Update expiry defaults (completely timezone-independent UTC-matching calendar check)
       const today = new Date()
       const todayUTC = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
 
       const expiries = Array.from(new Set(
-        od.map((o) => {
+        mappedOptions.map((o) => {
           const y = o.expiration.getUTCFullYear()
           const m = String(o.expiration.getUTCMonth() + 1).padStart(2, '0')
           const d = String(o.expiration.getUTCDate()).padStart(2, '0')
@@ -257,13 +338,26 @@ export function GammaExposureDashboard() {
       else if (msg.includes("500")) setError("Server response error. Try again shortly.")
       else setError(msg)
     } finally {
-      setIsLoading(false)
+      if (!isSilent) {
+        setIsLoading(false)
+      }
     }
   }, [market, pricingMethod, selectedRampExpiry, selectedMoveExpiry])
 
   // ─── Handlers ────────────────────────────────────────────────
 
-  const handleTickerSelect = (t: string) => fetchData(t)
+  const handleTickerSelect = (t: string) => {
+    setIsLive(true)
+    fetchDashboardData(t, undefined, null, false)
+  }
+
+  const handleCheckpointChange = useCallback((ts: string | null, isCheckpointLive: boolean) => {
+    setCurrentTimestamp(ts)
+    setIsLive(isCheckpointLive)
+    if (ts) {
+      fetchDashboardData(ticker, undefined, ts, true)
+    }
+  }, [ticker, fetchDashboardData])
 
   const handleMarketChange = (newMarket: Market) => {
     setMarket(newMarket)
@@ -272,7 +366,8 @@ export function GammaExposureDashboard() {
     setCustomTickers([])
     const defaultTicker = newMarket === 'USA' ? 'SPX' : 'NIFTY'
     setTicker(defaultTicker)
-    fetchData(defaultTicker, newMarket)
+    setIsLive(true)
+    fetchDashboardData(defaultTicker, newMarket, null, false)
   }
 
   const handleAddTickerSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -282,7 +377,8 @@ export function GammaExposureDashboard() {
     const val = input.value.trim().toUpperCase()
     if (val && !watchlistTickers.includes(val)) {
       setCustomTickers(prev => [...prev, val])
-      fetchData(val)
+      setIsLive(true)
+      fetchDashboardData(val, undefined, null, false)
     }
     form.reset()
   }
@@ -291,11 +387,14 @@ export function GammaExposureDashboard() {
     e.stopPropagation()
     setCustomTickers(prev => prev.filter(x => x !== t))
     if (ticker === t) {
-      fetchData(defaultWatchlist[0])
+      setIsLive(true)
+      fetchDashboardData(defaultWatchlist[0], undefined, null, false)
     }
   }
 
-  const handleRefresh = () => fetchData(ticker)
+  const handleRefresh = () => {
+    fetchDashboardData(ticker, undefined, isLive ? null : currentTimestamp, false)
+  }
 
   const handlePricingMethodChange = (newMethod: PricingMethod) => {
     setPricingMethod(newMethod)
@@ -304,13 +403,13 @@ export function GammaExposureDashboard() {
   // Refetch when pricing method changes
   useEffect(() => {
     if (ticker) {
-      fetchData(ticker)
+      fetchDashboardData(ticker, undefined, isLive ? null : currentTimestamp, true)
     }
   }, [pricingMethod])
 
   // Load initial data
   useEffect(() => {
-    fetchData(market === 'USA' ? 'SPX' : 'NIFTY')
+    fetchDashboardData(market === 'USA' ? 'SPX' : 'NIFTY', undefined, null, false)
   }, [])
 
   return (
@@ -465,6 +564,19 @@ export function GammaExposureDashboard() {
             optionData={activeOptionData}
             gammaFlipLevel={gammaFlipLevel}
           />
+        )}
+
+        {activeSidebarTab === 'gex' && activeTab === 'gex-levels' && hasData && !isLoading && (
+          <div className="px-4 py-2 bg-[#020203] border-b border-[#1A1A1E] flex-shrink-0">
+            <SessionTimer
+              ticker={ticker}
+              currentTimestamp={currentTimestamp}
+              onCheckpointChange={handleCheckpointChange}
+              isLive={isLive}
+              onLiveChange={setIsLive}
+              onTimestampsLoad={setAllTimestamps}
+            />
+          </div>
         )}
 
 
@@ -657,13 +769,9 @@ export function GammaExposureDashboard() {
 
                   {/* 2. Flow/Historical Workspace */}
                   {activeTab === 'flow-historical' && (
-                    <ChartWrapper
-                      title="Historical Time Machine"
-                      subtitle="Interactive slider to review intraday and historical GEX profiles"
-                      height="auto"
-                    >
-                      <EnhancedTimeMachine ticker={ticker} />
-                    </ChartWrapper>
+                    <div className="flex-1 p-4 overflow-y-auto">
+                      <FlowHistoricalView ticker={ticker} />
+                    </div>
                   )}
 
                   {/* 3. Data Graph Workspace */}

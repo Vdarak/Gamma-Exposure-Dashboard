@@ -29,11 +29,11 @@ CREATE TABLE IF NOT EXISTS option_data (
   volume INTEGER DEFAULT 0,
   open_interest INTEGER DEFAULT 0,
   implied_volatility DECIMAL(8, 6),
-  delta DECIMAL(8, 6),
-  gamma DECIMAL(10, 8),
-  theta DECIMAL(10, 8),
-  vega DECIMAL(10, 8),
-  rho DECIMAL(10, 8),
+  delta DECIMAL(12, 6),
+  gamma DECIMAL(16, 8),
+  theta DECIMAL(16, 8),
+  vega DECIMAL(16, 8),
+  rho DECIMAL(16, 8),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -54,12 +54,10 @@ ORDER BY ticker, timestamp DESC;
 CREATE OR REPLACE FUNCTION clean_old_snapshots(days_to_keep INTEGER DEFAULT 3)
 RETURNS INTEGER AS $$
 DECLARE
-  deleted_count INTEGER;
+  deleted_count INTEGER := 0;
 BEGIN
-  DELETE FROM option_snapshots
-  WHERE timestamp < NOW() - (days_to_keep || ' days')::INTERVAL;
-  
-  GET DIAGNOSTICS deleted_count = ROW_COUNT;
+  -- Data is persisted permanently. Automated cleanup is disabled.
+  -- DELETE FROM option_snapshots WHERE timestamp < NOW() - (days_to_keep || ' days')::INTERVAL;
   RETURN deleted_count;
 END;
 $$ LANGUAGE plpgsql;

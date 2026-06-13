@@ -156,6 +156,7 @@ export function SyncedStrikeWorkspace({
 
       list.push({
         date: dateStr,
+        timestamp: date.getTime(),
         open,
         high,
         low,
@@ -463,13 +464,105 @@ export function SyncedStrikeWorkspace({
       yAxisG.selectAll('path').attr('stroke', 'none')
       yAxisG.selectAll('text').attr('fill', '#B5B5B5').style('font-family', typography.fontMono).style('font-size', '9px').attr('dx', '3px')
 
-      // X Axis (Time)
-      const xTicks = xScale.domain().filter((_, i) => i % 10 === 0)
-      const xAxis = d3.axisBottom(xScale).tickValues(xTicks).tickFormat(idx => visibleCandlesData[parseInt(idx)]?.date || '')
-      const xAxisG = g.append('g').attr('transform', `translate(0,${chartHeight})`).call(xAxis)
-      xAxisG.selectAll('line').attr('stroke', 'none')
-      xAxisG.selectAll('path').attr('stroke', '#1A1A1A')
-      xAxisG.selectAll('text').attr('fill', '#949494').style('font-family', typography.fontSans).style('font-size', '9px').attr('dy', '10px')
+      // X Axis (Time) with dynamic step sizing and TradingView style day transitions
+      const xTicks: string[] = [];
+      let lastDayStr = '';
+      const indices = d3.range(0, visibleCandlesData.length);
+
+      // First pass: identify day/month boundaries
+      const boundaries: number[] = [];
+      indices.forEach(i => {
+        const c = visibleCandlesData[i];
+        if (!c || !c.timestamp) return;
+        const date = new Date(c.timestamp);
+        // boundary is determined by change in date (intraday) or month (daily)
+        const dayStr = timeframe.endsWith('m') 
+          ? date.toLocaleDateString("en-US", { timeZone: "America/New_York" })
+          : `${date.getFullYear()}-${date.getMonth()}`;
+
+        if (i === 0 || dayStr !== lastDayStr) {
+          boundaries.push(i);
+          lastDayStr = dayStr;
+        }
+      });
+
+      // Calculate dynamic intermediate tick spacing (step)
+      // Average label width is ~45px. We want at least 20px spacing between labels, so ~65px per label.
+      const maxLabels = Math.max(2, Math.floor(width / 65));
+      const step = Math.ceil(visibleCandlesData.length / maxLabels);
+
+      // Second pass: add boundaries, and select intermediate ticks between boundaries
+      let lastAddedTickIdx = -999;
+      indices.forEach(i => {
+        const isBoundary = boundaries.includes(i);
+        if (isBoundary) {
+          xTicks.push(i.toString());
+          lastAddedTickIdx = i;
+        } else {
+          // Add intermediate tick if it's sufficiently spaced from the last added tick
+          // and also sufficiently spaced from the NEXT boundary
+          const nextBoundary = boundaries.find(b => b > i);
+          const distToNextBoundary = nextBoundary !== undefined ? nextBoundary - i : 999;
+
+          if (i - lastAddedTickIdx >= step && distToNextBoundary >= Math.ceil(step / 2)) {
+            xTicks.push(i.toString());
+            lastAddedTickIdx = i;
+          }
+        }
+      });
+
+      const tickFormatter = (idxStr: string) => {
+        const idx = parseInt(idxStr, 10);
+        const c = visibleCandlesData[idx];
+        if (!c) return '';
+        if (!c.timestamp) return c.date || '';
+
+        const date = new Date(c.timestamp);
+        if (timeframe.endsWith('m')) {
+          const isBoundary = boundaries.includes(idx);
+          if (isBoundary) {
+            // Day transitions show just the day number in bold (e.g. 8, 9)
+            return date.getDate().toString();
+          }
+          // Intermediate intraday tick marks show the hour/minute in normal weight
+          return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+        } else {
+          // Daily charts show month transitions or day number
+          const prev = idx > 0 ? visibleCandlesData[idx - 1] : null;
+          let isNewMonth = false;
+          if (prev && prev.timestamp) {
+            const m1 = new Date(c.timestamp).getMonth();
+            const m2 = new Date(prev.timestamp).getMonth();
+            isNewMonth = m1 !== m2;
+          } else {
+            isNewMonth = true;
+          }
+          if (isNewMonth) {
+            return date.toLocaleDateString("en-US", { month: 'short', timeZone: "America/New_York" }); // e.g. "Jun"
+          }
+          return date.getDate().toString();
+        }
+      };
+
+      const xAxis = d3.axisBottom(xScale).tickValues(xTicks).tickFormat(tickFormatter);
+      const xAxisG = g.append('g').attr('transform', `translate(0,${chartHeight})`).call(xAxis);
+      xAxisG.selectAll('line').attr('stroke', 'none');
+      xAxisG.selectAll('path').attr('stroke', '#1A1A1A');
+      
+      // Style day numbers brighter/bolder, and time indicators lighter/muted.
+      xAxisG.selectAll('text')
+        .attr('fill', function() {
+          const txt = d3.select(this).text();
+          // If it contains a colon or is a month abbreviation, check. If it contains a colon, it's a time (lighter/muted)
+          return txt.includes(':') ? '#5E5E62' : '#E5E5EA';
+        })
+        .style('font-weight', function() {
+          const txt = d3.select(this).text();
+          return txt.includes(':') ? 'normal' : 'bold';
+        })
+        .style('font-family', typography.fontSans)
+        .style('font-size', '9px')
+        .attr('dy', '10px');
     }
 
     // ─── 2. GEX PROFILE CHART (25%) ───

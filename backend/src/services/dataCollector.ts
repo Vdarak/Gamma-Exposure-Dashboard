@@ -530,6 +530,37 @@ async function storeOptionChainSnapshot(
   const client = await pool.connect();
 
   try {
+    // Check for duplicate snapshot before starting transaction
+    const lastSnapshotQuery = await client.query(
+      `WITH last_snap AS (
+         SELECT id, spot_price 
+         FROM option_snapshots 
+         WHERE ticker = $1 
+         ORDER BY timestamp DESC 
+         LIMIT 1
+       )
+       SELECT ls.id, ls.spot_price, COALESCE(SUM(o.volume), 0) as total_volume, COALESCE(SUM(o.open_interest), 0) as total_oi
+       FROM last_snap ls
+       LEFT JOIN option_data o ON ls.id = o.snapshot_id
+       GROUP BY ls.id, ls.spot_price`,
+      [ticker]
+    );
+
+    if (lastSnapshotQuery.rows.length > 0) {
+      const last = lastSnapshotQuery.rows[0];
+      const lastSpot = parseFloat(last.spot_price);
+      const lastVol = parseInt(last.total_volume, 10);
+      const lastOI = parseInt(last.total_oi, 10);
+
+      const currentVol = options.reduce((sum, o) => sum + (o.volume || 0), 0);
+      const currentOI = options.reduce((sum, o) => sum + (o.openInterest || 0), 0);
+
+      if (Math.abs(spotPrice - lastSpot) < 0.0001 && currentVol === lastVol && currentOI === lastOI) {
+        console.log(`⏭️  Skipping duplicate snapshot for ${ticker}: spot: ${spotPrice}, vol: ${currentVol}, oi: ${currentOI}`);
+        return 0;
+      }
+    }
+
     await client.query('BEGIN');
 
     // Insert snapshot metadata

@@ -76,6 +76,7 @@ export async function GET(
 
       return {
         date: dateStr,
+        timestamp: t * 1000,
         open: opens[idx] || closes[idx] || 0,
         high: highs[idx] || closes[idx] || 0,
         low: lows[idx] || closes[idx] || 0,

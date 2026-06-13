@@ -11,6 +11,8 @@ import {
   getAvailableTimestamps,
   getDataStatistics,
   getAvailableExpiries,
+  getIntradayGexFlow,
+  getHistoricalGexTrend,
 } from './services/dataRetrieval';
 import {
   getTrades,
@@ -172,6 +174,68 @@ app.get('/api/options/flow', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error in /api/options/flow:', error);
     res.status(500).json({ error: 'Failed to fetch options flow data' });
+  }
+});
+
+/**
+ * Get intraday 0DTE GEX flow by strike for a given day
+ */
+app.get('/api/gex-flow', async (req: Request, res: Response) => {
+  try {
+    const { ticker, date } = req.query;
+
+    if (!ticker || typeof ticker !== 'string') {
+      return res.status(400).json({ error: 'Ticker parameter is required' });
+    }
+
+    let flowDate = new Date();
+    if (date && typeof date === 'string') {
+      const parsed = Date.parse(date);
+      if (!isNaN(parsed)) {
+        flowDate = new Date(parsed);
+      } else {
+        return res.status(400).json({ error: 'Invalid date parameter' });
+      }
+    } else {
+      const nyString = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
+      flowDate = new Date(nyString);
+    }
+
+    const data = await getIntradayGexFlow(ticker.toUpperCase(), flowDate);
+
+    res.json({
+      success: true,
+      data,
+      date: flowDate.toISOString().split('T')[0],
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error in /api/gex-flow:', error);
+    res.status(500).json({ error: 'Failed to fetch GEX flow data' });
+  }
+});
+
+/**
+ * Get historical 30-day closing 0DTE GEX trend
+ */
+app.get('/api/historical-gex', async (req: Request, res: Response) => {
+  try {
+    const { ticker } = req.query;
+
+    if (!ticker || typeof ticker !== 'string') {
+      return res.status(400).json({ error: 'Ticker parameter is required' });
+    }
+
+    const data = await getHistoricalGexTrend(ticker.toUpperCase());
+
+    res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error in /api/historical-gex:', error);
+    res.status(500).json({ error: 'Failed to fetch historical GEX trend data' });
   }
 });
 
@@ -428,16 +492,20 @@ app.put('/api/journal/settings/:key', async (req: Request, res: Response) => {
  */
 function isUSMarketOpen(): boolean {
   const now = new Date();
-  const hours = now.getUTCHours();
-  const minutes = now.getUTCMinutes();
-  const day = now.getUTCDay(); // 0 = Sunday, 6 = Saturday
+  const nyString = now.toLocaleString("en-US", { timeZone: "America/New_York" });
+  const nyDate = new Date(nyString);
+  const day = nyDate.getDay(); // 0 = Sunday, 6 = Saturday
 
   // Not on weekends
   if (day === 0 || day === 6) return false;
 
+  const hours = nyDate.getHours();
+  const minutes = nyDate.getMinutes();
   const currentMinutes = hours * 60 + minutes;
-  const startMinutes = US_MARKET_START_HOUR * 60 + US_MARKET_START_MINUTE;
-  const endMinutes = US_MARKET_END_HOUR * 60 + US_MARKET_END_MINUTE;
+
+  // US market hours are 9:30 AM to 4:00 PM EST/EDT
+  const startMinutes = 9 * 60 + 30; // 9:30 AM
+  const endMinutes = 16 * 60; // 4:00 PM
 
   return currentMinutes >= startMinutes && currentMinutes < endMinutes;
 }
@@ -515,30 +583,24 @@ app.post('/api/collect-now', async (req: Request, res: Response) => {
  * Schedule data collection every N minutes
  * Checks if markets are open before collecting
  */
-const cronSchedule = `*/${COLLECT_INTERVAL} * * * *`; // Every N minutes, all day
+const cronSchedule = `*/5 * * * *`; // Every 5 minutes, all day
 
 cron.schedule(cronSchedule, async () => {
   console.log(`\n⏰ [${new Date().toISOString()}] Scheduled data collection triggered`);
   try {
     await collectMarketData();
-    await cleanOldData(DATA_RETENTION_DAYS);
   } catch (error) {
     console.error('❌ Scheduled data collection failed:', error);
   }
 });
 
-console.log(`⏰ Cron job scheduled: ${cronSchedule} (Every ${COLLECT_INTERVAL} mins, checks market hours)`);
+console.log(`⏰ Cron job scheduled: ${cronSchedule} (Every 5 mins, checks market hours)`);
 
 /**
- * Clean old data daily at 2 AM UTC
+ * Clean old data daily at 2 AM UTC - INACTIVE (data is persisted permanently)
  */
 cron.schedule('0 2 * * *', async () => {
-  console.log(`\n🧹 [${new Date().toISOString()}] Running daily cleanup`);
-  try {
-    await cleanOldData(DATA_RETENTION_DAYS);
-  } catch (error) {
-    console.error('❌ Daily cleanup failed:', error);
-  }
+  console.log(`\n🧹 [${new Date().toISOString()}] Daily cleanup is INACTIVE (all snapshots are persisted permanently)`);
 });
 
 // ============= SERVER STARTUP =============

@@ -305,3 +305,108 @@ export async function getAvailableExpiries(
     throw error;
   }
 }
+
+/**
+ * Get intraday GEX flow by strike for a given day (0DTE options)
+ */
+export async function getIntradayGexFlow(
+  ticker: string,
+  date: Date
+): Promise<any[]> {
+  try {
+    const dateStr = date.toISOString().split('T')[0];
+    const result = await pool.query(
+      `SELECT 
+        s.id as snapshot_id,
+        s.timestamp,
+        s.spot_price,
+        o.strike,
+        o.option_type,
+        o.open_interest,
+        o.volume,
+        o.gamma
+      FROM option_snapshots s
+      JOIN option_data o ON s.id = o.snapshot_id
+      WHERE s.ticker = $1 
+        AND s.timestamp::DATE = $2::DATE
+        AND o.expiration = s.timestamp::DATE
+      ORDER BY s.timestamp ASC, o.strike ASC`,
+      [ticker, dateStr]
+    );
+
+    const snapshotsMap = new Map<string, { timestamp: Date, spotPrice: number, strikes: { [strike: string]: { gex: number, volume: number, openInterest: number } } }>();
+
+    for (const row of result.rows) {
+      const tsString = row.timestamp.toISOString();
+      const spot = parseFloat(row.spot_price);
+      const strike = parseFloat(row.strike).toString();
+      const optionType = row.option_type;
+      const oi = parseInt(row.open_interest || '0', 10);
+      const vol = parseInt(row.volume || '0', 10);
+      const gamma = parseFloat(row.gamma || '0');
+
+      // GEX: (C = 1, P = -1) * spot * spot * gamma * open_interest
+      const gex = (optionType === 'C' ? 1 : -1) * spot * spot * gamma * oi;
+
+      if (!snapshotsMap.has(tsString)) {
+        snapshotsMap.set(tsString, {
+          timestamp: row.timestamp,
+          spotPrice: spot,
+          strikes: {}
+        });
+      }
+
+      const snap = snapshotsMap.get(tsString)!;
+      if (!snap.strikes[strike]) {
+        snap.strikes[strike] = { gex: 0, volume: 0, openInterest: 0 };
+      }
+      snap.strikes[strike].gex += gex;
+      snap.strikes[strike].volume += vol;
+      snap.strikes[strike].openInterest += oi;
+    }
+
+    return Array.from(snapshotsMap.values());
+  } catch (error) {
+    console.error('❌ Error fetching intraday GEX flow:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get daily closing 0DTE GEX trend over the last 30 trading days
+ */
+export async function getHistoricalGexTrend(
+  ticker: string
+): Promise<any[]> {
+  try {
+    const result = await pool.query(
+      `WITH daily_closing_snapshots AS (
+        SELECT DISTINCT ON (timestamp::DATE)
+          id, timestamp, spot_price
+        FROM option_snapshots
+        WHERE ticker = $1
+        ORDER BY timestamp::DATE DESC, timestamp DESC
+        LIMIT 30
+      )
+      SELECT 
+        dcs.id,
+        dcs.timestamp,
+        dcs.spot_price as "spotPrice",
+        COALESCE(SUM((CASE WHEN o.option_type = 'C' THEN 1 ELSE -1 END) * dcs.spot_price * dcs.spot_price * o.gamma * o.open_interest), 0) as "totalGex"
+      FROM daily_closing_snapshots dcs
+      LEFT JOIN option_data o ON dcs.id = o.snapshot_id AND o.expiration = dcs.timestamp::DATE
+      GROUP BY dcs.id, dcs.timestamp, dcs.spot_price
+      ORDER BY dcs.timestamp ASC`,
+      [ticker]
+    );
+
+    return result.rows.map(row => ({
+      timestamp: new Date(row.timestamp),
+      spotPrice: parseFloat(row.spotPrice),
+      totalGex: parseFloat(row.totalGex)
+    }));
+  } catch (error) {
+    console.error('❌ Error fetching historical GEX trend:', error);
+    throw error;
+  }
+}
