@@ -225,10 +225,6 @@ export function ExpirySelector({
             CUSTOM
           </button>
         </div>
-
-        <span className="text-[10px] font-mono text-[#949494]">
-          ACTIVE: {expiriesWithStats.filter(e => isSelected(e.date)).length}
-        </span>
       </div>
 
       {/* Expiries List */}
