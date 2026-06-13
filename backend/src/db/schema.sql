@@ -117,3 +117,12 @@ CREATE TABLE IF NOT EXISTS earnings_dates (
 -- Index to optimize 5-day delta queries
 CREATE INDEX IF NOT EXISTS idx_option_data_exp_strike_type ON option_data(expiration, strike, option_type);
 
+-- Migration to alter option_data column types to support larger precisions and avoid numeric field overflows (e.g. for SPX)
+ALTER TABLE option_data ALTER COLUMN implied_volatility TYPE DECIMAL(12, 6);
+ALTER TABLE option_data ALTER COLUMN delta TYPE DECIMAL(12, 6);
+ALTER TABLE option_data ALTER COLUMN gamma TYPE DECIMAL(16, 8);
+ALTER TABLE option_data ALTER COLUMN theta TYPE DECIMAL(16, 8);
+ALTER TABLE option_data ALTER COLUMN vega TYPE DECIMAL(16, 8);
+ALTER TABLE option_data ALTER COLUMN rho TYPE DECIMAL(16, 8);
+
+
