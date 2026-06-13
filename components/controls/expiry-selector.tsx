@@ -3,7 +3,37 @@
 import { useMemo } from "react"
 import type { OptionData } from "@/lib/types"
 
-export type ExpiryMode = '90d' | '0dte' | 'custom'
+export type ExpiryMode = '90d' | '0dte' | 'opex' | 'custom'
+
+export function getOpexDte(): number {
+  const today = new Date()
+  const year = today.getUTCFullYear()
+  const month = today.getUTCMonth()
+  
+  const getThirdFriday = (y: number, m: number) => {
+    const d = new Date(Date.UTC(y, m, 1))
+    const day = d.getUTCDay()
+    let firstFriday = 1
+    if (day !== 5) {
+      firstFriday = 1 + (5 - day + 7) % 7
+    }
+    return new Date(Date.UTC(y, m, firstFriday + 14))
+  }
+  
+  const thisMonthOpex = getThirdFriday(year, month)
+  const compareToday = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
+  const compareOpex = Date.UTC(thisMonthOpex.getUTCFullYear(), thisMonthOpex.getUTCMonth(), thisMonthOpex.getUTCDate())
+  
+  let targetOpex = thisMonthOpex
+  if (compareToday > compareOpex) {
+    const nextMonth = (month + 1) % 12
+    const nextYear = month === 11 ? year + 1 : year
+    targetOpex = getThirdFriday(nextYear, nextMonth)
+  }
+  
+  const compareTargetOpex = Date.UTC(targetOpex.getUTCFullYear(), targetOpex.getUTCMonth(), targetOpex.getUTCDate())
+  return Math.max(0, Math.round((compareTargetOpex - compareToday) / 86400000))
+}
 
 interface ExpirySelectorProps {
   availableExpiries: string[]
@@ -102,6 +132,11 @@ export function ExpirySelector({
       if (today) return exp === today.date
       return exp === availableExpiries[0]
     }
+    if (mode === 'opex') {
+      const opexDTE = getOpexDte()
+      const info = expiriesWithStats.find(e => e.date === exp)
+      return info ? info.dte >= 0 && info.dte <= opexDTE : false
+    }
     return selectedExpiries.includes(exp)
   }
 
@@ -115,6 +150,9 @@ export function ExpirySelector({
       } else if (mode === '0dte') {
         const today = expiriesWithStats.find(e => e.dte === 0)
         nextExpiries = today ? [today.date] : (availableExpiries[0] ? [availableExpiries[0]] : [])
+      } else if (mode === 'opex') {
+        const opexDTE = getOpexDte()
+        nextExpiries = expiriesWithStats.filter(e => e.dte >= 0 && e.dte <= opexDTE).map(e => e.date)
       }
       onModeChange('custom')
     }
@@ -165,6 +203,16 @@ export function ExpirySelector({
             }`}
           >
             0DTE
+          </button>
+          <button
+            onClick={() => handlePresetChange('opex')}
+            className={`px-2 py-1 text-[10px] font-mono rounded transition-all ${
+              mode === 'opex'
+                ? 'bg-[#1A1A1E] text-terminal-green'
+                : 'text-[#949494] hover:text-[#888]'
+            }`}
+          >
+            OPEX
           </button>
           <button
             onClick={() => handlePresetChange('custom')}

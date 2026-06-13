@@ -21,7 +21,7 @@ import { ChartWrapper } from "./charts/chart-wrapper"
 import { PricingMethodToggle } from "./pricing-method-toggle"
 import { SessionTimer } from "./session-timer"
 import { FlowHistoricalView } from "./flow-historical-view"
-import { ExpirySelector, type ExpiryMode } from "./controls/expiry-selector"
+import { ExpirySelector, type ExpiryMode, getOpexDte } from "./controls/expiry-selector"
 import { TradingJournal } from "./trading-journal/trading-journal"
 import { OptionFlowDashboard } from "./option-flow-dashboard"
 
@@ -170,6 +170,13 @@ export function GammaExposureDashboard() {
       const today = futureExpiries.find(exp => getDTE(exp) === 0)
       if (today) return [today]
       return futureExpiries.length > 0 ? [futureExpiries[0]] : []
+    }
+    if (expiryMode === 'opex') {
+      const opexDTE = getOpexDte()
+      return futureExpiries.filter(exp => {
+        const dte = getDTE(exp)
+        return dte >= 0 && dte <= opexDTE
+      })
     }
     return customSelectedExpiries
   }, [expiryMode, futureExpiries, customSelectedExpiries])
