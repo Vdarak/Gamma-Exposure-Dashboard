@@ -3,7 +3,7 @@ import cors from 'cors';
 import cron from 'node-cron';
 import dotenv from 'dotenv';
 import { initializeDatabase, cleanOldData } from './db/init';
-import { fetchAndStoreMultipleTickers } from './services/dataCollector';
+import { fetchAndStoreMultipleTickers, fetchAndStoreOptionData } from './services/dataCollector';
 import {
   getCurrentData,
   getHistoricalData,
@@ -136,7 +136,17 @@ app.get('/api/current-data', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Ticker parameter is required' });
     }
 
-    const data = await getCurrentData(ticker.toUpperCase());
+    const tickerUpper = ticker.toUpperCase();
+    let data = await getCurrentData(tickerUpper);
+
+    if (!data) {
+      console.log(`[Server] No database snapshots found for ${tickerUpper}. Triggering on-demand scrape...`);
+      // Trigger synchronous fetch and store from CBOE/NSE
+      const success = await fetchAndStoreOptionData(tickerUpper);
+      if (success) {
+        data = await getCurrentData(tickerUpper);
+      }
+    }
 
     if (!data) {
       return res.status(404).json({ error: `No data found for ticker ${ticker}` });

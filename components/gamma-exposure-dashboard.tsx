@@ -230,23 +230,25 @@ export function GammaExposureDashboard() {
       }
 
       const response = await fetch(url)
-      if (!response.ok) {
-        throw new Error(`Failed to fetch data from backend`)
-      }
-
-      const json = await response.json()
       
-      let snapshot;
-      if (timestamp) {
-        snapshot = json.data && json.data.length > 0 ? json.data[0] : null
+      let snapshot = null;
+      if (response.status === 404 && !timestamp) {
+        console.log(`No backend snapshot for ${selectedTicker} (404). Will fallback to live options fetch.`);
+      } else if (!response.ok) {
+        throw new Error(`Failed to fetch data from backend: ${response.statusText}`);
       } else {
-        snapshot = json.data
+        const json = await response.json()
+        if (timestamp) {
+          snapshot = json.data && json.data.length > 0 ? json.data[0] : null
+        } else {
+          snapshot = json.data
+        }
       }
 
-      // Fallback to CBOE if no DB snapshot yet
+      // Fallback to live data fetch if no DB snapshot yet (and not a specific historical checkpoint)
       if (!snapshot) {
-        if (mkt === 'USA' && !timestamp) {
-          console.log("No backend snapshot found. Falling back to live CBOE fetch...")
+        if (!timestamp) {
+          console.log(`No backend snapshot found for ${selectedTicker}. Falling back to live fetch...`)
           const { spotPrice: sp, optionData: od } = await dataService.fetchOptionData(
             selectedTicker.toUpperCase(),
             mkt,
@@ -596,7 +598,7 @@ export function GammaExposureDashboard() {
             )}
 
             {/* Error state */}
-            {error && !isLoading && (
+            {error && !isLoading && activeSidebarTab === 'gex' && (
               <div className="flex-1 flex items-center justify-center p-6">
                 <div className="max-w-md w-full border border-terminal-red/25 bg-terminal-red/5 rounded-lg p-5 flex flex-col gap-4">
                   <div className="flex items-center gap-2.5">

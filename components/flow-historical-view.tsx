@@ -5,6 +5,7 @@ import * as d3 from "d3"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { typography } from "@/lib/design-tokens"
 import { RefreshCw } from "lucide-react"
+import { BACKEND_URL } from "@/lib/backend-api"
 
 interface FlowHistoricalViewProps {
   ticker: string
@@ -70,7 +71,7 @@ export function FlowHistoricalView({ ticker }: FlowHistoricalViewProps) {
   useEffect(() => {
     let active = true
     setLoadingHistorical(true)
-    fetch(`/api/historical-gex?ticker=${ticker}`)
+    fetch(`${BACKEND_URL}/api/historical-gex?ticker=${ticker}`)
       .then(res => res.json())
       .then(res => {
         if (!active) return
@@ -102,7 +103,7 @@ export function FlowHistoricalView({ ticker }: FlowHistoricalViewProps) {
     let active = true
     setLoadingIntraday(true)
     
-    fetch(`/api/gex-flow?ticker=${ticker}&date=${selectedDate}`)
+    fetch(`${BACKEND_URL}/api/gex-flow?ticker=${ticker}&date=${selectedDate}`)
       .then(res => res.json())
       .then(res => {
         if (!active) return

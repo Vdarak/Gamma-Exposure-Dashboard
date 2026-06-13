@@ -5,6 +5,7 @@ import { Play, Pause, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import { Badge } from "@/components/ui/badge"
+import { BACKEND_URL } from "@/lib/backend-api"
 
 interface TimestampInfo {
   timestamp: string
@@ -37,7 +38,7 @@ export function SessionTimer({
   const fetchCheckpoints = async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/timestamps?ticker=${ticker}&days=1`)
+      const res = await fetch(`${BACKEND_URL}/api/timestamps?ticker=${ticker}&days=1`)
       if (!res.ok) throw new Error("Failed to fetch checkpoints")
       const json = await res.json()
       if (json.success && Array.isArray(json.data)) {
@@ -75,7 +76,7 @@ export function SessionTimer({
   useEffect(() => {
     const interval = setInterval(() => {
       // Background reload (silent)
-      fetch(`/api/timestamps?ticker=${ticker}&days=1`)
+      fetch(`${BACKEND_URL}/api/timestamps?ticker=${ticker}&days=1`)
         .then(res => res.json())
         .then(json => {
           if (json.success && Array.isArray(json.data)) {
