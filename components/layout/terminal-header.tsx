@@ -215,9 +215,11 @@ export function TerminalHeader({
     <header className="border-b border-[#1A1A1E] bg-[#070709] px-4 py-2.5 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 select-none min-h-14">
       {/* Left section: Logo + Ticker search */}
       <div className="flex items-center gap-3 flex-shrink-0">
-        {/* Rounded red logo badge */}
-        <div className="w-8 h-8 rounded-lg bg-[#E11D48] flex items-center justify-center font-bold text-sm text-white shadow-md shadow-rose-900/10 flex-shrink-0">
-          500
+        {/* Minimalist simple line drawing Gamma logo badge */}
+        <div className="w-8 h-8 rounded-lg border border-[#1A1A1E] bg-black/40 flex items-center justify-center flex-shrink-0">
+          <svg className="w-4 h-4 text-terminal-green" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7 19V5H17" />
+          </svg>
         </div>
 
         {/* Ticker Name */}

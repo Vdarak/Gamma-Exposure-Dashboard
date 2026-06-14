@@ -18,6 +18,9 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "GEX Terminal — Gamma Exposure Dashboard",
   description: "Real-time dealer gamma exposure (GEX) analytics for US and Indian options markets",
+  icons: {
+    icon: "/favicon.svg",
+  },
 }
 
 export default function RootLayout({
