@@ -11,6 +11,7 @@ import { TerminalHeader } from "./layout/terminal-header"
 // Chart components
 import { SyncedStrikeWorkspace } from "./charts/synced-strike-workspace"
 import { GEXByStrikeChart } from "./charts/gex-by-strike-chart"
+import { GradientChartsWorkspace } from "./charts/gradient-charts-workspace"
 import { GEXByExpirationChart } from "./charts/gex-by-expiration-chart"
 import { GEXSurfaceChart } from "./charts/gex-surface-chart"
 import { CallPutWallsChart } from "./charts/call-put-walls-chart"
@@ -44,6 +45,7 @@ const SIDEBAR_TABS = [
 const BOTTOM_TABS = [
   { id: 'gex-levels', label: 'GEX Levels' },
   { id: 'flow-historical', label: 'Flow/Historical' },
+  { id: 'gradient-charts', label: 'Gradient View' },
   { id: 'data-graph', label: 'Data Graph' },
   { id: 'surface', label: '3D Surface Model' },
   { id: 'expected-move', label: 'Expected Move' },
@@ -720,7 +722,7 @@ export function GammaExposureDashboard() {
                       {/* Synced Workspace Chart Card */}
                       <div className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-3">
                         {/* Chart View */}
-                        <div className="h-[460px]">
+                        <div className="h-[1200px]">
                           <SyncedStrikeWorkspace
                             optionData={activeOptionData}
                             ticker={ticker}
@@ -803,7 +805,7 @@ export function GammaExposureDashboard() {
                     <ChartWrapper
                       title="GEX Expiration Data Graph"
                       subtitle="Aggregate distribution of Net and Total Gamma across expiration cycles"
-                      height="540px"
+                      height="900px"
                     >
                       <GEXDataGraphDashboard data={optionData} />
                     </ChartWrapper>
@@ -814,7 +816,7 @@ export function GammaExposureDashboard() {
                     <ChartWrapper
                       title="3D Gamma Exposure Surface"
                       subtitle="Interactive 3D visualization mapping strike price and expiration date curves"
-                      height="600px"
+                      height="1000px"
                     >
                       <GEXSurfaceChart
                         data={optionData}
@@ -833,7 +835,7 @@ export function GammaExposureDashboard() {
                     <ChartWrapper
                       title="Implied Expected Move Ranges"
                       subtitle="Implied boundaries calculated via 16-delta strangle options method"
-                      height="500px"
+                      height="900px"
                       controls={
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] text-[#949494] font-mono uppercase font-bold">Expiry</span>
@@ -858,6 +860,19 @@ export function GammaExposureDashboard() {
                         selectedExpiry={selectedMoveExpiry}
                       />
                     </ChartWrapper>
+                  )}
+
+                  {/* 6. Greek Gradient Heatmaps Workspace */}
+                  {activeTab === 'gradient-charts' && (
+                    <div className="h-[1200px] w-full">
+                      <GradientChartsWorkspace
+                        optionData={activeOptionData}
+                        ticker={ticker}
+                        spotPrice={spotPrice!}
+                        market={market}
+                        pricingMethod={pricingMethod}
+                      />
+                    </div>
                   )}
                 </div>
               </div>

@@ -85,7 +85,7 @@ export function EnhancedTimeMachine({
       ask: opt.ask || 0,
       volume: opt.volume || 0,
       open_interest: opt.open_interest || 0,
-      iv: opt.iv || 0.2,
+      iv: (opt.iv || 0.2) * 100,
       delta: opt.delta || 0,
       gamma: opt.gamma || 0,
     }))

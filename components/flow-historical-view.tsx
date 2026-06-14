@@ -62,7 +62,7 @@ export function FlowHistoricalView({
   const [loadingIntraday, setLoadingIntraday] = useState(false)
   const [loadingHistorical, setLoadingHistorical] = useState(false)
 
-  const [dimensions, setDimensions] = useState({ width: 500, height: 350 })
+  const [dimensions, setDimensions] = useState({ width: 500, height: 600 })
 
   // Listen for resize
   useEffect(() => {
@@ -72,7 +72,7 @@ export function FlowHistoricalView({
         const { width } = entry.contentRect
         setDimensions({
           width: Math.max(width, 350),
-          height: 350
+          height: 600
         })
       }
     })
@@ -626,12 +626,12 @@ export function FlowHistoricalView({
         </CardHeader>
         <CardContent className="p-0 relative flex flex-col" ref={leftContainerRef}>
           {intradayData.length === 0 && !loadingIntraday ? (
-            <div className="h-[350px] flex items-center justify-center text-xs text-gray-500 font-mono">
+            <div className="h-[600px] flex items-center justify-center text-xs text-gray-500 font-mono">
               No intraday checkpoints available for {selectedDateLabel}
             </div>
           ) : (
             <>
-              <svg ref={leftSvgRef} width="100%" height={350} className="block overflow-visible" />
+              <svg ref={leftSvgRef} width="100%" height={600} className="block overflow-visible" />
               
               {/* Playback Timer Slider just below the chart plotting area */}
               {intradayData.length > 0 && currentTimestamp !== undefined && onCheckpointChange && (
@@ -698,11 +698,11 @@ export function FlowHistoricalView({
         </CardHeader>
         <CardContent className="p-0 relative" ref={rightContainerRef}>
           {historicalData.length === 0 && !loadingHistorical ? (
-            <div className="h-[350px] flex items-center justify-center text-xs text-gray-500 font-mono">
+            <div className="h-[600px] flex items-center justify-center text-xs text-gray-500 font-mono">
               No historical data available
             </div>
           ) : (
-            <svg ref={rightSvgRef} width="100%" height={350} className="block overflow-visible" />
+            <svg ref={rightSvgRef} width="100%" height={600} className="block overflow-visible" />
           )}
           {/* Tooltip */}
           <div

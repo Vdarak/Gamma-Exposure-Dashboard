@@ -47,3 +47,14 @@ export interface ExpectedMove {
   upperPct: number
   lowerPct: number
 }
+
+export interface VannaByStrike {
+  strike: number
+  vanna: number
+}
+
+export interface CharmByStrike {
+  strike: number
+  charm: number
+}
+

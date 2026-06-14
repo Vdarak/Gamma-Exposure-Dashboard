@@ -465,21 +465,21 @@ export function computeTotalGEX(spot: number, data: OptionData[], pricingMethod:
  * @param pricingMethod - The pricing method to use ('black-scholes' or 'binomial').
  * @returns An array of `GEXByStrike` objects, sorted by strike price.
  */
-export function computeGEXByStrike(spot: number, data: OptionData[], pricingMethod: PricingMethod = 'black-scholes'): GEXByStrike[] {
+export function computeGEXByStrike(spot: number, data: OptionData[], pricingMethod: PricingMethod = 'black-scholes', referenceDate = new Date()): GEXByStrike[] {
   // Calculate days till expiration
-  const today = new Date()
   data.forEach((option) => {
-    const daysDiff = Math.max(1, Math.ceil((option.expiration.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)))
+    const daysDiff = Math.max(1, Math.ceil((option.expiration.getTime() - referenceDate.getTime()) / (1000 * 60 * 60 * 24)))
     option.daysTillExp = daysDiff === 0 ? 1 / 262 : daysDiff / 262
   })
 
   // Calculate GEX using the specified pricing method
   data.forEach((option) => {
+    const vol = option.iv && option.iv > 0 ? option.iv / 100 : 0.3
     if (option.type === "C") {
       option.GEX_BS = calcGammaExEnhanced(
         spot,
         option.strike,
-        option.iv,
+        vol,
         option.daysTillExp!,
         0,
         0,
@@ -491,7 +491,7 @@ export function computeGEXByStrike(spot: number, data: OptionData[], pricingMeth
       option.GEX_BS = -calcGammaExEnhanced(
         spot,
         option.strike,
-        option.iv,
+        vol,
         option.daysTillExp!,
         0,
         0,
@@ -567,8 +567,7 @@ export function computeGEXByExpiration(data: OptionData[]): GEXByExpiration[] {
  * @param specificExpiry - Optional specific expiration date. If provided, includes all options expiring on or before this date.
  * @returns The estimated Zero Gamma level (spot price), or `null` if no zero crossing is found or in case of errors.
  */
-export function findZeroGammaLevel(data: OptionData[], spot: number, specificExpiry?: Date): number | null {
-  const today = new Date()
+export function findZeroGammaLevel(data: OptionData[], spot: number, specificExpiry?: Date, referenceDate = new Date()): number | null {
   let filteredData: OptionData[]
 
   if (specificExpiry) {
@@ -579,7 +578,7 @@ export function findZeroGammaLevel(data: OptionData[], spot: number, specificExp
   } else {
     // Default behavior: filter for options expiring within next 2 months
     const twoMonthsFromNow = new Date()
-    twoMonthsFromNow.setDate(today.getDate() + 60)
+    twoMonthsFromNow.setDate(referenceDate.getDate() + 60)
     filteredData = data.filter((option) => option.expiration <= twoMonthsFromNow)
   }
 
@@ -592,7 +591,7 @@ export function findZeroGammaLevel(data: OptionData[], spot: number, specificExp
 
   // Calculate days till expiration for each option
   filteredData.forEach((option) => {
-    const daysDiff = Math.ceil((option.expiration.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+    const daysDiff = Math.ceil((option.expiration.getTime() - referenceDate.getTime()) / (1000 * 60 * 60 * 24))
     // Handle 0DTE (same day expiration) and negative days (already expired)
     option.daysTillExp = Math.max(daysDiff, 0) === 0 ? 1 / 262 : Math.max(daysDiff, 1) / 262
   })
@@ -608,16 +607,20 @@ export function findZeroGammaLevel(data: OptionData[], spot: number, specificExp
     const callGamma = filteredData
       .filter((option) => option.type === "C")
       .reduce(
-        (sum, option) =>
-          sum + calcGammaEx(level, option.strike, option.iv, option.daysTillExp!, 0, 0, "call", option.open_interest),
+        (sum, option) => {
+          const vol = option.iv && option.iv > 0 ? option.iv / 100 : 0.3
+          return sum + calcGammaEx(level, option.strike, vol, option.daysTillExp!, 0, 0, "call", option.open_interest)
+        },
         0,
       )
 
     const putGamma = filteredData
       .filter((option) => option.type === "P")
       .reduce(
-        (sum, option) =>
-          sum + calcGammaEx(level, option.strike, option.iv, option.daysTillExp!, 0, 0, "put", option.open_interest),
+        (sum, option) => {
+          const vol = option.iv && option.iv > 0 ? option.iv / 100 : 0.3
+          return sum + calcGammaEx(level, option.strike, vol, option.daysTillExp!, 0, 0, "put", option.open_interest)
+        },
         0,
       )
 
@@ -829,3 +832,255 @@ export function calculateGammaFlipByExpiry(data: OptionData[], spot: number): { 
     }
   })
 }
+
+/**
+ * Calculates the Vanna of an option using the Black-Scholes model.
+ * Vanna = dDelta / dVol
+ */
+export function calcVanna(
+  S: number, // Spot price
+  K: number, // Strike price
+  vol: number, // Volatility (annualized, e.g. 0.2 for 20%)
+  T: number, // Time to expiration in years
+  r = 0, // Risk-free rate
+  q = 0, // Dividend yield
+): number {
+  if (T <= 0 || vol <= 0 || S <= 0 || K <= 0) return 0
+  T = Math.max(T, 1e-8)
+  vol = Math.max(vol, 1e-8)
+
+  try {
+    const d1 = (Math.log(S / K) + (r - q + 0.5 * vol * vol) * T) / (vol * Math.sqrt(T))
+    const d2 = d1 - vol * Math.sqrt(T)
+    const normPdf = (x: number) => Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI)
+    
+    return -Math.exp(-q * T) * normPdf(d1) * d2 / vol
+  } catch (error) {
+    return 0
+  }
+}
+
+/**
+ * Calculates the Charm (Delta Decay) of an option using the Black-Scholes model.
+ * Charm = dDelta / dt (per year)
+ */
+export function calcCharm(
+  S: number, // Spot price
+  K: number, // Strike price
+  vol: number, // Volatility
+  T: number, // Time to expiration
+  r = 0, // Risk-free rate
+  q = 0, // Dividend yield
+  optType: "call" | "put",
+): number {
+  if (T <= 0 || vol <= 0 || S <= 0 || K <= 0) return 0
+  T = Math.max(T, 1e-8)
+  vol = Math.max(vol, 1e-8)
+
+  try {
+    const d1 = (Math.log(S / K) + (r - q + 0.5 * vol * vol) * T) / (vol * Math.sqrt(T))
+    const d2 = d1 - vol * Math.sqrt(T)
+    
+    const normPdf = (x: number) => Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI)
+    const stdNormalCDF = (x: number): number => {
+      const t = 1 / (1 + 0.2316419 * Math.abs(x))
+      const d = 0.3989422804 * Math.exp(-x * x / 2)
+      const p = d * t * (0.31938153 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))))
+      return x > 0 ? 1 - p : p
+    }
+
+    const n_d1 = normPdf(d1)
+    const term1 = (r - q) / (vol * Math.sqrt(T))
+    const term2 = d2 / (2 * T)
+
+    if (optType === "call") {
+      return q * Math.exp(-q * T) * stdNormalCDF(d1) - Math.exp(-q * T) * n_d1 * (term1 - term2)
+    } else {
+      return -q * Math.exp(-q * T) * stdNormalCDF(-d1) - Math.exp(-q * T) * n_d1 * (term1 - term2)
+    }
+  } catch (error) {
+    return 0
+  }
+}
+
+/**
+ * Calculates Vanna for American options using finite difference
+ */
+export function americanVanna(
+  spot: number,
+  strike: number,
+  timeToExpiry: number,
+  riskFreeRate: number,
+  volatility: number,
+  isCall: boolean,
+  steps: number = 100
+): number {
+  const dVol = 0.005 // 0.5% volatility bump
+  const deltaUp = americanDelta(spot, strike, timeToExpiry, riskFreeRate, volatility + dVol, isCall, steps)
+  const deltaDown = americanDelta(spot, strike, timeToExpiry, riskFreeRate, volatility - dVol, isCall, steps)
+  return (deltaUp - deltaDown) / (2 * dVol)
+}
+
+/**
+ * Calculates Charm for American options using finite difference
+ * Charm = -dDelta / dT
+ */
+export function americanCharm(
+  spot: number,
+  strike: number,
+  timeToExpiry: number,
+  riskFreeRate: number,
+  volatility: number,
+  isCall: boolean,
+  steps: number = 100
+): number {
+  const dT = Math.max(timeToExpiry * 0.01, 1e-4) // 1% time bump
+  const deltaUp = americanDelta(spot, strike, timeToExpiry + dT, riskFreeRate, volatility, isCall, steps)
+  const deltaDown = americanDelta(spot, strike, timeToExpiry - dT, riskFreeRate, volatility, isCall, steps)
+  return -(deltaUp - deltaDown) / (2 * dT)
+}
+
+/**
+ * Calculates Vanna Exposure with pricing method selection
+ */
+export function calcVannaEnhanced(
+  S: number,
+  K: number,
+  vol: number,
+  T: number,
+  r = 0,
+  q = 0,
+  optType: "call" | "put",
+  OI: number,
+  pricingMethod: PricingMethod = 'black-scholes'
+): number {
+  const isCall = optType === "call"
+  let vanna = 0
+  if (pricingMethod === 'black-scholes') {
+    vanna = calcVanna(S, K, vol, T, r, q)
+  } else {
+    vanna = americanVanna(S, K, T, r, vol, isCall)
+  }
+  // Vanna Exposure = Vanna * OI * 100 * S * 0.01
+  return vanna * OI * 100 * S * 0.01
+}
+
+/**
+ * Calculates Charm Exposure with pricing method selection
+ */
+export function calcCharmEnhanced(
+  S: number,
+  K: number,
+  vol: number,
+  T: number,
+  r = 0,
+  q = 0,
+  optType: "call" | "put",
+  OI: number,
+  pricingMethod: PricingMethod = 'black-scholes'
+): number {
+  const isCall = optType === "call"
+  let charm = 0
+  if (pricingMethod === 'black-scholes') {
+    charm = calcCharm(S, K, vol, T, r, q, optType)
+  } else {
+    charm = americanCharm(S, K, T, r, vol, isCall)
+  }
+  // Daily Charm Exposure = -Charm * OI * 100 * S * (1 / 365.25)
+  return -charm * OI * 100 * S * (1 / 365.25)
+}
+
+export interface VannaByStrike {
+  strike: number
+  vanna: number
+}
+
+export interface CharmByStrike {
+  strike: number
+  charm: number
+}
+
+/**
+ * Computes Vanna Exposure aggregated by strike price
+ */
+export function computeVannaByStrike(
+  spot: number,
+  data: OptionData[],
+  r = 0,
+  q = 0,
+  pricingMethod: PricingMethod = 'black-scholes',
+  referenceDate = new Date()
+): VannaByStrike[] {
+  data.forEach((option) => {
+    const daysDiff = Math.max(1, Math.ceil((option.expiration.getTime() - referenceDate.getTime()) / (1000 * 60 * 60 * 24)))
+    option.daysTillExp = daysDiff === 0 ? 1 / 365.25 : daysDiff / 365.25
+  })
+
+  const vannaByStrike = new Map<number, number>()
+  data.forEach((option) => {
+    const optType = option.type === "C" ? "call" : "put"
+    const vol = option.iv && option.iv > 0 ? option.iv / 100 : 0.3
+    const vex = calcVannaEnhanced(
+      spot,
+      option.strike,
+      vol,
+      option.daysTillExp!,
+      r,
+      q,
+      optType,
+      option.open_interest,
+      pricingMethod
+    )
+    const currentVanna = vannaByStrike.get(option.strike) || 0
+    vannaByStrike.set(option.strike, currentVanna + vex)
+  })
+
+  const result: VannaByStrike[] = []
+  vannaByStrike.forEach((vanna, strike) => {
+    result.push({ strike, vanna: vanna / 1e9 }) // Normalize to billions for consistent formatting
+  })
+  return result.sort((a, b) => a.strike - b.strike)
+}
+
+/**
+ * Computes Charm Exposure aggregated by strike price
+ */
+export function computeCharmByStrike(
+  spot: number,
+  data: OptionData[],
+  r = 0,
+  q = 0,
+  pricingMethod: PricingMethod = 'black-scholes',
+  referenceDate = new Date()
+): CharmByStrike[] {
+  data.forEach((option) => {
+    const daysDiff = Math.max(1, Math.ceil((option.expiration.getTime() - referenceDate.getTime()) / (1000 * 60 * 60 * 24)))
+    option.daysTillExp = daysDiff === 0 ? 1 / 365.25 : daysDiff / 365.25
+  })
+
+  const charmByStrike = new Map<number, number>()
+  data.forEach((option) => {
+    const optType = option.type === "C" ? "call" : "put"
+    const vol = option.iv && option.iv > 0 ? option.iv / 100 : 0.3
+    const cex = calcCharmEnhanced(
+      spot,
+      option.strike,
+      vol,
+      option.daysTillExp!,
+      r,
+      q,
+      optType,
+      option.open_interest,
+      pricingMethod
+    )
+    const currentCharm = charmByStrike.get(option.strike) || 0
+    charmByStrike.set(option.strike, currentCharm + cex)
+  })
+
+  const result: CharmByStrike[] = []
+  charmByStrike.forEach((charm, strike) => {
+    result.push({ strike, charm: charm / 1e9 }) // Normalize to billions for consistent formatting (formatBillions handles scaling to Millions/Billions)
+  })
+  return result.sort((a, b) => a.strike - b.strike)
+}
+

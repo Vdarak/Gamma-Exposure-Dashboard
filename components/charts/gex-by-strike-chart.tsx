@@ -3,7 +3,14 @@
 import { useMemo, useRef, useEffect, useState } from "react"
 import * as d3 from "d3"
 import type { OptionData } from "@/lib/types"
-import { computeGEXByStrike, computeVolumeByStrike, findZeroGammaLevel, type PricingMethod } from "@/lib/calculations"
+import {
+  computeGEXByStrike,
+  computeVolumeByStrike,
+  findZeroGammaLevel,
+  computeVannaByStrike,
+  computeCharmByStrike,
+  type PricingMethod
+} from "@/lib/calculations"
 import { colors, typography } from "@/lib/design-tokens"
 import {
   styleAxis,
@@ -42,12 +49,37 @@ export function GEXByStrikeChart({
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
 
+  const [greekMode, setGreekMode] = useState<'gamma' | 'vanna' | 'charm'>('gamma')
   const [showAbsoluteGEX, setShowAbsoluteGEX] = useState(false)
   const [showVolumeChart, setShowVolumeChart] = useState(true)
   const [activeZoom, setActiveZoom] = useState<number | null>(null)
   const [dims, setDims] = useState({ width: 800, height: 600 })
 
+  const [ratesInfo, setRatesInfo] = useState({
+    usRiskFreeRate: 0.05,
+    indiaRiskFreeRate: 0.065,
+    source: "Assumed Defaults (Fallback)"
+  })
+
+  // Dynamic risk-free rate fetching
+  useEffect(() => {
+    fetch('/api/rates')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setRatesInfo({
+            usRiskFreeRate: data.usRiskFreeRate,
+            indiaRiskFreeRate: data.indiaRiskFreeRate,
+            source: data.source
+          })
+        }
+      })
+      .catch(err => console.error("Error loading risk-free rates:", err))
+  }, [])
+
   const effectivePricingMethod = market === 'INDIA' ? 'black-scholes' : pricingMethod
+  const activeR = market === 'INDIA' ? ratesInfo.indiaRiskFreeRate : ratesInfo.usRiskFreeRate
+  const activeQ = market === 'INDIA' ? 0.012 : 0.013
 
   // 1. Set default zoom based on ticker: 1% for SPX/SPY, 2% for others
   useEffect(() => {
@@ -75,6 +107,14 @@ export function GEXByStrikeChart({
   const volumeByStrike = useMemo(() => computeVolumeByStrike(filteredData), [filteredData])
   const zeroGammaLevel = useMemo(() => findZeroGammaLevel(filteredData, spotPrice), [filteredData, spotPrice])
 
+  const vannaByStrike = useMemo(() => {
+    return computeVannaByStrike(spotPrice, filteredData, activeR, activeQ, effectivePricingMethod)
+  }, [spotPrice, filteredData, activeR, activeQ, effectivePricingMethod])
+
+  const charmByStrike = useMemo(() => {
+    return computeCharmByStrike(spotPrice, filteredData, activeR, activeQ, effectivePricingMethod)
+  }, [spotPrice, filteredData, activeR, activeQ, effectivePricingMethod])
+
   // Merge strikes
   const allStrikes = useMemo(() => Array.from(new Set([
     ...gexByStrike.map(item => item.strike),
@@ -94,6 +134,8 @@ export function GEXByStrikeChart({
 
   // Map to scrollable strikes (pre-computed values)
   const gammaValues = useMemo(() => scrollableStrikes.map(s => gexByStrike.find(i => i.strike === s)?.gex || 0), [scrollableStrikes, gexByStrike])
+  const vannaValues = useMemo(() => scrollableStrikes.map(s => vannaByStrike.find(i => i.strike === s)?.vanna || 0), [scrollableStrikes, vannaByStrike])
+  const charmValues = useMemo(() => scrollableStrikes.map(s => charmByStrike.find(i => i.strike === s)?.charm || 0), [scrollableStrikes, charmByStrike])
   const volumeValues = useMemo(() => scrollableStrikes.map(s => volumeByStrike.find(i => i.strike === s)?.volume || 0), [scrollableStrikes, volumeByStrike])
 
   // Absolute GEX
@@ -122,7 +164,7 @@ export function GEXByStrikeChart({
     const zoomStrikes = scrollableStrikes.filter(s => s >= atmStrike - range && s <= atmStrike + range)
     if (zoomStrikes.length === 0) return [-1, 1]
 
-    if (showAbsoluteGEX) {
+    if (showAbsoluteGEX && greekMode === 'gamma') {
       const maxCall = d3.max(zoomStrikes.map(s => {
         const idx = scrollableStrikes.indexOf(s)
         return idx !== -1 ? Math.abs(callGEX[idx]) : 0
@@ -134,14 +176,27 @@ export function GEXByStrikeChart({
       const maxVal = Math.max(maxCall, maxPut) * 1.15
       return [-maxVal, maxVal]
     } else {
-      const maxNet = d3.max(zoomStrikes.map(s => {
-        const idx = scrollableStrikes.indexOf(s)
-        return idx !== -1 ? Math.abs(gammaValues[idx]) : 0
-      })) || 1
+      let maxNet = 1
+      if (greekMode === 'gamma') {
+        maxNet = d3.max(zoomStrikes.map(s => {
+          const idx = scrollableStrikes.indexOf(s)
+          return idx !== -1 ? Math.abs(gammaValues[idx]) : 0
+        })) || 1
+      } else if (greekMode === 'vanna') {
+        maxNet = d3.max(zoomStrikes.map(s => {
+          const idx = scrollableStrikes.indexOf(s)
+          return idx !== -1 ? Math.abs(vannaValues[idx]) : 0
+        })) || 1
+      } else if (greekMode === 'charm') {
+        maxNet = d3.max(zoomStrikes.map(s => {
+          const idx = scrollableStrikes.indexOf(s)
+          return idx !== -1 ? Math.abs(charmValues[idx]) : 0
+        })) || 1
+      }
       const maxVal = maxNet * 1.15
       return [-maxVal, maxVal]
     }
-  }, [scrollableStrikes, activeZoom, atmStrike, showAbsoluteGEX, callGEX, putGEX, gammaValues])
+  }, [scrollableStrikes, activeZoom, atmStrike, showAbsoluteGEX, greekMode, callGEX, putGEX, gammaValues, vannaValues, charmValues])
 
   // Auto-scroll to center ATM strike
   useEffect(() => {
@@ -208,7 +263,7 @@ export function GEXByStrikeChart({
       .attr('stroke', '#2A2A2A').attr('stroke-width', 1)
 
     // Bars
-    if (showAbsoluteGEX) {
+    if (showAbsoluteGEX && greekMode === 'gamma') {
       // Call bars
       g.selectAll('.bar-call')
         .data(scrollableStrikes)
@@ -265,14 +320,20 @@ export function GEXByStrikeChart({
         .attr('stroke-width', 0.5)
         .attr('rx', 1)
     } else {
-      // Net GEX bars
+      // Net bars (Gamma, Vanna, or Charm)
+      const activeValues = greekMode === 'gamma'
+        ? gammaValues
+        : greekMode === 'vanna'
+          ? vannaValues
+          : charmValues
+
       g.selectAll('.bar-net')
         .data(scrollableStrikes)
         .join('rect')
         .attr('class', 'bar-net')
         .attr('y', d => yScale(String(d))!)
         .attr('x', (_, i) => {
-          const val = gammaValues[i]
+          const val = activeValues[i]
           const x0 = xScale(0)
           const x1 = xScale(val)
           const clampedX0 = Math.max(0, Math.min(width, x0))
@@ -280,7 +341,7 @@ export function GEXByStrikeChart({
           return Math.min(clampedX0, clampedX1)
         })
         .attr('width', (_, i) => {
-          const val = gammaValues[i]
+          const val = activeValues[i]
           const x0 = xScale(0)
           const x1 = xScale(val)
           const clampedX0 = Math.max(0, Math.min(width, x0))
@@ -288,8 +349,16 @@ export function GEXByStrikeChart({
           return Math.abs(clampedX1 - clampedX0)
         })
         .attr('height', yScale.bandwidth())
-        .attr('fill', (_, i) => gexFillColor(gammaValues[i]))
-        .attr('stroke', (_, i) => gexColor(gammaValues[i]))
+        .attr('fill', (_, i) => {
+          const val = activeValues[i]
+          if (greekMode === 'gamma') return gexFillColor(val)
+          return val >= 0 ? 'rgba(0, 200, 5, 0.75)' : 'rgba(255, 59, 96, 0.75)'
+        })
+        .attr('stroke', (_, i) => {
+          const val = activeValues[i]
+          if (greekMode === 'gamma') return gexColor(val)
+          return val >= 0 ? '#00C805' : '#FF3B60'
+        })
         .attr('stroke-width', 0.5)
         .attr('rx', 1)
     }
@@ -302,8 +371,8 @@ export function GEXByStrikeChart({
       drawHorizontalRefLine(g, spotY + yScale.bandwidth() / 2, width, colors.accent.amber, `SPOT ${spotPrice.toFixed(0)}`)
     }
 
-    // Gamma flip reference line
-    if (zeroGammaLevel) {
+    // Gamma flip reference line (only in Gamma mode)
+    if (greekMode === 'gamma' && zeroGammaLevel) {
       const flipStr = String(scrollableStrikes.reduce((prev, curr) =>
         Math.abs(curr - zeroGammaLevel) < Math.abs(prev - zeroGammaLevel) ? curr : prev, scrollableStrikes[0]))
       const flipY = yScale(flipStr)
@@ -328,9 +397,19 @@ export function GEXByStrikeChart({
       .attr('fill', colors.text.secondary)
       .style('font-family', typography.fontSans)
       .style('font-size', '11px')
-      .text(showAbsoluteGEX ? 'Gamma (Calls → | ← Puts)' : 'Net Gamma')
+      .text(
+        greekMode === 'gamma'
+          ? (showAbsoluteGEX ? 'Gamma (Calls → | ← Puts)' : 'Net Gamma')
+          : (greekMode === 'vanna' ? 'Net Vanna (VEX)' : 'Net Charm (CEX)')
+      )
 
     // Title / Header (Fixed atop scroll container)
+    const titleText = greekMode === 'gamma'
+      ? `${ticker} ${showAbsoluteGEX ? 'Absolute' : 'Net'} Gamma by Strike (${selectedExpiryLabel})`
+      : greekMode === 'vanna'
+        ? `${ticker} Net Vanna by Strike (${selectedExpiryLabel})`
+        : `${ticker} Net Charm by Strike (${selectedExpiryLabel})`
+
     svg.append('text')
       .attr('x', margin.left + width / 2).attr('y', 16)
       .attr('text-anchor', 'middle')
@@ -338,7 +417,7 @@ export function GEXByStrikeChart({
       .style('font-family', typography.fontSans)
       .style('font-size', '12px')
       .style('font-weight', '700')
-      .text(`${ticker} ${showAbsoluteGEX ? 'Absolute' : 'Net'} Gamma by Strike (${selectedExpiryLabel})`)
+      .text(titleText)
 
     // Hover interactions
     const hoverLine = g.append('line')
@@ -367,9 +446,16 @@ export function GEXByStrikeChart({
 
         if (tooltipRef.current && containerRef.current) {
           const strike = scrollableStrikes[strikeIdx]
-          const value = showAbsoluteGEX
-            ? `Call: ${callGEX[strikeIdx].toFixed(3)}B | Put: ${Math.abs(putGEX[strikeIdx]).toFixed(3)}B`
-            : `Net GEX: ${gammaValues[strikeIdx] >= 0 ? '+' : ''}${gammaValues[strikeIdx].toFixed(3)}B`
+          let value = ""
+          if (greekMode === 'gamma') {
+            value = showAbsoluteGEX
+              ? `Call: ${callGEX[strikeIdx].toFixed(3)}B | Put: ${Math.abs(putGEX[strikeIdx]).toFixed(3)}B`
+              : `Net GEX: ${gammaValues[strikeIdx] >= 0 ? '+' : ''}${gammaValues[strikeIdx].toFixed(3)}B`
+          } else if (greekMode === 'vanna') {
+            value = `Net Vanna: ${vannaValues[strikeIdx] >= 0 ? '+' : ''}${vannaValues[strikeIdx].toFixed(3)}B`
+          } else if (greekMode === 'charm') {
+            value = `Net Charm: ${charmValues[strikeIdx] >= 0 ? '+' : ''}${charmValues[strikeIdx].toFixed(3)}B`
+          }
           tooltipRef.current.innerHTML = `
             <div style="font-family:${typography.fontSans};font-size:12px;color:${colors.text.primary};font-weight:600">
               Strike ${strike.toFixed(0)}
@@ -391,7 +477,7 @@ export function GEXByStrikeChart({
         if (tooltipRef.current) tooltipRef.current.style.opacity = '0'
       })
 
-  }, [scrollableStrikes, gammaValues, callGEX, putGEX, showAbsoluteGEX, dims, showVolumeChart, spotPrice, zeroGammaLevel, ticker, selectedExpiryLabel, xDomain])
+  }, [scrollableStrikes, gammaValues, vannaValues, charmValues, callGEX, putGEX, showAbsoluteGEX, greekMode, dims, showVolumeChart, spotPrice, zeroGammaLevel, ticker, selectedExpiryLabel, xDomain])
 
   // ─── D3 Volume Chart ─────────────────────────────────────────
   useEffect(() => {
@@ -548,6 +634,41 @@ export function GEXByStrikeChart({
         
         {/* Right controls */}
         <div className="flex items-center gap-2">
+          {/* Sourced vs Assumed Rates Indicator */}
+          {greekMode !== 'gamma' && (
+            <div 
+              className="px-2 py-1 rounded text-[9px] font-mono border bg-[#050505] text-[#888] border-[#1A1A1E] flex items-center gap-1.5"
+              title={`US Risk-Free Rate: ${(ratesInfo.usRiskFreeRate * 100).toFixed(2)}% | India Repo Benchmark: ${(ratesInfo.indiaRiskFreeRate * 100).toFixed(2)}%\nSource: ${ratesInfo.source}`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${ratesInfo.source.startsWith('Assumed') ? 'bg-amber-500' : 'bg-green-500 animate-pulse'}`} />
+              <span className="text-white font-semibold text-[8px] tracking-wider">
+                {ratesInfo.source.startsWith('Assumed') ? 'ASSUMED' : 'SOURCED'}
+              </span>
+              <span>r: {(activeR * 100).toFixed(2)}%</span>
+            </div>
+          )}
+
+          {/* Greek Switcher Toggle Pills */}
+          <div className="flex items-center gap-1 bg-black/70 backdrop-blur-md px-1 py-1 rounded border border-[#1A1A1E]">
+            {['GAMMA', 'VANNA', 'CHARM'].map(mode => {
+              const active = greekMode === mode.toLowerCase()
+              return (
+                <button
+                  key={mode}
+                  onClick={() => setGreekMode(mode.toLowerCase() as any)}
+                  className={`px-2 py-0.5 rounded text-[10px] font-mono transition-all font-bold ${
+                    active 
+                      ? 'bg-terminal-green/15 text-terminal-green border border-terminal-green/30' 
+                      : 'bg-transparent text-[#777] border border-transparent hover:text-white'
+                  }`}
+                  type="button"
+                >
+                  {mode}
+                </button>
+              )
+            })}
+          </div>
+
           {market === 'USA' ? (
             <PricingMethodToggle 
               pricingMethod={pricingMethod}
@@ -559,17 +680,19 @@ export function GEXByStrikeChart({
             </span>
           )}
           
-          <button
-            className={`px-2 py-0.5 rounded text-xxs font-mono border transition-colors ${
-              showAbsoluteGEX
-                ? 'text-terminal-green border-terminal-green/30'
-                : 'text-terminal-purple border-terminal-purple/30'
-            }`}
-            onClick={() => setShowAbsoluteGEX(!showAbsoluteGEX)}
-            type="button"
-          >
-            {showAbsoluteGEX ? "ABS" : "NET"}
-          </button>
+          {greekMode === 'gamma' && (
+            <button
+              className={`px-2 py-0.5 rounded text-xxs font-mono border transition-colors ${
+                showAbsoluteGEX
+                  ? 'text-terminal-green border-terminal-green/30'
+                  : 'text-terminal-purple border-terminal-purple/30'
+              }`}
+              onClick={() => setShowAbsoluteGEX(!showAbsoluteGEX)}
+              type="button"
+            >
+              {showAbsoluteGEX ? "ABS" : "NET"}
+            </button>
+          )}
           
           <button
             className={`px-1.5 py-0.5 rounded text-xxs font-mono border transition-colors ${
@@ -589,7 +712,7 @@ export function GEXByStrikeChart({
       {/* Scrollable wrapper for charts */}
       <div 
         ref={scrollContainerRef}
-        className="flex-1 min-h-[300px] overflow-y-auto max-h-[600px] border border-[#1A1A1A] rounded bg-black terminal-scrollbar relative"
+        className="flex-1 min-h-[300px] overflow-y-auto max-h-[750px] border border-[#1A1A1A] rounded bg-black terminal-scrollbar relative"
       >
         <div className="flex gap-4 w-full">
           <div className="flex-1">
