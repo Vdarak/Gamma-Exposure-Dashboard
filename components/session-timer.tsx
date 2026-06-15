@@ -1,7 +1,7 @@
 "use client"
 
-import React, { useEffect, useState, useRef } from "react"
-import { Play, Pause, RefreshCw } from "lucide-react"
+import React, { useEffect, useState } from "react"
+import { Play, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import { Badge } from "@/components/ui/badge"
@@ -30,9 +30,8 @@ export function SessionTimer({
   onTimestampsLoad,
 }: SessionTimerProps) {
   const [checkpoints, setCheckpoints] = useState<TimestampInfo[]>([])
-  const [isPlaying, setIsPlaying] = useState(false)
+  const [localRange, setLocalRange] = useState<[number, number]>([0, 0])
   const [loading, setLoading] = useState(false)
-  const playIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   // Fetch checkpoints
   const fetchCheckpoints = async () => {
@@ -67,10 +66,22 @@ export function SessionTimer({
     }
   }
 
-  // Reload checkpoints when ticker changes or every 60 seconds (background sync)
+  // Reload checkpoints when ticker changes
   useEffect(() => {
     fetchCheckpoints()
   }, [ticker])
+
+  // Sync localRange with currentRange when it changes from outside
+  useEffect(() => {
+    if (checkpoints.length > 0) {
+      const sIdx = checkpoints.findIndex((c) => c.timestamp === currentRange[0])
+      const eIdx = checkpoints.findIndex((c) => c.timestamp === currentRange[1])
+      setLocalRange([
+        sIdx === -1 ? 0 : sIdx,
+        eIdx === -1 ? checkpoints.length - 1 : eIdx
+      ])
+    }
+  }, [currentRange, checkpoints])
 
   // Poll for new checkpoints every 60 seconds
   useEffect(() => {
@@ -104,77 +115,21 @@ export function SessionTimer({
     return () => clearInterval(interval)
   }, [ticker, isLive, currentRange])
 
-  // Handle Play/Pause Automation
-  useEffect(() => {
-    if (isPlaying) {
-      // Turn off LIVE mode when starting playback
-      if (isLive) {
-        onLiveChange(false)
-      }
-
-      playIntervalRef.current = setInterval(() => {
-        setCheckpoints((currentCheckpoints) => {
-          if (currentCheckpoints.length === 0) return currentCheckpoints
-          
-          const endIdx = currentCheckpoints.findIndex(
-            (c) => c.timestamp === currentRange[1]
-          )
-          
-          let nextEndIndex = endIdx + 1
-          let nextStartIndex = currentCheckpoints.findIndex(
-            (c) => c.timestamp === currentRange[0]
-          )
-          if (nextStartIndex === -1) nextStartIndex = 0
-          
-          if (nextEndIndex >= currentCheckpoints.length || endIdx === -1) {
-            nextEndIndex = 0 // Loop back to start
-            nextStartIndex = 0
-          }
-          
-          const nextStartCP = currentCheckpoints[nextStartIndex].timestamp
-          const nextEndCP = currentCheckpoints[nextEndIndex].timestamp
-          // Silent change
-          onCheckpointChange(nextStartCP, nextEndCP, false)
-          return currentCheckpoints
-        })
-      }, 2000) // advance every 2 seconds
-    } else {
-      if (playIntervalRef.current) {
-        clearInterval(playIntervalRef.current)
-        playIntervalRef.current = null
-      }
-    }
-
-    return () => {
-      if (playIntervalRef.current) {
-        clearInterval(playIntervalRef.current)
-      }
-    }
-  }, [isPlaying, currentRange, isLive])
-
-  // Get range indexes
-  const startIdx = checkpoints.findIndex((c) => c.timestamp === currentRange[0])
-  const endIdx = checkpoints.findIndex((c) => c.timestamp === currentRange[1])
-  
-  const displayStartIdx = startIdx === -1 ? 0 : startIdx
-  const displayEndIdx = endIdx === -1 ? Math.max(0, checkpoints.length - 1) : endIdx
-
   const handleSliderChange = (values: number[]) => {
-    setIsPlaying(false) // Pause playback on manual slider move
     if (isLive) {
       onLiveChange(false) // Turn off LIVE mode
     }
-    
-    let startVal = values[0]
-    let endVal = values.length > 1 ? values[1] : values[0]
-    
-    // Sort values to ensure start index is always <= end index
+    setLocalRange([values[0], values.length > 1 ? values[1] : values[0]])
+  }
+
+  const handleLoadRange = () => {
+    let startVal = localRange[0]
+    let endVal = localRange[1]
     if (startVal > endVal) {
       const temp = startVal
       startVal = endVal
       endVal = temp
     }
-    
     const startCP = checkpoints[startVal]
     const endCP = checkpoints[endVal]
     if (startCP && endCP) {
@@ -182,12 +137,7 @@ export function SessionTimer({
     }
   }
 
-  const togglePlay = () => {
-    setIsPlaying(!isPlaying)
-  }
-
   const toggleLive = () => {
-    setIsPlaying(false)
     const newLive = !isLive
     onLiveChange(newLive)
     if (newLive && checkpoints.length > 0) {
@@ -211,21 +161,21 @@ export function SessionTimer({
     }
   }
 
+  const displayStartIdx = localRange[0]
+  const displayEndIdx = localRange[1]
+
   return (
     <div className="w-full bg-[#0E0E12] border border-[#1C1C24] rounded-lg p-3 px-4 flex flex-col md:flex-row items-center gap-4 justify-between select-none">
       <div className="flex items-center gap-3 w-full md:w-auto">
         <Button
-          size="icon"
+          size="sm"
           variant="ghost"
-          className="h-8 w-8 text-gray-400 hover:text-white hover:bg-[#1E1E2A] shrink-0"
-          onClick={togglePlay}
+          className="h-8 px-3 text-terminal-green hover:bg-[#1E1E2A] shrink-0 border border-terminal-green/35 flex items-center gap-1.5 font-mono text-xs font-bold transition-all"
+          onClick={handleLoadRange}
           disabled={checkpoints.length <= 1}
         >
-          {isPlaying ? (
-            <Pause className="h-4 w-4 fill-current text-white" />
-          ) : (
-            <Play className="h-4 w-4 fill-current text-white" />
-          )}
+          <Play className="h-3.5 w-3.5 fill-current" />
+          LOAD RANGE
         </Button>
         <div className="flex flex-col text-left justify-center min-w-[200px]">
           <span className="text-[11px] text-gray-500 font-medium tracking-wide uppercase">
@@ -251,7 +201,7 @@ export function SessionTimer({
           min={0}
           max={Math.max(0, checkpoints.length - 1)}
           step={1}
-          value={[displayStartIdx, displayEndIdx]}
+          value={localRange}
           onValueChange={handleSliderChange}
           disabled={checkpoints.length <= 1}
           className="cursor-pointer py-2"

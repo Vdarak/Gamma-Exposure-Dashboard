@@ -36,6 +36,7 @@ interface SyncedStrikeWorkspaceProps {
   market: 'USA' | 'INDIA'
   pricingMethod: PricingMethod
   expiryMode: string
+  isLive: boolean
 }
 
 
@@ -48,6 +49,7 @@ export function SyncedStrikeWorkspace({
   market,
   pricingMethod,
   expiryMode,
+  isLive,
 }: SyncedStrikeWorkspaceProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const candleSvgRef = useRef<SVGSVGElement>(null)
@@ -711,25 +713,37 @@ export function SyncedStrikeWorkspace({
       
       defs.append('pattern')
         .attr('id', 'increase-stripes-left')
-        .attr('width', 8)
-        .attr('height', 8)
+        .attr('width', 6)
+        .attr('height', 6)
         .attr('patternUnits', 'userSpaceOnUse')
-        .append('path')
-        .attr('d', 'M-2,2 L2,-2 M0,8 L8,0 M6,10 L10,6')
-        .attr('stroke', '#00C805')
-        .attr('stroke-width', 1.8)
-        .attr('fill', 'none')
+        .call(p => {
+          p.append('rect')
+            .attr('width', 6)
+            .attr('height', 6)
+            .attr('fill', 'rgba(0, 200, 5, 0.15)')
+          p.append('path')
+            .attr('d', 'M-1,1 L1,-1 M0,6 L6,0 M5,7 L7,5')
+            .attr('stroke', '#00C805')
+            .attr('stroke-width', 1.2)
+            .attr('fill', 'none')
+        })
         
       defs.append('pattern')
         .attr('id', 'decrease-stripes-left')
-        .attr('width', 8)
-        .attr('height', 8)
+        .attr('width', 6)
+        .attr('height', 6)
         .attr('patternUnits', 'userSpaceOnUse')
-        .append('path')
-        .attr('d', 'M-2,6 L6,-2 M0,0 L8,8 M2,10 L10,2')
-        .attr('stroke', '#FF3B60')
-        .attr('stroke-width', 1.8)
-        .attr('fill', 'none')
+        .call(p => {
+          p.append('rect')
+            .attr('width', 6)
+            .attr('height', 6)
+            .attr('fill', 'rgba(255, 59, 96, 0.15)')
+          p.append('path')
+            .attr('d', 'M-1,1 L1,-1 M0,6 L6,0 M5,7 L7,5')
+            .attr('stroke', '#FF3B60')
+            .attr('stroke-width', 1.2)
+            .attr('fill', 'none')
+        })
 
       // Zero-exposure center line
       g.append('line')
@@ -742,18 +756,20 @@ export function SyncedStrikeWorkspace({
         const y = yScale(p.strike)
         if (y === undefined || y < 0 || y > chartHeight) return
 
-        // 1. Draw Start bar (Solid, 35% opacity)
-        const startWidth = Math.abs(xScale(p.startVal) - xScale(0))
-        const startX = p.startVal >= 0 ? xScale(0) : xScale(p.startVal)
-        g.append('rect')
-          .attr('x', startX).attr('y', y - 2)
-          .attr('width', Math.max(1, startWidth))
-          .attr('height', 5)
-          .attr('fill', p.startVal >= 0 ? 'rgba(0, 200, 5, 0.35)' : 'rgba(255, 59, 96, 0.35)')
-          .attr('stroke', p.startVal >= 0 ? '#00C805' : '#FF3B60')
-          .attr('stroke-opacity', 0.35)
-          .attr('stroke-width', 0.5)
-          .attr('rx', 1)
+        if (!isLive) {
+          // 1. Draw Start bar (Solid, 35% opacity)
+          const startWidth = Math.abs(xScale(p.startVal) - xScale(0))
+          const startX = p.startVal >= 0 ? xScale(0) : xScale(p.startVal)
+          g.append('rect')
+            .attr('x', startX).attr('y', y - 2)
+            .attr('width', Math.max(1, startWidth))
+            .attr('height', 5)
+            .attr('fill', p.startVal >= 0 ? 'rgba(0, 200, 5, 0.35)' : 'rgba(255, 59, 96, 0.35)')
+            .attr('stroke', p.startVal >= 0 ? '#00C805' : '#FF3B60')
+            .attr('stroke-opacity', 0.35)
+            .attr('stroke-width', 0.5)
+            .attr('rx', 1)
+        }
 
         // 2. Draw End bar (Solid, 80% opacity)
         const endWidth = Math.abs(xScale(p.endVal) - xScale(0))
@@ -768,19 +784,21 @@ export function SyncedStrikeWorkspace({
           .attr('stroke-width', 0.5)
           .attr('rx', 1)
 
-        // 3. Draw Delta change bar (Striped, 95% opacity)
-        if (Math.abs(p.delta) > 1e-5) {
-          const deltaWidth = Math.abs(xScale(p.endVal) - xScale(p.startVal))
-          const deltaX = xScale(Math.min(p.startVal, p.endVal))
-          g.append('rect')
-            .attr('x', deltaX).attr('y', y - 2)
-            .attr('width', Math.max(1, deltaWidth))
-            .attr('height', 5)
-            .attr('fill', p.delta >= 0 ? 'url(#increase-stripes-left)' : 'url(#decrease-stripes-left)')
-            .attr('stroke', p.delta >= 0 ? '#00C805' : '#FF3B60')
-            .attr('stroke-opacity', 0.95)
-            .attr('stroke-width', 0.5)
-            .attr('rx', 1)
+        if (!isLive) {
+          // 3. Draw Delta change bar (Striped, 95% opacity)
+          if (Math.abs(p.delta) > 1e-5) {
+            const deltaWidth = Math.abs(xScale(p.endVal) - xScale(p.startVal))
+            const deltaX = xScale(Math.min(p.startVal, p.endVal))
+            g.append('rect')
+              .attr('x', deltaX).attr('y', y - 2)
+              .attr('width', Math.max(1, deltaWidth))
+              .attr('height', 5)
+              .attr('fill', p.delta >= 0 ? 'url(#increase-stripes-left)' : 'url(#decrease-stripes-left)')
+              .attr('stroke', p.delta >= 0 ? '#00C805' : '#FF3B60')
+              .attr('stroke-opacity', 0.95)
+              .attr('stroke-width', 0.5)
+              .attr('rx', 1)
+          }
         }
       })
 
@@ -833,18 +851,30 @@ export function SyncedStrikeWorkspace({
           if (closest && tooltipRef.current && containerRef.current) {
             const containerRect = containerRef.current.getBoundingClientRect()
             const labelText = displayMode === 'gamma-vol' ? 'Net GEX' : 'Net Vanna'
-            tooltipRef.current.innerHTML = `
+            
+            let htmlContent = `
               <div style="font-family:${typography.fontSans};font-size:12px;color:${colors.text.primary};font-weight:600">Strike ${closest.strike.toFixed(0)}</div>
-              <div style="font-family:${typography.fontMono};font-size:11px;color:#949494;margin-top:2.5px">
-                Start ${labelText}: ${formatBillions(closest.startVal)}
-              </div>
-              <div style="font-family:${typography.fontMono};font-size:11px;color:#E5E5E5;margin-top:2.5px">
-                End ${labelText}: ${formatBillions(closest.endVal)}
-              </div>
-              <div style="font-family:${typography.fontMono};font-size:11px;color:${closest.delta >= 0 ? '#00C805' : '#FF3B60'};margin-top:2.5px;font-weight:bold">
-                Change: ${closest.delta >= 0 ? '+' : ''}${formatBillions(closest.delta)}
-              </div>
             `
+            if (isLive) {
+              htmlContent += `
+                <div style="font-family:${typography.fontMono};font-size:11px;color:${closest.endVal >= 0 ? '#00C805' : '#FF3B60'};margin-top:2.5px;font-weight:bold">
+                  ${labelText}: ${formatBillions(closest.endVal)}
+                </div>
+              `
+            } else {
+              htmlContent += `
+                <div style="font-family:${typography.fontMono};font-size:11px;color:#949494;margin-top:2.5px">
+                  Start ${labelText}: ${formatBillions(closest.startVal)}
+                </div>
+                <div style="font-family:${typography.fontMono};font-size:11px;color:#E5E5E5;margin-top:2.5px">
+                  End ${labelText}: ${formatBillions(closest.endVal)}
+                </div>
+                <div style="font-family:${typography.fontMono};font-size:11px;color:${closest.delta >= 0 ? '#00C805' : '#FF3B60'};margin-top:2.5px;font-weight:bold">
+                  Change: ${closest.delta >= 0 ? '+' : ''}${formatBillions(closest.delta)}
+                </div>
+              `
+            }
+            tooltipRef.current.innerHTML = htmlContent
             tooltipRef.current.style.opacity = '1'
             tooltipRef.current.style.left = `${event.clientX - containerRect.left + 14}px`
             tooltipRef.current.style.top = `${event.clientY - containerRect.top - 50}px`
@@ -895,25 +925,37 @@ export function SyncedStrikeWorkspace({
       
       defsRight.append('pattern')
         .attr('id', 'increase-stripes-right')
-        .attr('width', 8)
-        .attr('height', 8)
+        .attr('width', 6)
+        .attr('height', 6)
         .attr('patternUnits', 'userSpaceOnUse')
-        .append('path')
-        .attr('d', 'M-2,2 L2,-2 M0,8 L8,0 M6,10 L10,6')
-        .attr('stroke', '#00C805')
-        .attr('stroke-width', 1.8)
-        .attr('fill', 'none')
+        .call(p => {
+          p.append('rect')
+            .attr('width', 6)
+            .attr('height', 6)
+            .attr('fill', 'rgba(0, 200, 5, 0.15)')
+          p.append('path')
+            .attr('d', 'M-1,1 L1,-1 M0,6 L6,0 M5,7 L7,5')
+            .attr('stroke', '#00C805')
+            .attr('stroke-width', 1.2)
+            .attr('fill', 'none')
+        })
         
       defsRight.append('pattern')
         .attr('id', 'decrease-stripes-right')
-        .attr('width', 8)
-        .attr('height', 8)
+        .attr('width', 6)
+        .attr('height', 6)
         .attr('patternUnits', 'userSpaceOnUse')
-        .append('path')
-        .attr('d', 'M-2,6 L6,-2 M0,0 L8,8 M2,10 L10,2')
-        .attr('stroke', '#FF3B60')
-        .attr('stroke-width', 1.8)
-        .attr('fill', 'none')
+        .call(p => {
+          p.append('rect')
+            .attr('width', 6)
+            .attr('height', 6)
+            .attr('fill', 'rgba(255, 59, 96, 0.15)')
+          p.append('path')
+            .attr('d', 'M-1,1 L1,-1 M0,6 L6,0 M5,7 L7,5')
+            .attr('stroke', '#FF3B60')
+            .attr('stroke-width', 1.2)
+            .attr('fill', 'none')
+        })
 
       if (isSymmetric) {
         // Zero line in the center for Charm
@@ -928,22 +970,24 @@ export function SyncedStrikeWorkspace({
         const y = yScale(p.strike)
         if (y === undefined || y < 0 || y > chartHeight) return
 
-        // 1. Draw Start bar (Solid, 35% opacity)
-        const startWidth = Math.abs(xScale(p.startVal) - xScale(0))
-        const startX = isSymmetric ? (p.startVal >= 0 ? xScale(0) : xScale(p.startVal)) : xScale(0)
-        g.append('rect')
-          .attr('x', startX).attr('y', y - 2)
-          .attr('width', Math.max(1, startWidth))
-          .attr('height', 5)
-          .attr('fill', isSymmetric 
-            ? (p.startVal >= 0 ? 'rgba(0, 200, 5, 0.35)' : 'rgba(255, 59, 96, 0.35)') 
-            : 'rgba(0, 200, 255, 0.35)')
-          .attr('stroke', isSymmetric 
-            ? (p.startVal >= 0 ? '#00C805' : '#FF3B60') 
-            : '#00C8FF')
-          .attr('stroke-opacity', 0.35)
-          .attr('stroke-width', 0.5)
-          .attr('rx', 1)
+        if (!isLive) {
+          // 1. Draw Start bar (Solid, 35% opacity)
+          const startWidth = Math.abs(xScale(p.startVal) - xScale(0))
+          const startX = isSymmetric ? (p.startVal >= 0 ? xScale(0) : xScale(p.startVal)) : xScale(0)
+          g.append('rect')
+            .attr('x', startX).attr('y', y - 2)
+            .attr('width', Math.max(1, startWidth))
+            .attr('height', 5)
+            .attr('fill', isSymmetric 
+              ? (p.startVal >= 0 ? 'rgba(0, 200, 5, 0.35)' : 'rgba(255, 59, 96, 0.35)') 
+              : 'rgba(0, 200, 255, 0.35)')
+            .attr('stroke', isSymmetric 
+              ? (p.startVal >= 0 ? '#00C805' : '#FF3B60') 
+              : '#00C8FF')
+            .attr('stroke-opacity', 0.35)
+            .attr('stroke-width', 0.5)
+            .attr('rx', 1)
+        }
 
         // 2. Draw End bar (Solid, 80% opacity)
         const endWidth = Math.abs(xScale(p.endVal) - xScale(0))
@@ -962,19 +1006,21 @@ export function SyncedStrikeWorkspace({
           .attr('stroke-width', 0.5)
           .attr('rx', 1)
 
-        // 3. Draw Delta change bar (Striped, 95% opacity)
-        if (Math.abs(p.delta) > 1e-5) {
-          const deltaWidth = Math.abs(xScale(p.endVal) - xScale(p.startVal))
-          const deltaX = xScale(Math.min(p.startVal, p.endVal))
-          g.append('rect')
-            .attr('x', deltaX).attr('y', y - 2)
-            .attr('width', Math.max(1, deltaWidth))
-            .attr('height', 5)
-            .attr('fill', p.delta >= 0 ? 'url(#increase-stripes-right)' : 'url(#decrease-stripes-right)')
-            .attr('stroke', p.delta >= 0 ? '#00C805' : '#FF3B60')
-            .attr('stroke-opacity', 0.95)
-            .attr('stroke-width', 0.5)
-            .attr('rx', 1)
+        if (!isLive) {
+          // 3. Draw Delta change bar (Striped, 95% opacity)
+          if (Math.abs(p.delta) > 1e-5) {
+            const deltaWidth = Math.abs(xScale(p.endVal) - xScale(p.startVal))
+            const deltaX = xScale(Math.min(p.startVal, p.endVal))
+            g.append('rect')
+              .attr('x', deltaX).attr('y', y - 2)
+              .attr('width', Math.max(1, deltaWidth))
+              .attr('height', 5)
+              .attr('fill', p.delta >= 0 ? 'url(#increase-stripes-right)' : 'url(#decrease-stripes-right)')
+              .attr('stroke', p.delta >= 0 ? '#00C805' : '#FF3B60')
+              .attr('stroke-opacity', 0.95)
+              .attr('stroke-width', 0.5)
+              .attr('rx', 1)
+          }
         }
       })
 
@@ -1025,18 +1071,35 @@ export function SyncedStrikeWorkspace({
               ? (closest.delta >= 0 ? '+' : '') + closest.delta.toLocaleString() + ' contracts' 
               : (closest.delta >= 0 ? '+' : '') + formatBillions(closest.delta)
 
-            tooltipRef.current.innerHTML = `
+            let htmlContent = `
               <div style="font-family:${typography.fontSans};font-size:12px;color:${colors.text.primary};font-weight:600">Strike ${closest.strike.toFixed(0)}</div>
-              <div style="font-family:${typography.fontMono};font-size:11px;color:#949494;margin-top:2.5px">
-                Start ${labelText}: ${startText}
-              </div>
-              <div style="font-family:${typography.fontMono};font-size:11px;color:#E5E5E5;margin-top:2.5px">
-                End ${labelText}: ${endText}
-              </div>
-              <div style="font-family:${typography.fontMono};font-size:11px;color:${closest.delta >= 0 ? '#00C805' : '#FF3B60'};margin-top:2.5px;font-weight:bold">
-                Change: ${deltaText}
-              </div>
             `
+            if (isLive) {
+              const textClr = isVolMode 
+                ? colors.accent.cyan 
+                : (closest.endVal >= 0 ? '#00C805' : '#FF3B60')
+              htmlContent += `
+                <div style="font-family:${typography.fontMono};font-size:11px;color:${textClr};margin-top:2.5px;font-weight:bold">
+                  ${labelText}: ${endText}
+                </div>
+              `
+            } else {
+              const textClr = isVolMode 
+                ? colors.accent.cyan 
+                : (closest.delta >= 0 ? '#00C805' : '#FF3B60')
+              htmlContent += `
+                <div style="font-family:${typography.fontMono};font-size:11px;color:#949494;margin-top:2.5px">
+                  Start ${labelText}: ${startText}
+                </div>
+                <div style="font-family:${typography.fontMono};font-size:11px;color:#E5E5E5;margin-top:2.5px">
+                  End ${labelText}: ${endText}
+                </div>
+                <div style="font-family:${typography.fontMono};font-size:11px;color:${textClr};margin-top:2.5px;font-weight:bold">
+                  Change: ${deltaText}
+                </div>
+              `
+            }
+            tooltipRef.current.innerHTML = htmlContent
             tooltipRef.current.style.opacity = '1'
             tooltipRef.current.style.left = `${event.clientX - containerRect.left + 14}px`
             tooltipRef.current.style.top = `${event.clientY - containerRect.top - 50}px`
@@ -1045,7 +1108,7 @@ export function SyncedStrikeWorkspace({
         .on('mouseleave', hideCrosshairs)
     }
 
-  }, [dimensions, yDomain, visibleCandlesData, indicatorData, startGexProfile, endGexProfile, startVolProfile, endVolProfile, startVannaProfile, endVannaProfile, startCharmProfile, endCharmProfile, endSpotPrice, endZeroGamma, market, ticker, displayMode, isCandlesCollapsed])
+  }, [dimensions, yDomain, visibleCandlesData, indicatorData, startGexProfile, endGexProfile, startVolProfile, endVolProfile, startVannaProfile, endVannaProfile, startCharmProfile, endCharmProfile, endSpotPrice, endZeroGamma, market, ticker, displayMode, isCandlesCollapsed, isLive])
 
   return (
     <div

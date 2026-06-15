@@ -782,6 +782,7 @@ export function GammaExposureDashboard() {
                             market={market}
                             pricingMethod={pricingMethod}
                             expiryMode={expiryMode}
+                            isLive={isLive}
                           />
                         </div>
                       </div>
