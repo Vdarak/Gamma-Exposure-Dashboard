@@ -317,6 +317,8 @@ export function GradientChartsWorkspace({
               spotPrice={activeSnapshot?.spotPrice || spotPrice}
               options={activeSnapshot?.options || []}
               timestamp={activeSnapshot?.timestamp || new Date()}
+              hoveredStrike={hoveredStrike}
+              setHoveredStrike={setHoveredStrike}
             />
           </div>
 
@@ -414,6 +416,8 @@ interface PositionsProfileViewProps {
   spotPrice: number
   options: OptionData[]
   timestamp: Date
+  hoveredStrike: number | null
+  setHoveredStrike: (strike: number | null) => void
 }
 
 function PositionsProfileView({
@@ -422,10 +426,13 @@ function PositionsProfileView({
   spotPrice,
   options,
   timestamp,
+  hoveredStrike,
+  setHoveredStrike,
 }: PositionsProfileViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [dims, setDims] = useState({ width: 220, height: 400 })
+  const [tooltipData, setTooltipData] = useState<any | null>(null)
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -526,11 +533,119 @@ function PositionsProfileView({
       ctx.fillText(strike.toFixed(0), 6, y + 3)
     })
 
-  }, [strikes, spotPrice, options, dims])
+    // Draw horizontal crosshair on hovered strike
+    if (hoveredStrike !== null && hoveredStrike >= minStrike && hoveredStrike <= maxStrike) {
+      const activeY = yScale(hoveredStrike)
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)'
+      ctx.lineWidth = 0.8
+      ctx.setLineDash([2, 2])
+      ctx.beginPath()
+      ctx.moveTo(0, activeY)
+      ctx.lineTo(width, activeY)
+      ctx.stroke()
+      ctx.setLineDash([])
+    }
+
+  }, [strikes, spotPrice, options, dims, hoveredStrike])
+
+  const handleMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
+    if (strikes.length === 0) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    const x = event.clientX - rect.left
+    const y = event.clientY - rect.top
+
+    // Adjusting for CSS coordinate space
+    const marginTop = 30
+    const marginBottom = 25
+    const graphHeight = dims.height - marginTop - marginBottom
+
+    const minStrike = strikes[0]
+    const maxStrike = strikes[strikes.length - 1]
+    
+    const yScale = d3.scaleLinear()
+      .domain([minStrike, maxStrike])
+      .range([marginTop + graphHeight, marginTop])
+
+    const strikeVal = yScale.invert(y)
+    const closestStrike = strikes.reduce((prev, curr) => {
+      return Math.abs(curr - strikeVal) < Math.abs(prev - strikeVal) ? curr : prev
+    }, strikes[0])
+
+    setHoveredStrike(closestStrike)
+
+    const strikeOptions = options.filter(o => o.strike === closestStrike)
+    const netOI = getNetOI(closestStrike)
+    
+    let hedgeShares = 0
+    strikeOptions.forEach(opt => {
+      let d = opt.delta || 0
+      if (opt.type === "P" && d > 0) d = -d
+      if (opt.type === "C" && d < 0) d = -d
+      hedgeShares += (opt.open_interest || 0) * 100 * d
+    })
+
+    const notionalVal = hedgeShares * spotPrice
+
+    setTooltipData({
+      strike: closestStrike,
+      netOI,
+      hedgeShares,
+      notionalVal,
+      x,
+      y
+    })
+  }
+
+  const handleMouseLeave = () => {
+    setHoveredStrike(null)
+    setTooltipData(null)
+  }
 
   return (
-    <div ref={containerRef} className="flex-1 w-full relative">
-      <canvas ref={canvasRef} className="w-full h-full" />
+    <div ref={containerRef} className="flex-1 w-full h-full relative overflow-hidden">
+      <canvas
+        ref={canvasRef}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        className="absolute inset-0 w-full h-full cursor-crosshair"
+      />
+      {tooltipData && (
+        <div
+          className="absolute z-30 bg-black/95 backdrop-blur-md border border-[#222]/80 px-3 py-2 rounded text-[#D4D4D8] pointer-events-none shadow-2xl animate-in fade-in duration-100"
+          style={{
+            left: `${tooltipData.x + 14}px`,
+            top: `${tooltipData.y - 30}px`,
+            width: 'max-content'
+          }}
+        >
+          <div className="font-mono text-[10px] font-bold text-white mb-1.5 pb-1 border-b border-[#222]">
+            STRIKE: {tooltipData.strike.toFixed(0)}
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[9px]">
+            <span className="text-[#666]">Net OI:</span>
+            <span className={`font-bold text-right ${tooltipData.netOI >= 0 ? 'text-terminal-green' : 'text-terminal-red'}`}>
+              {tooltipData.netOI.toLocaleString()}
+            </span>
+
+            <span className="text-[#666]">Hedge Action:</span>
+            <span className={`font-bold text-right ${tooltipData.hedgeShares >= 0 ? 'text-terminal-green' : 'text-terminal-red'}`}>
+              {tooltipData.hedgeShares >= 0 ? 'BUY' : 'SELL'}
+            </span>
+
+            <span className="text-[#666]">Hedge Shares:</span>
+            <span className="text-white text-right font-bold">
+              {Math.abs(Math.round(tooltipData.hedgeShares)).toLocaleString()}
+            </span>
+
+            <span className="text-[#666]">Notional Val:</span>
+            <span className="text-white font-bold text-right">
+              ${Math.abs(Math.round(tooltipData.notionalVal)).toLocaleString()}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -982,7 +1097,7 @@ function GradientHeatmapChart({
   }
 
   return (
-    <div ref={containerRef} className="w-full h-full flex flex-col relative select-none">
+    <div ref={containerRef} className="w-full h-full relative select-none overflow-hidden">
       {/* Widget Header Controls */}
       <div className="absolute top-2 left-3 right-3 z-10 flex justify-between items-center bg-black/45 backdrop-blur-sm px-2.5 py-1 rounded border border-[#1A1A1E]">
         <div className="flex items-center gap-2">
@@ -1011,7 +1126,7 @@ function GradientHeatmapChart({
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
         onMouseDown={handleMouseDown}
-        className="w-full h-full cursor-crosshair"
+        className="absolute inset-0 w-full h-full cursor-crosshair"
       />
 
       {/* Tooltip Overlay */}
