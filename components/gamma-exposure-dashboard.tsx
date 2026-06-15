@@ -17,7 +17,6 @@ import { GEXSurfaceChart } from "./charts/gex-surface-chart"
 import { CallPutWallsChart } from "./charts/call-put-walls-chart"
 import { ExpectedMoveChart } from "./charts/expected-move-chart"
 import { OptionChain } from "./charts/option-chain"
-import { GEXDataGraphDashboard } from "./charts/gex-data-graph-dashboard"
 import { ChartWrapper } from "./charts/chart-wrapper"
 import { PricingMethodToggle } from "./pricing-method-toggle"
 import { SessionTimer } from "./session-timer"
@@ -46,7 +45,6 @@ const BOTTOM_TABS = [
   { id: 'gex-levels', label: 'GEX Levels' },
   { id: 'flow-historical', label: 'Flow/Historical' },
   { id: 'gradient-charts', label: 'Gradient View' },
-  { id: 'data-graph', label: 'Data Graph' },
   { id: 'surface', label: '3D Surface Model' },
   { id: 'expected-move', label: 'Expected Move' },
 ]
@@ -800,16 +798,7 @@ export function GammaExposureDashboard() {
                     </div>
                   )}
 
-                  {/* 3. Data Graph Workspace */}
-                  {activeTab === 'data-graph' && (
-                    <ChartWrapper
-                      title="GEX Expiration Data Graph"
-                      subtitle="Aggregate distribution of Net and Total Gamma across expiration cycles"
-                      height="900px"
-                    >
-                      <GEXDataGraphDashboard data={optionData} />
-                    </ChartWrapper>
-                  )}
+
 
                   {/* 4. 3D Surface Model Workspace */}
                   {activeTab === 'surface' && (
