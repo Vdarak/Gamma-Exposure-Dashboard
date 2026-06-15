@@ -58,6 +58,7 @@ export function TradeForm({ isOpen, onClose, onSubmit, initialTrade }: TradeForm
   const [uploadError, setUploadError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [dragActive, setDragActive] = useState(false)
+  const [isFetchingPrice, setIsFetchingPrice] = useState(false)
 
   // Initialize fields on mount or when editing trade loads
   useEffect(() => {
@@ -131,9 +132,98 @@ export function TradeForm({ isOpen, onClose, onSubmit, initialTrade }: TradeForm
     }
   }, [quantity, initialTrade])
 
+  // Automatically fetch current price when status is Open
+  useEffect(() => {
+    if (status !== "Open" || !ticker.trim()) {
+      return
+    }
+
+    if (tradeType === "Option" && (!strike || !expiration)) {
+      return
+    }
+
+    const controller = new AbortController()
+
+    const fetchLivePrice = async () => {
+      setIsFetchingPrice(true)
+      try {
+        const uppercaseTicker = ticker.trim().toUpperCase()
+        const market = ['NIFTY', 'BANKNIFTY', 'RELIANCE'].includes(uppercaseTicker) ? 'INDIA' : 'USA'
+        const apiRoute = market === 'INDIA' 
+          ? `/api/options/india/${uppercaseTicker}` 
+          : `/api/options/${uppercaseTicker}`
+
+        const response = await fetch(apiRoute, { signal: controller.signal })
+        if (!response.ok) {
+          throw new Error("Failed to fetch price")
+        }
+
+        const data = await response.json()
+        
+        if (tradeType === "Equity") {
+          const price = data.current_price || data.price || 0
+          if (price > 0) {
+            setCurrentPrice(price.toString())
+          }
+        } else {
+          const options = data.options || []
+          const normalizedExp = expiration // format: YYYY-MM-DD
+          
+          const matched = options.find((opt: any) => {
+            const optExpStr = opt.expiration ? new Date(opt.expiration).toISOString().split('T')[0] : null
+            return (
+              opt.strike === parseFloat(strike) &&
+              opt.type === optionType &&
+              optExpStr === normalizedExp
+            )
+          })
+
+          if (matched) {
+            const price = (matched.bid && matched.ask) 
+              ? (matched.bid + matched.ask) / 2 
+              : (matched.last || 0)
+            if (price > 0) {
+              setCurrentPrice(price.toString())
+            }
+          }
+        }
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          console.error("Error fetching live price in form:", err)
+        }
+      } finally {
+        setIsFetchingPrice(false)
+      }
+    }
+
+    const timeoutId = setTimeout(fetchLivePrice, 500)
+
+    return () => {
+      clearTimeout(timeoutId)
+      controller.abort()
+    }
+  }, [ticker, tradeType, strike, optionType, expiration, status])
+
   // Automatically calculate PnL and PnL% when variables change
   useEffect(() => {
-    if (initialTrade) return // Don't overwrite edited PnLs during load
+    if (initialTrade) {
+      const initialExitPrice = initialTrade.status === "Open" ? "" : initialTrade.exitPrice.toString()
+      const initialCurrentPrice = initialTrade.status === "Open" ? initialTrade.exitPrice.toString() : ""
+      
+      const qtyDiff = quantity !== initialTrade.quantity.toString()
+      const entryDiff = entryPrice !== initialTrade.entryPrice.toString()
+      const exitDiff = status === "Open" 
+        ? currentPrice !== initialCurrentPrice 
+        : exitPrice !== initialExitPrice
+      const feesDiff = fees !== (initialTrade.fees ? initialTrade.fees.toString() : "0")
+      const dirDiff = direction !== initialTrade.direction
+      const statusDiff = status !== (initialTrade.status || "Closed")
+
+      // Only skip calculation if none of the formula input fields have been modified
+      if (!qtyDiff && !entryDiff && !exitDiff && !feesDiff && !dirDiff && !statusDiff) {
+        return
+      }
+    }
     
     const qtyVal = parseFloat(quantity)
     const entryVal = parseFloat(entryPrice)
@@ -554,15 +644,21 @@ export function TradeForm({ isOpen, onClose, onSubmit, initialTrade }: TradeForm
             {/* Exit vs Current Price dependent on Status */}
             {status === "Open" ? (
               <div className="flex flex-col gap-1.5">
-                <label className="text-[#D4D4D4] text-[10px] uppercase font-bold">Current Price ($)</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-[#D4D4D4] text-[10px] uppercase font-bold">Current Price ($)</label>
+                  <span className={`text-[8px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${
+                    isFetchingPrice ? "bg-terminal-amber/10 text-terminal-amber animate-pulse" : "bg-terminal-green/10 text-terminal-green"
+                  }`}>
+                    {isFetchingPrice ? "Fetching..." : "Live Price"}
+                  </span>
+                </div>
                 <input
-                  required
+                  disabled
                   type="number"
                   step="any"
                   value={currentPrice}
-                  onChange={(e) => setCurrentPrice(e.target.value)}
-                  placeholder="153.20"
-                  className="bg-black border border-[#1A1A1E] text-white px-3 py-1.5 rounded outline-none focus:border-terminal-green/45"
+                  placeholder={isFetchingPrice ? "Fetching..." : "Price auto-fetched..."}
+                  className="bg-[#0A0A0C] border border-[#1A1A1E] text-[#949494] px-3 py-1.5 rounded outline-none cursor-not-allowed select-none"
                 />
               </div>
             ) : (

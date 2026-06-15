@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useCallback, useMemo } from "react"
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { JournalTrade } from "./types"
 import { Heatmap } from "./heatmap"
 import { CalendarView } from "./calendar-view"
@@ -34,6 +34,16 @@ export function TradingJournal() {
   // Inspect trades on a single day
   const [inspectedDate, setInspectedDate] = useState<string | null>(null)
 
+  // For live price auto-refresh
+  const [refreshingPrices, setRefreshingPrices] = useState(false)
+  const hasAutoRefreshedRef = useRef(false)
+  const tradesRef = useRef<JournalTrade[]>([])
+
+  // Keep tradesRef updated
+  useEffect(() => {
+    tradesRef.current = trades
+  }, [trades])
+
   // Fetch all trades from database
   const loadTrades = useCallback(async () => {
     try {
@@ -61,11 +71,126 @@ export function TradingJournal() {
     }
   }, [])
 
+  // Function to fetch current prices and update open positions
+  const refreshOpenPositionPrices = useCallback(async () => {
+    const activeOpen = tradesRef.current.filter((t) => t.status === "Open")
+    if (activeOpen.length === 0) return
+    
+    setRefreshingPrices(true)
+    let updatedCount = 0
+    let failedCount = 0
+
+    try {
+      // Group open positions by ticker to minimize API requests
+      const tickers = Array.from(new Set(activeOpen.map(p => p.ticker.toUpperCase())))
+      
+      // Fetch options/spot data for all tickers in parallel
+      const tickerDataMap: Record<string, any> = {}
+      await Promise.all(
+        tickers.map(async (ticker) => {
+          try {
+            const market = ['NIFTY', 'BANKNIFTY', 'RELIANCE'].includes(ticker) ? 'INDIA' : 'USA'
+            const apiRoute = market === 'INDIA' ? `/api/options/india/${ticker}` : `/api/options/${ticker}`
+            const response = await fetch(apiRoute)
+            if (response.ok) {
+              const data = await response.json()
+              tickerDataMap[ticker] = data
+            }
+          } catch (err) {
+            console.error(`Failed to fetch price data for ticker ${ticker}:`, err)
+          }
+        })
+      )
+
+      // Update each open position
+      for (const trade of activeOpen) {
+        const tickerData = tickerDataMap[trade.ticker.toUpperCase()]
+        if (!tickerData) {
+          failedCount++
+          continue
+        }
+
+        let newPrice = 0
+        if (trade.tradeType === "Equity") {
+          newPrice = tickerData.current_price || tickerData.price || 0
+        } else if (trade.tradeType === "Option") {
+          // Find option contract matching strike, optionType, expiration
+          const options = tickerData.options || []
+          const tradeExpStr = trade.expiration // format: YYYY-MM-DD
+          
+          const matchedOpt = options.find((opt: any) => {
+            const optExpStr = opt.expiration ? new Date(opt.expiration).toISOString().split('T')[0] : null
+            return (
+              opt.strike === trade.strike &&
+              opt.type === trade.optionType &&
+              optExpStr === tradeExpStr
+            )
+          })
+
+          if (matchedOpt) {
+            newPrice = (matchedOpt.bid && matchedOpt.ask) 
+              ? (matchedOpt.bid + matchedOpt.ask) / 2 
+              : (matchedOpt.last || 0)
+          } else {
+            failedCount++
+            continue
+          }
+        }
+
+        if (newPrice > 0) {
+          // Calculate new P&L and return percentage
+          const qtyVal = trade.quantity
+          const entryVal = trade.entryPrice
+          const feesVal = trade.fees || 0
+          
+          let calcPnl = 0
+          if (trade.direction === "Buy") {
+            calcPnl = (newPrice - entryVal) * qtyVal - feesVal
+          } else {
+            calcPnl = (entryVal - newPrice) * qtyVal - feesVal
+          }
+          const calcPnlPct = (calcPnl / (entryVal * qtyVal)) * 100
+
+          const updatedTrade: JournalTrade = {
+            ...trade,
+            exitPrice: newPrice, // open trades store currentPrice in exitPrice
+            pnl: parseFloat(calcPnl.toFixed(2)),
+            pnlPercent: parseFloat(calcPnlPct.toFixed(2))
+          }
+
+          // Call API to update the database
+          await updateJournalTrade(trade.id, updatedTrade)
+          updatedCount++
+        } else {
+          failedCount++
+        }
+      }
+
+      if (updatedCount > 0) {
+        // Reload all trades to refresh the UI
+        const data = await getJournalTrades()
+        setTrades(data || [])
+      }
+    } catch (err) {
+      console.error("Error refreshing open position prices:", err)
+    } finally {
+      setRefreshingPrices(false)
+    }
+  }, [])
+
   // Initial load
   useEffect(() => {
     loadTrades()
     loadSettings()
   }, [loadTrades, loadSettings])
+
+  // Trigger auto-refresh of open position prices once initial trades load
+  useEffect(() => {
+    if (trades.length > 0 && !hasAutoRefreshedRef.current) {
+      hasAutoRefreshedRef.current = true
+      refreshOpenPositionPrices()
+    }
+  }, [trades, refreshOpenPositionPrices])
 
   // Save starting balance setting to backend
   const handleSaveBalance = async (value: number) => {
@@ -665,8 +790,18 @@ export function TradingJournal() {
         {/* Card 4: Active Open Positions */}
         <div className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-3 flex flex-col justify-between h-[180px] overflow-hidden">
           <div className="flex justify-between items-center border-b border-[#1A1A1E] pb-1">
-            <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider">Open Positions</span>
-            <span className="text-[8px] bg-black text-[#00D4FF] px-1.5 py-0.2 rounded font-bold">{openPositions.length} active</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider">Open Positions</span>
+              <button 
+                onClick={refreshOpenPositionPrices} 
+                disabled={refreshingPrices}
+                className="text-[#888] hover:text-white transition-colors p-0.5 rounded"
+                title="Refresh Prices"
+              >
+                <RefreshCw className={`w-2.5 h-2.5 ${refreshingPrices ? 'animate-spin text-[#00C805]' : ''}`} />
+              </button>
+            </div>
+            <span className="text-[8px] bg-black text-[#00D4FF] px-1.5 py-0.5 rounded font-bold">{openPositions.length} active</span>
           </div>
           <div className="flex-1 overflow-y-auto space-y-2 pr-0.5 mt-2.5 scrollbar-thin scrollbar-thumb-gray-800 text-[9px]">
             {openPositions.length === 0 ? (

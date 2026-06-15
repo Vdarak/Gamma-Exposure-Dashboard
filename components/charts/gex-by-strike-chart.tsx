@@ -25,9 +25,11 @@ import {
 import { PricingMethodToggle } from "../pricing-method-toggle"
 
 interface GEXByStrikeChartProps {
-  data: OptionData[]
+  startData: OptionData[] | null
+  endData: OptionData[] | null
   ticker: string
-  spotPrice: number
+  startSpotPrice: number
+  endSpotPrice: number
   selectedExpiries: string[]
   pricingMethod: PricingMethod
   onPricingMethodChange: (method: PricingMethod) => void
@@ -35,9 +37,11 @@ interface GEXByStrikeChartProps {
 }
 
 export function GEXByStrikeChart({
-  data,
+  startData,
+  endData,
   ticker,
-  spotPrice,
+  startSpotPrice,
+  endSpotPrice,
   selectedExpiries,
   pricingMethod,
   onPricingMethodChange,
@@ -91,10 +95,17 @@ export function GEXByStrikeChart({
   }, [ticker])
 
   // Filter data by selected expiries
-  const filteredData = useMemo(() => {
-    if (selectedExpiries.length === 0) return data
-    return data.filter(o => selectedExpiries.includes(o.expiration.toISOString().split("T")[0]))
-  }, [data, selectedExpiries])
+  const startFilteredData = useMemo(() => {
+    if (!startData) return []
+    if (selectedExpiries.length === 0) return startData
+    return startData.filter(o => selectedExpiries.includes(o.expiration.toISOString().split("T")[0]))
+  }, [startData, selectedExpiries])
+
+  const endFilteredData = useMemo(() => {
+    if (!endData) return []
+    if (selectedExpiries.length === 0) return endData
+    return endData.filter(o => selectedExpiries.includes(o.expiration.toISOString().split("T")[0]))
+  }, [endData, selectedExpiries])
 
   const selectedExpiryLabel = selectedExpiries.length === 0
     ? "All Expiries"
@@ -102,107 +113,158 @@ export function GEXByStrikeChart({
       ? selectedExpiries[0]
       : `${selectedExpiries.length} Expiries`
 
-  // Compute GEX and volume
-  const gexByStrike = useMemo(() => computeGEXByStrike(spotPrice, filteredData, effectivePricingMethod), [spotPrice, filteredData, effectivePricingMethod])
-  const volumeByStrike = useMemo(() => computeVolumeByStrike(filteredData), [filteredData])
-  const zeroGammaLevel = useMemo(() => findZeroGammaLevel(filteredData, spotPrice), [filteredData, spotPrice])
+  // Compute GEX and volume for start data
+  const startGexByStrike = useMemo(() => computeGEXByStrike(startSpotPrice, startFilteredData, effectivePricingMethod), [startSpotPrice, startFilteredData, effectivePricingMethod])
+  const startVolumeByStrike = useMemo(() => computeVolumeByStrike(startFilteredData), [startFilteredData])
+  const startVannaByStrike = useMemo(() => computeVannaByStrike(startSpotPrice, startFilteredData, activeR, activeQ, effectivePricingMethod), [startSpotPrice, startFilteredData, activeR, activeQ, effectivePricingMethod])
+  const startCharmByStrike = useMemo(() => computeCharmByStrike(startSpotPrice, startFilteredData, activeR, activeQ, effectivePricingMethod), [startSpotPrice, startFilteredData, activeR, activeQ, effectivePricingMethod])
 
-  const vannaByStrike = useMemo(() => {
-    return computeVannaByStrike(spotPrice, filteredData, activeR, activeQ, effectivePricingMethod)
-  }, [spotPrice, filteredData, activeR, activeQ, effectivePricingMethod])
+  // Compute GEX and volume for end data
+  const endGexByStrike = useMemo(() => computeGEXByStrike(endSpotPrice, endFilteredData, effectivePricingMethod), [endSpotPrice, endFilteredData, effectivePricingMethod])
+  const endVolumeByStrike = useMemo(() => computeVolumeByStrike(endFilteredData), [endFilteredData])
+  const endVannaByStrike = useMemo(() => computeVannaByStrike(endSpotPrice, endFilteredData, activeR, activeQ, effectivePricingMethod), [endSpotPrice, endFilteredData, activeR, activeQ, effectivePricingMethod])
+  const endCharmByStrike = useMemo(() => computeCharmByStrike(endSpotPrice, endFilteredData, activeR, activeQ, effectivePricingMethod), [endSpotPrice, endFilteredData, activeR, activeQ, effectivePricingMethod])
 
-  const charmByStrike = useMemo(() => {
-    return computeCharmByStrike(spotPrice, filteredData, activeR, activeQ, effectivePricingMethod)
-  }, [spotPrice, filteredData, activeR, activeQ, effectivePricingMethod])
+  const zeroGammaLevel = useMemo(() => findZeroGammaLevel(endFilteredData.length ? endFilteredData : startFilteredData, endSpotPrice || startSpotPrice), [startFilteredData, endFilteredData, startSpotPrice, endSpotPrice])
 
   // Merge strikes
   const allStrikes = useMemo(() => Array.from(new Set([
-    ...gexByStrike.map(item => item.strike),
-    ...volumeByStrike.map(item => item.strike)
-  ])).sort((a, b) => a - b), [gexByStrike, volumeByStrike])
+    ...startGexByStrike.map(item => item.strike),
+    ...endGexByStrike.map(item => item.strike),
+    ...startVolumeByStrike.map(item => item.strike),
+    ...endVolumeByStrike.map(item => item.strike)
+  ])).sort((a, b) => a - b), [startGexByStrike, endGexByStrike, startVolumeByStrike, endVolumeByStrike])
 
-  // Filter scrollable strikes to ±15% range around spot price for premium readability & scroll performance
+  const refSpot = endSpotPrice || startSpotPrice || 100
+
+  // Filter scrollable strikes to ±15% range around spot price
   const scrollableStrikes = useMemo(() => {
-    return allStrikes.filter(s => s >= spotPrice * 0.85 && s <= spotPrice * 1.15)
-  }, [allStrikes, spotPrice])
+    return allStrikes.filter(s => s >= refSpot * 0.85 && s <= refSpot * 1.15)
+  }, [allStrikes, refSpot])
 
   // ATM strike
   const atmStrike = useMemo(() => {
-    if (scrollableStrikes.length === 0) return spotPrice
-    return scrollableStrikes.reduce((prev, curr) => Math.abs(curr - spotPrice) < Math.abs(prev - spotPrice) ? curr : prev, scrollableStrikes[0])
-  }, [scrollableStrikes, spotPrice])
+    if (scrollableStrikes.length === 0) return refSpot
+    return scrollableStrikes.reduce((prev, curr) => Math.abs(curr - refSpot) < Math.abs(prev - refSpot) ? curr : prev, scrollableStrikes[0])
+  }, [scrollableStrikes, refSpot])
 
   // Map to scrollable strikes (pre-computed values)
-  const gammaValues = useMemo(() => scrollableStrikes.map(s => gexByStrike.find(i => i.strike === s)?.gex || 0), [scrollableStrikes, gexByStrike])
-  const vannaValues = useMemo(() => scrollableStrikes.map(s => vannaByStrike.find(i => i.strike === s)?.vanna || 0), [scrollableStrikes, vannaByStrike])
-  const charmValues = useMemo(() => scrollableStrikes.map(s => charmByStrike.find(i => i.strike === s)?.charm || 0), [scrollableStrikes, charmByStrike])
-  const volumeValues = useMemo(() => scrollableStrikes.map(s => volumeByStrike.find(i => i.strike === s)?.volume || 0), [scrollableStrikes, volumeByStrike])
+  const startGammaValues = useMemo(() => scrollableStrikes.map(s => startGexByStrike.find(i => i.strike === s)?.gex || 0), [scrollableStrikes, startGexByStrike])
+  const endGammaValues = useMemo(() => scrollableStrikes.map(s => endGexByStrike.find(i => i.strike === s)?.gex || 0), [scrollableStrikes, endGexByStrike])
+
+  const startVannaValues = useMemo(() => scrollableStrikes.map(s => startVannaByStrike.find(i => i.strike === s)?.vanna || 0), [scrollableStrikes, startVannaByStrike])
+  const endVannaValues = useMemo(() => scrollableStrikes.map(s => endVannaByStrike.find(i => i.strike === s)?.vanna || 0), [scrollableStrikes, endVannaByStrike])
+
+  const startCharmValues = useMemo(() => scrollableStrikes.map(s => startCharmByStrike.find(i => i.strike === s)?.charm || 0), [scrollableStrikes, startCharmByStrike])
+  const endCharmValues = useMemo(() => scrollableStrikes.map(s => endCharmByStrike.find(i => i.strike === s)?.charm || 0), [scrollableStrikes, endCharmByStrike])
+
+  const startVolumeValues = useMemo(() => scrollableStrikes.map(s => startVolumeByStrike.find(i => i.strike === s)?.volume || 0), [scrollableStrikes, startVolumeByStrike])
+  const endVolumeValues = useMemo(() => scrollableStrikes.map(s => endVolumeByStrike.find(i => i.strike === s)?.volume || 0), [scrollableStrikes, endVolumeByStrike])
 
   // Absolute GEX
-  const { callGEX, putGEX } = useMemo(() => {
-    const callGEX = scrollableStrikes.map(strike => {
-      const callOptions = filteredData.filter(o => o.strike === strike && o.type === "C")
+  const { startCallGEX, startPutGEX } = useMemo(() => {
+    const startCallGEX = scrollableStrikes.map(strike => {
+      const callOptions = startFilteredData.filter(o => o.strike === strike && o.type === "C")
       let gex = 0
       callOptions.forEach(o => { if (o.GEX_BS) gex += Math.abs(o.GEX_BS) })
       return gex / 1e9
     })
-    const putGEX = scrollableStrikes.map(strike => {
-      const putOptions = filteredData.filter(o => o.strike === strike && o.type === "P")
+    const startPutGEX = scrollableStrikes.map(strike => {
+      const putOptions = startFilteredData.filter(o => o.strike === strike && o.type === "P")
       let gex = 0
       putOptions.forEach(o => { if (o.GEX_BS) gex += Math.abs(o.GEX_BS) })
       return -gex / 1e9
     })
-    return { callGEX, putGEX }
-  }, [scrollableStrikes, filteredData])
+    return { startCallGEX, startPutGEX }
+  }, [scrollableStrikes, startFilteredData])
+
+  const { endCallGEX, endPutGEX } = useMemo(() => {
+    const endCallGEX = scrollableStrikes.map(strike => {
+      const callOptions = endFilteredData.filter(o => o.strike === strike && o.type === "C")
+      let gex = 0
+      callOptions.forEach(o => { if (o.GEX_BS) gex += Math.abs(o.GEX_BS) })
+      return gex / 1e9
+    })
+    const endPutGEX = scrollableStrikes.map(strike => {
+      const putOptions = endFilteredData.filter(o => o.strike === strike && o.type === "P")
+      let gex = 0
+      putOptions.forEach(o => { if (o.GEX_BS) gex += Math.abs(o.GEX_BS) })
+      return -gex / 1e9
+    })
+    return { endCallGEX, endPutGEX }
+  }, [scrollableStrikes, endFilteredData])
 
   // Zoom range constraints to compute the x-axis scale range
   const xDomain = useMemo<[number, number]>(() => {
-    const zoomPct = activeZoom || 10 // Default to 10% bounds if zoom is null
+    const zoomPct = activeZoom || 10
     const range = atmStrike * (zoomPct / 100)
     
-    // Find strikes within the active zoom window to determine max x-axis scale
     const zoomStrikes = scrollableStrikes.filter(s => s >= atmStrike - range && s <= atmStrike + range)
     if (zoomStrikes.length === 0) return [-1, 1]
 
     if (showAbsoluteGEX && greekMode === 'gamma') {
-      const maxCall = d3.max(zoomStrikes.map(s => {
+      const maxStartCall = d3.max(zoomStrikes.map(s => {
         const idx = scrollableStrikes.indexOf(s)
-        return idx !== -1 ? Math.abs(callGEX[idx]) : 0
-      })) || 1
-      const maxPut = d3.max(zoomStrikes.map(s => {
+        return idx !== -1 ? Math.abs(startCallGEX[idx]) : 0
+      })) || 0
+      const maxEndCall = d3.max(zoomStrikes.map(s => {
         const idx = scrollableStrikes.indexOf(s)
-        return idx !== -1 ? Math.abs(putGEX[idx]) : 0
-      })) || 1
-      const maxVal = Math.max(maxCall, maxPut) * 1.15
+        return idx !== -1 ? Math.abs(endCallGEX[idx]) : 0
+      })) || 0
+
+      const maxStartPut = d3.max(zoomStrikes.map(s => {
+        const idx = scrollableStrikes.indexOf(s)
+        return idx !== -1 ? Math.abs(startPutGEX[idx]) : 0
+      })) || 0
+      const maxEndPut = d3.max(zoomStrikes.map(s => {
+        const idx = scrollableStrikes.indexOf(s)
+        return idx !== -1 ? Math.abs(endPutGEX[idx]) : 0
+      })) || 0
+
+      const maxVal = Math.max(maxStartCall, maxEndCall, maxStartPut, maxEndPut) * 1.15 || 1
       return [-maxVal, maxVal]
     } else {
       let maxNet = 1
       if (greekMode === 'gamma') {
-        maxNet = d3.max(zoomStrikes.map(s => {
+        const mStart = d3.max(zoomStrikes.map(s => {
           const idx = scrollableStrikes.indexOf(s)
-          return idx !== -1 ? Math.abs(gammaValues[idx]) : 0
-        })) || 1
+          return idx !== -1 ? Math.abs(startGammaValues[idx]) : 0
+        })) || 0
+        const mEnd = d3.max(zoomStrikes.map(s => {
+          const idx = scrollableStrikes.indexOf(s)
+          return idx !== -1 ? Math.abs(endGammaValues[idx]) : 0
+        })) || 0
+        maxNet = Math.max(mStart, mEnd)
       } else if (greekMode === 'vanna') {
-        maxNet = d3.max(zoomStrikes.map(s => {
+        const mStart = d3.max(zoomStrikes.map(s => {
           const idx = scrollableStrikes.indexOf(s)
-          return idx !== -1 ? Math.abs(vannaValues[idx]) : 0
-        })) || 1
+          return idx !== -1 ? Math.abs(startVannaValues[idx]) : 0
+        })) || 0
+        const mEnd = d3.max(zoomStrikes.map(s => {
+          const idx = scrollableStrikes.indexOf(s)
+          return idx !== -1 ? Math.abs(endVannaValues[idx]) : 0
+        })) || 0
+        maxNet = Math.max(mStart, mEnd)
       } else if (greekMode === 'charm') {
-        maxNet = d3.max(zoomStrikes.map(s => {
+        const mStart = d3.max(zoomStrikes.map(s => {
           const idx = scrollableStrikes.indexOf(s)
-          return idx !== -1 ? Math.abs(charmValues[idx]) : 0
-        })) || 1
+          return idx !== -1 ? Math.abs(startCharmValues[idx]) : 0
+        })) || 0
+        const mEnd = d3.max(zoomStrikes.map(s => {
+          const idx = scrollableStrikes.indexOf(s)
+          return idx !== -1 ? Math.abs(endCharmValues[idx]) : 0
+        })) || 0
+        maxNet = Math.max(mStart, mEnd)
       }
-      const maxVal = maxNet * 1.15
+      const maxVal = (maxNet || 1) * 1.15
       return [-maxVal, maxVal]
     }
-  }, [scrollableStrikes, activeZoom, atmStrike, showAbsoluteGEX, greekMode, callGEX, putGEX, gammaValues, vannaValues, charmValues])
+  }, [scrollableStrikes, activeZoom, atmStrike, showAbsoluteGEX, greekMode, startCallGEX, endCallGEX, startPutGEX, endPutGEX, startGammaValues, endGammaValues, startVannaValues, endVannaValues, startCharmValues, endCharmValues])
 
   // Auto-scroll to center ATM strike
   useEffect(() => {
-    if (!scrollContainerRef.current || !spotPrice || scrollableStrikes.length === 0) return
+    if (!scrollContainerRef.current || !refSpot || scrollableStrikes.length === 0) return
 
-    // Find the index of the ATM strike in the reversed array (since yScale domain is reversed)
     const atmIndex = [...scrollableStrikes].reverse().findIndex(s => s === atmStrike)
     if (atmIndex !== -1) {
       const barHeight = 22
@@ -211,7 +273,7 @@ export function GEXByStrikeChart({
       const containerHeight = scrollContainerRef.current.clientHeight || 500
       scrollContainerRef.current.scrollTop = yPos - containerHeight / 2
     }
-  }, [spotPrice, scrollableStrikes, atmStrike])
+  }, [refSpot, scrollableStrikes, atmStrike])
 
   // Resize observer
   useEffect(() => {
@@ -230,6 +292,22 @@ export function GEXByStrikeChart({
   const barHeight = 22
   const chartHeight = scrollableStrikes.length * barHeight
 
+  // Color helper functions
+  const getNormalFill = (val: number, mode: 'gamma' | 'vanna' | 'charm', isEnd: boolean) => {
+    const opacity = isEnd ? 0.75 : 0.25
+    if (mode === 'gamma') {
+      return gexFillColor(val).replace('0.75', String(opacity)).replace('0.3', String(opacity * 0.4))
+    }
+    return val >= 0 
+      ? `rgba(0, 200, 5, ${opacity})`
+      : `rgba(255, 59, 96, ${opacity})`
+  }
+
+  const getNormalStroke = (val: number, mode: 'gamma' | 'vanna' | 'charm') => {
+    if (mode === 'gamma') return gexColor(val)
+    return val >= 0 ? '#00C805' : '#FF3B60'
+  }
+
   // ─── D3 Gamma Chart ──────────────────────────────────────────
   useEffect(() => {
     if (!svgRef.current || scrollableStrikes.length === 0) return
@@ -242,6 +320,31 @@ export function GEXByStrikeChart({
     const svg = d3.select(svgRef.current)
     svg.selectAll('*').remove()
     svg.attr('width', chartWidth).attr('height', chartHeight + margin.top + margin.bottom)
+
+    // Append definitions for striped patterns
+    const defs = svg.append('defs')
+    
+    defs.append('pattern')
+      .attr('id', 'increase-stripes')
+      .attr('width', 8)
+      .attr('height', 8)
+      .attr('patternUnits', 'userSpaceOnUse')
+      .append('path')
+      .attr('d', 'M-2,2 L2,-2 M0,8 L8,0 M6,10 L10,6')
+      .attr('stroke', '#00C805')
+      .attr('stroke-width', 1.8)
+      .attr('fill', 'none')
+      
+    defs.append('pattern')
+      .attr('id', 'decrease-stripes')
+      .attr('width', 8)
+      .attr('height', 8)
+      .attr('patternUnits', 'userSpaceOnUse')
+      .append('path')
+      .attr('d', 'M-2,6 L6,-2 M0,0 L8,8 M2,10 L10,2')
+      .attr('stroke', '#FF3B60')
+      .attr('stroke-width', 1.8)
+      .attr('fill', 'none')
 
     const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
 
@@ -262,119 +365,279 @@ export function GEXByStrikeChart({
       .attr('y1', 0).attr('y2', chartHeight)
       .attr('stroke', '#2A2A2A').attr('stroke-width', 1)
 
+    // Prepare range-based datasets for D3
+    const startValues = greekMode === 'gamma' ? startGammaValues : greekMode === 'vanna' ? startVannaValues : startCharmValues
+    const endValues = greekMode === 'gamma' ? endGammaValues : greekMode === 'vanna' ? endVannaValues : endCharmValues
+
+    const barsData = scrollableStrikes.map((strike, i) => {
+      if (showAbsoluteGEX && greekMode === 'gamma') {
+        return {
+          strike,
+          startCall: startCallGEX[i],
+          endCall: endCallGEX[i],
+          deltaCall: endCallGEX[i] - startCallGEX[i],
+          startPut: startPutGEX[i],
+          endPut: endPutGEX[i],
+          deltaPut: endPutGEX[i] - startPutGEX[i],
+          isAbsolute: true
+        }
+      } else {
+        const startVal = startValues[i]
+        const endVal = endValues[i]
+        return {
+          strike,
+          startVal,
+          endVal,
+          delta: endVal - startVal,
+          isAbsolute: false
+        }
+      }
+    })
+
     // Bars
     if (showAbsoluteGEX && greekMode === 'gamma') {
-      // Call bars
-      g.selectAll('.bar-call')
-        .data(scrollableStrikes)
-        .join('rect')
-        .attr('class', 'bar-call')
-        .attr('y', d => yScale(String(d))!)
-        .attr('x', (_, i) => {
-          const val = callGEX[i]
-          const x0 = xScale(0)
-          const x1 = xScale(val)
-          const clampedX0 = Math.max(0, Math.min(width, x0))
-          const clampedX1 = Math.max(0, Math.min(width, x1))
-          return Math.min(clampedX0, clampedX1)
-        })
-        .attr('width', (_, i) => {
-          const val = callGEX[i]
-          const x0 = xScale(0)
-          const x1 = xScale(val)
-          const clampedX0 = Math.max(0, Math.min(width, x0))
-          const clampedX1 = Math.max(0, Math.min(width, x1))
-          return Math.abs(clampedX1 - clampedX0)
-        })
-        .attr('height', yScale.bandwidth())
-        .attr('fill', colors.accentAlpha.green50)
-        .attr('stroke', colors.accent.green)
-        .attr('stroke-width', 0.5)
-        .attr('rx', 1)
+      const absData = barsData.filter(d => d.isAbsolute)
 
-      // Put bars
-      g.selectAll('.bar-put')
-        .data(scrollableStrikes)
-        .join('rect')
-        .attr('class', 'bar-put')
-        .attr('y', d => yScale(String(d))!)
-        .attr('x', (_, i) => {
-          const val = putGEX[i]
-          const x0 = xScale(0)
-          const x1 = xScale(val)
-          const clampedX0 = Math.max(0, Math.min(width, x0))
-          const clampedX1 = Math.max(0, Math.min(width, x1))
-          return Math.min(clampedX0, clampedX1)
-        })
-        .attr('width', (_, i) => {
-          const val = putGEX[i]
-          const x0 = xScale(0)
-          const x1 = xScale(val)
-          const clampedX0 = Math.max(0, Math.min(width, x0))
-          const clampedX1 = Math.max(0, Math.min(width, x1))
-          return Math.abs(clampedX1 - clampedX0)
-        })
-        .attr('height', yScale.bandwidth())
-        .attr('fill', colors.accentAlpha.red50)
-        .attr('stroke', colors.accent.red)
-        .attr('stroke-width', 0.5)
-        .attr('rx', 1)
+      // Call start bars
+      g.selectAll('.bar-call-start')
+        .data(absData, (d: any) => d.strike)
+        .join(
+          enter => enter.append('rect')
+            .attr('class', 'bar-call-start')
+            .attr('y', d => yScale(String(d.strike))!)
+            .attr('height', yScale.bandwidth())
+            .attr('x', d => xScale(Math.min(d.startCall, 0)))
+            .attr('width', d => Math.abs(xScale(d.startCall) - xScale(0)))
+            .attr('fill', colors.accentAlpha.green50)
+            .attr('stroke', colors.accent.green)
+            .attr('stroke-width', 0.5)
+            .attr('rx', 1)
+            .style('opacity', 0.25),
+          update => update.call(u => u.transition().duration(400)
+            .attr('y', d => yScale(String(d.strike))!)
+            .attr('height', yScale.bandwidth())
+            .attr('x', d => xScale(Math.min(d.startCall, 0)))
+            .attr('width', d => Math.abs(xScale(d.startCall) - xScale(0)))
+          )
+        )
+
+      // Call end bars
+      g.selectAll('.bar-call-end')
+        .data(absData, (d: any) => d.strike)
+        .join(
+          enter => enter.append('rect')
+            .attr('class', 'bar-call-end')
+            .attr('y', d => yScale(String(d.strike))!)
+            .attr('height', yScale.bandwidth())
+            .attr('x', d => xScale(Math.min(d.endCall, 0)))
+            .attr('width', d => Math.abs(xScale(d.endCall) - xScale(0)))
+            .attr('fill', colors.accentAlpha.green50)
+            .attr('stroke', colors.accent.green)
+            .attr('stroke-width', 0.5)
+            .attr('rx', 1)
+            .style('opacity', 0.8),
+          update => update.call(u => u.transition().duration(400)
+            .attr('y', d => yScale(String(d.strike))!)
+            .attr('height', yScale.bandwidth())
+            .attr('x', d => xScale(Math.min(d.endCall, 0)))
+            .attr('width', d => Math.abs(xScale(d.endCall) - xScale(0)))
+          )
+        )
+
+      // Call change bars (striped)
+      g.selectAll('.bar-call-change')
+        .data(absData, (d: any) => d.strike)
+        .join(
+          enter => enter.append('rect')
+            .attr('class', 'bar-call-change')
+            .attr('y', d => yScale(String(d.strike))!)
+            .attr('height', yScale.bandwidth())
+            .attr('x', d => xScale(Math.min(d.startCall, d.endCall)))
+            .attr('width', d => Math.abs(xScale(d.endCall) - xScale(d.startCall)))
+            .attr('fill', d => d.deltaCall >= 0 ? 'url(#increase-stripes)' : 'url(#decrease-stripes)')
+            .attr('stroke', d => d.deltaCall >= 0 ? '#00C805' : '#FF3B60')
+            .attr('stroke-width', 0.5)
+            .attr('rx', 1)
+            .style('opacity', 0.95),
+          update => update.call(u => u.transition().duration(400)
+            .attr('y', d => yScale(String(d.strike))!)
+            .attr('height', yScale.bandwidth())
+            .attr('x', d => xScale(Math.min(d.startCall, d.endCall)))
+            .attr('width', d => Math.abs(xScale(d.endCall) - xScale(d.startCall)))
+            .attr('fill', d => d.deltaCall >= 0 ? 'url(#increase-stripes)' : 'url(#decrease-stripes)')
+            .attr('stroke', d => d.deltaCall >= 0 ? '#00C805' : '#FF3B60')
+          )
+        )
+
+      // Put start bars
+      g.selectAll('.bar-put-start')
+        .data(absData, (d: any) => d.strike)
+        .join(
+          enter => enter.append('rect')
+            .attr('class', 'bar-put-start')
+            .attr('y', d => yScale(String(d.strike))!)
+            .attr('height', yScale.bandwidth())
+            .attr('x', d => xScale(Math.min(d.startPut, 0)))
+            .attr('width', d => Math.abs(xScale(d.startPut) - xScale(0)))
+            .attr('fill', colors.accentAlpha.red50)
+            .attr('stroke', colors.accent.red)
+            .attr('stroke-width', 0.5)
+            .attr('rx', 1)
+            .style('opacity', 0.25),
+          update => update.call(u => u.transition().duration(400)
+            .attr('y', d => yScale(String(d.strike))!)
+            .attr('height', yScale.bandwidth())
+            .attr('x', d => xScale(Math.min(d.startPut, 0)))
+            .attr('width', d => Math.abs(xScale(d.startPut) - xScale(0)))
+          )
+        )
+
+      // Put end bars
+      g.selectAll('.bar-put-end')
+        .data(absData, (d: any) => d.strike)
+        .join(
+          enter => enter.append('rect')
+            .attr('class', 'bar-put-end')
+            .attr('y', d => yScale(String(d.strike))!)
+            .attr('height', yScale.bandwidth())
+            .attr('x', d => xScale(Math.min(d.endPut, 0)))
+            .attr('width', d => Math.abs(xScale(d.endPut) - xScale(0)))
+            .attr('fill', colors.accentAlpha.red50)
+            .attr('stroke', colors.accent.red)
+            .attr('stroke-width', 0.5)
+            .attr('rx', 1)
+            .style('opacity', 0.8),
+          update => update.call(u => u.transition().duration(400)
+            .attr('y', d => yScale(String(d.strike))!)
+            .attr('height', yScale.bandwidth())
+            .attr('x', d => xScale(Math.min(d.endPut, 0)))
+            .attr('width', d => Math.abs(xScale(d.endPut) - xScale(0)))
+          )
+        )
+
+      // Put change bars (striped)
+      g.selectAll('.bar-put-change')
+        .data(absData, (d: any) => d.strike)
+        .join(
+          enter => enter.append('rect')
+            .attr('class', 'bar-put-change')
+            .attr('y', d => yScale(String(d.strike))!)
+            .attr('height', yScale.bandwidth())
+            .attr('x', d => xScale(Math.min(d.startPut, d.endPut)))
+            .attr('width', d => Math.abs(xScale(d.endPut) - xScale(d.startPut)))
+            .attr('fill', d => d.deltaPut >= 0 ? 'url(#increase-stripes)' : 'url(#decrease-stripes)')
+            .attr('stroke', d => d.deltaPut >= 0 ? '#00C805' : '#FF3B60')
+            .attr('stroke-width', 0.5)
+            .attr('rx', 1)
+            .style('opacity', 0.95),
+          update => update.call(u => u.transition().duration(400)
+            .attr('y', d => yScale(String(d.strike))!)
+            .attr('height', yScale.bandwidth())
+            .attr('x', d => xScale(Math.min(d.startPut, d.endPut)))
+            .attr('width', d => Math.abs(xScale(d.endPut) - xScale(d.startPut)))
+            .attr('fill', d => d.deltaPut >= 0 ? 'url(#increase-stripes)' : 'url(#decrease-stripes)')
+            .attr('stroke', d => d.deltaPut >= 0 ? '#00C805' : '#FF3B60')
+          )
+        )
+
     } else {
-      // Net bars (Gamma, Vanna, or Charm)
-      const activeValues = greekMode === 'gamma'
-        ? gammaValues
-        : greekMode === 'vanna'
-          ? vannaValues
-          : charmValues
+      const netData = barsData.filter(d => !d.isAbsolute)
 
-      g.selectAll('.bar-net')
-        .data(scrollableStrikes)
-        .join('rect')
-        .attr('class', 'bar-net')
-        .attr('y', d => yScale(String(d))!)
-        .attr('x', (_, i) => {
-          const val = activeValues[i]
-          const x0 = xScale(0)
-          const x1 = xScale(val)
-          const clampedX0 = Math.max(0, Math.min(width, x0))
-          const clampedX1 = Math.max(0, Math.min(width, x1))
-          return Math.min(clampedX0, clampedX1)
-        })
-        .attr('width', (_, i) => {
-          const val = activeValues[i]
-          const x0 = xScale(0)
-          const x1 = xScale(val)
-          const clampedX0 = Math.max(0, Math.min(width, x0))
-          const clampedX1 = Math.max(0, Math.min(width, x1))
-          return Math.abs(clampedX1 - clampedX0)
-        })
-        .attr('height', yScale.bandwidth())
-        .attr('fill', (_, i) => {
-          const val = activeValues[i]
-          if (greekMode === 'gamma') return gexFillColor(val)
-          return val >= 0 ? 'rgba(0, 200, 5, 0.75)' : 'rgba(255, 59, 96, 0.75)'
-        })
-        .attr('stroke', (_, i) => {
-          const val = activeValues[i]
-          if (greekMode === 'gamma') return gexColor(val)
-          return val >= 0 ? '#00C805' : '#FF3B60'
-        })
-        .attr('stroke-width', 0.5)
-        .attr('rx', 1)
+      // Net Start bars (Solid, semi-transparent)
+      g.selectAll('.bar-net-start')
+        .data(netData, (d: any) => d.strike)
+        .join(
+          enter => enter.append('rect')
+            .attr('class', 'bar-net-start')
+            .attr('y', d => yScale(String(d.strike))!)
+            .attr('x', d => xScale(Math.min(d.startVal, 0)))
+            .attr('width', d => Math.abs(xScale(d.startVal) - xScale(0)))
+            .attr('height', yScale.bandwidth())
+            .attr('fill', d => getNormalFill(d.startVal, greekMode, false))
+            .attr('stroke', d => getNormalStroke(d.startVal, greekMode))
+            .attr('stroke-width', 0.5)
+            .attr('rx', 1)
+            .style('opacity', 0.35),
+          update => update.call(u => u.transition().duration(400)
+            .attr('y', d => yScale(String(d.strike))!)
+            .attr('height', yScale.bandwidth())
+            .attr('x', d => xScale(Math.min(d.startVal, 0)))
+            .attr('width', d => Math.abs(xScale(d.startVal) - xScale(0)))
+            .attr('fill', d => getNormalFill(d.startVal, greekMode, false))
+            .attr('stroke', d => getNormalStroke(d.startVal, greekMode))
+          )
+        )
+
+      // Net End bars (Solid, fully opaque)
+      g.selectAll('.bar-net-end')
+        .data(netData, (d: any) => d.strike)
+        .join(
+          enter => enter.append('rect')
+            .attr('class', 'bar-net-end')
+            .attr('y', d => yScale(String(d.strike))!)
+            .attr('x', d => xScale(Math.min(d.endVal, 0)))
+            .attr('width', d => Math.abs(xScale(d.endVal) - xScale(0)))
+            .attr('height', yScale.bandwidth())
+            .attr('fill', d => getNormalFill(d.endVal, greekMode, true))
+            .attr('stroke', d => getNormalStroke(d.endVal, greekMode))
+            .attr('stroke-width', 0.5)
+            .attr('rx', 1)
+            .style('opacity', 0.8),
+          update => update.call(u => u.transition().duration(400)
+            .attr('y', d => yScale(String(d.strike))!)
+            .attr('height', yScale.bandwidth())
+            .attr('x', d => xScale(Math.min(d.endVal, 0)))
+            .attr('width', d => Math.abs(xScale(d.endVal) - xScale(0)))
+            .attr('fill', d => getNormalFill(d.endVal, greekMode, true))
+            .attr('stroke', d => getNormalStroke(d.endVal, greekMode))
+          )
+        )
+
+      // Net Change bars (Striped)
+      g.selectAll('.bar-net-change')
+        .data(netData, (d: any) => d.strike)
+        .join(
+          enter => enter.append('rect')
+            .attr('class', 'bar-net-change')
+            .attr('y', d => yScale(String(d.strike))!)
+            .attr('x', d => xScale(Math.min(d.startVal, d.endVal)))
+            .attr('width', d => Math.abs(xScale(d.endVal) - xScale(d.startVal)))
+            .attr('height', yScale.bandwidth())
+            .attr('fill', d => d.delta >= 0 ? 'url(#increase-stripes)' : 'url(#decrease-stripes)')
+            .attr('stroke', d => d.delta >= 0 ? '#00C805' : '#FF3B60')
+            .attr('stroke-width', 0.5)
+            .attr('rx', 1)
+            .style('opacity', 0.95),
+          update => update.call(u => u.transition().duration(400)
+            .attr('y', d => yScale(String(d.strike))!)
+            .attr('height', yScale.bandwidth())
+            .attr('x', d => xScale(Math.min(d.startVal, d.endVal)))
+            .attr('width', d => Math.abs(xScale(d.endVal) - xScale(d.startVal)))
+            .attr('fill', d => d.delta >= 0 ? 'url(#increase-stripes)' : 'url(#decrease-stripes)')
+            .attr('stroke', d => d.delta >= 0 ? '#00C805' : '#FF3B60')
+          )
+        )
     }
 
-    // Spot price reference line
-    const spotYStr = String(scrollableStrikes.reduce((prev, curr) =>
-      Math.abs(curr - spotPrice) < Math.abs(prev - spotPrice) ? curr : prev, scrollableStrikes[0]))
-    const spotY = yScale(spotYStr)
-    if (spotY !== undefined) {
-      drawHorizontalRefLine(g, spotY + yScale.bandwidth() / 2, width, colors.accent.amber, `SPOT ${spotPrice.toFixed(0)}`)
+    // Spot price reference lines
+    const getClosestStrike = (val: number) => scrollableStrikes.reduce((prev, curr) =>
+      Math.abs(curr - val) < Math.abs(prev - val) ? curr : prev, scrollableStrikes[0])
+
+    const startSpotYStr = String(getClosestStrike(startSpotPrice))
+    const startSpotY = yScale(startSpotYStr)
+    if (startSpotY !== undefined && startSpotPrice > 0 && Math.abs(startSpotPrice - endSpotPrice) > 1) {
+      drawHorizontalRefLine(g, startSpotY + yScale.bandwidth() / 2, width, 'rgba(245, 158, 11, 0.45)', `START SPOT ${startSpotPrice.toFixed(0)}`, { dashArray: '2,2' })
+    }
+
+    const endSpotYStr = String(getClosestStrike(endSpotPrice))
+    const endSpotY = yScale(endSpotYStr)
+    if (endSpotY !== undefined && endSpotPrice > 0) {
+      drawHorizontalRefLine(g, endSpotY + yScale.bandwidth() / 2, width, colors.accent.amber, `SPOT ${endSpotPrice.toFixed(0)}`)
     }
 
     // Gamma flip reference line (only in Gamma mode)
     if (greekMode === 'gamma' && zeroGammaLevel) {
-      const flipStr = String(scrollableStrikes.reduce((prev, curr) =>
-        Math.abs(curr - zeroGammaLevel) < Math.abs(prev - zeroGammaLevel) ? curr : prev, scrollableStrikes[0]))
+      const flipStr = String(getClosestStrike(zeroGammaLevel))
       const flipY = yScale(flipStr)
       if (flipY !== undefined) {
         drawHorizontalRefLine(g, flipY + yScale.bandwidth() / 2, width, colors.accent.magenta, `GAMMA FLIP ${zeroGammaLevel.toFixed(0)}`, { dashArray: '4,4' })
@@ -403,7 +666,7 @@ export function GEXByStrikeChart({
           : (greekMode === 'vanna' ? 'Net Vanna (VEX)' : 'Net Charm (CEX)')
       )
 
-    // Title / Header (Fixed atop scroll container)
+    // Title / Header
     const titleText = greekMode === 'gamma'
       ? `${ticker} ${showAbsoluteGEX ? 'Absolute' : 'Net'} Gamma by Strike (${selectedExpiryLabel})`
       : greekMode === 'vanna'
@@ -446,24 +709,57 @@ export function GEXByStrikeChart({
 
         if (tooltipRef.current && containerRef.current) {
           const strike = scrollableStrikes[strikeIdx]
-          let value = ""
-          if (greekMode === 'gamma') {
-            value = showAbsoluteGEX
-              ? `Call: ${callGEX[strikeIdx].toFixed(3)}B | Put: ${Math.abs(putGEX[strikeIdx]).toFixed(3)}B`
-              : `Net GEX: ${gammaValues[strikeIdx] >= 0 ? '+' : ''}${gammaValues[strikeIdx].toFixed(3)}B`
-          } else if (greekMode === 'vanna') {
-            value = `Net Vanna: ${vannaValues[strikeIdx] >= 0 ? '+' : ''}${vannaValues[strikeIdx].toFixed(3)}B`
-          } else if (greekMode === 'charm') {
-            value = `Net Charm: ${charmValues[strikeIdx] >= 0 ? '+' : ''}${charmValues[strikeIdx].toFixed(3)}B`
-          }
-          tooltipRef.current.innerHTML = `
+          let html = `
             <div style="font-family:${typography.fontSans};font-size:12px;color:${colors.text.primary};font-weight:600">
               Strike ${strike.toFixed(0)}
             </div>
-            <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.text.secondary};margin-top:2px">
-              ${value}
-            </div>
           `
+          if (greekMode === 'gamma') {
+            if (showAbsoluteGEX) {
+              const sCall = startCallGEX[strikeIdx]
+              const eCall = endCallGEX[strikeIdx]
+              const dCall = eCall - sCall
+              const sPut = startPutGEX[strikeIdx]
+              const ePut = endPutGEX[strikeIdx]
+              const dPut = ePut - sPut
+              html += `
+                <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.text.secondary};margin-top:4px">
+                  Call: ${sCall.toFixed(3)}B → ${eCall.toFixed(3)}B (<span style="color:${dCall >= 0 ? '#00C805' : '#FF3B60'}">${dCall >= 0 ? '+' : ''}${dCall.toFixed(3)}B</span>)
+                </div>
+                <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.text.secondary};margin-top:2px">
+                  Put: ${sPut.toFixed(3)}B → ${ePut.toFixed(3)}B (<span style="color:${dPut >= 0 ? '#00C805' : '#FF3B60'}">${dPut >= 0 ? '+' : ''}${dPut.toFixed(3)}B</span>)
+                </div>
+              `
+            } else {
+              const sG = startGammaValues[strikeIdx]
+              const eG = endGammaValues[strikeIdx]
+              const dG = eG - sG
+              html += `
+                <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.text.secondary};margin-top:4px">
+                  Net GEX: ${sG.toFixed(3)}B → ${eG.toFixed(3)}B (<span style="color:${dG >= 0 ? '#00C805' : '#FF3B60'}">${dG >= 0 ? '+' : ''}${dG.toFixed(3)}B</span>)
+                </div>
+              `
+            }
+          } else if (greekMode === 'vanna') {
+            const sV = startVannaValues[strikeIdx]
+            const eV = endVannaValues[strikeIdx]
+            const dV = eV - sV
+            html += `
+              <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.text.secondary};margin-top:4px">
+                Net Vanna: ${sV.toFixed(3)}B → ${eV.toFixed(3)}B (<span style="color:${dV >= 0 ? '#00C805' : '#FF3B60'}">${dV >= 0 ? '+' : ''}${dV.toFixed(3)}B</span>)
+              </div>
+            `
+          } else if (greekMode === 'charm') {
+            const sC = startCharmValues[strikeIdx]
+            const eC = endCharmValues[strikeIdx]
+            const dC = eC - sC
+            html += `
+              <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.text.secondary};margin-top:4px">
+                Net Charm: ${sC.toFixed(3)}B → ${eC.toFixed(3)}B (<span style="color:${dC >= 0 ? '#00C805' : '#FF3B60'}">${dC >= 0 ? '+' : ''}${dC.toFixed(3)}B</span>)
+              </div>
+            `
+          }
+          tooltipRef.current.innerHTML = html
           const rect = containerRef.current.getBoundingClientRect()
           const cx = event.clientX - rect.left
           const cy = event.clientY - rect.top
@@ -477,7 +773,7 @@ export function GEXByStrikeChart({
         if (tooltipRef.current) tooltipRef.current.style.opacity = '0'
       })
 
-  }, [scrollableStrikes, gammaValues, vannaValues, charmValues, callGEX, putGEX, showAbsoluteGEX, greekMode, dims, showVolumeChart, spotPrice, zeroGammaLevel, ticker, selectedExpiryLabel, xDomain])
+  }, [scrollableStrikes, startGammaValues, endGammaValues, startVannaValues, endVannaValues, startCharmValues, endCharmValues, startCallGEX, endCallGEX, startPutGEX, endPutGEX, showAbsoluteGEX, greekMode, dims, showVolumeChart, startSpotPrice, endSpotPrice, zeroGammaLevel, ticker, selectedExpiryLabel, xDomain])
 
   // ─── D3 Volume Chart ─────────────────────────────────────────
   useEffect(() => {
@@ -492,6 +788,31 @@ export function GEXByStrikeChart({
     svg.selectAll('*').remove()
     svg.attr('width', chartWidth).attr('height', chartHeight + margin.top + margin.bottom)
 
+    // Add patterns definition
+    const defs = svg.append('defs')
+    
+    defs.append('pattern')
+      .attr('id', 'increase-stripes-vol')
+      .attr('width', 8)
+      .attr('height', 8)
+      .attr('patternUnits', 'userSpaceOnUse')
+      .append('path')
+      .attr('d', 'M-2,2 L2,-2 M0,8 L8,0 M6,10 L10,6')
+      .attr('stroke', '#00C805')
+      .attr('stroke-width', 1.8)
+      .attr('fill', 'none')
+      
+    defs.append('pattern')
+      .attr('id', 'decrease-stripes-vol')
+      .attr('width', 8)
+      .attr('height', 8)
+      .attr('patternUnits', 'userSpaceOnUse')
+      .append('path')
+      .attr('d', 'M-2,6 L6,-2 M0,0 L8,8 M2,10 L10,2')
+      .attr('stroke', '#FF3B60')
+      .attr('stroke-width', 1.8)
+      .attr('fill', 'none')
+
     const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
 
     const yScale = d3.scaleBand()
@@ -499,25 +820,93 @@ export function GEXByStrikeChart({
       .range([0, chartHeight])
       .padding(0.15)
 
-    const maxVol = (d3.max(volumeValues) || 1) * 1.15
+    const maxVol = Math.max(d3.max(startVolumeValues) || 0, d3.max(endVolumeValues) || 0, 1) * 1.15
     const xScale = d3.scaleLinear().domain([0, maxVol]).range([0, width])
 
     // Grid
     drawGridLinesX(g, xScale, chartHeight, 6)
 
-    // Bars
-    g.selectAll('.bar-vol')
-      .data(scrollableStrikes)
-      .join('rect')
-      .attr('class', 'bar-vol')
-      .attr('y', d => yScale(String(d))!)
-      .attr('x', 0)
-      .attr('width', (_, i) => xScale(volumeValues[i]))
-      .attr('height', yScale.bandwidth())
-      .attr('fill', colors.accentAlpha.cyan40)
-      .attr('stroke', colors.accent.cyan)
-      .attr('stroke-width', 0.5)
-      .attr('rx', 1)
+    const volumeData = scrollableStrikes.map((strike, i) => {
+      const startV = startVolumeValues[i]
+      const endV = endVolumeValues[i]
+      return {
+        strike,
+        startV,
+        endV,
+        delta: endV - startV
+      }
+    })
+
+    // Volume Start Bars (Solid, semi-transparent)
+    g.selectAll('.bar-vol-start')
+      .data(volumeData, (d: any) => d.strike)
+      .join(
+        enter => enter.append('rect')
+          .attr('class', 'bar-vol-start')
+          .attr('y', d => yScale(String(d.strike))!)
+          .attr('height', yScale.bandwidth())
+          .attr('x', 0)
+          .attr('width', d => xScale(d.startV))
+          .attr('fill', colors.accentAlpha.cyan40)
+          .attr('stroke', colors.accent.cyan)
+          .attr('stroke-width', 0.5)
+          .attr('rx', 1)
+          .style('opacity', 0.25),
+        update => update.call(u => u.transition().duration(400)
+          .attr('y', d => yScale(String(d.strike))!)
+          .attr('height', yScale.bandwidth())
+          .attr('x', 0)
+          .attr('width', d => xScale(d.startV))
+        )
+      )
+
+    // Volume End Bars (Solid, fully opaque)
+    g.selectAll('.bar-vol-end')
+      .data(volumeData, (d: any) => d.strike)
+      .join(
+        enter => enter.append('rect')
+          .attr('class', 'bar-vol-end')
+          .attr('y', d => yScale(String(d.strike))!)
+          .attr('height', yScale.bandwidth())
+          .attr('x', 0)
+          .attr('width', d => xScale(d.endV))
+          .attr('fill', colors.accentAlpha.cyan40)
+          .attr('stroke', colors.accent.cyan)
+          .attr('stroke-width', 0.5)
+          .attr('rx', 1)
+          .style('opacity', 0.8),
+        update => update.call(u => u.transition().duration(400)
+          .attr('y', d => yScale(String(d.strike))!)
+          .attr('height', yScale.bandwidth())
+          .attr('x', 0)
+          .attr('width', d => xScale(d.endV))
+        )
+      )
+
+    // Volume Change Bars (Striped)
+    g.selectAll('.bar-vol-change')
+      .data(volumeData, (d: any) => d.strike)
+      .join(
+        enter => enter.append('rect')
+          .attr('class', 'bar-vol-change')
+          .attr('y', d => yScale(String(d.strike))!)
+          .attr('height', yScale.bandwidth())
+          .attr('x', d => xScale(Math.min(d.startV, d.endV)))
+          .attr('width', d => Math.abs(xScale(d.endV) - xScale(d.startV)))
+          .attr('fill', d => d.delta >= 0 ? 'url(#increase-stripes-vol)' : 'url(#decrease-stripes-vol)')
+          .attr('stroke', d => d.delta >= 0 ? '#00C805' : '#FF3B60')
+          .attr('stroke-width', 0.5)
+          .attr('rx', 1)
+          .style('opacity', 0.95),
+        update => update.call(u => u.transition().duration(400)
+          .attr('y', d => yScale(String(d.strike))!)
+          .attr('height', yScale.bandwidth())
+          .attr('x', d => xScale(Math.min(d.startV, d.endV)))
+          .attr('width', d => Math.abs(xScale(d.endV) - xScale(d.startV)))
+          .attr('fill', d => d.delta >= 0 ? 'url(#increase-stripes-vol)' : 'url(#decrease-stripes-vol)')
+          .attr('stroke', d => d.delta >= 0 ? '#00C805' : '#FF3B60')
+        )
+      )
 
     // Axes
     const yAxis = d3.axisLeft(yScale).tickSize(0)
@@ -572,13 +961,15 @@ export function GEXByStrikeChart({
 
         if (tooltipRef.current && containerRef.current) {
           const strike = scrollableStrikes[strikeIdx]
-          const vol = volumeValues[strikeIdx]
+          const sV = startVolumeValues[strikeIdx]
+          const eV = endVolumeValues[strikeIdx]
+          const dV = eV - sV
           tooltipRef.current.innerHTML = `
             <div style="font-family:${typography.fontSans};font-size:12px;color:${colors.text.primary};font-weight:600">
               Strike ${strike.toFixed(0)}
             </div>
-            <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.accent.cyan};margin-top:2px">
-              Volume: ${vol.toLocaleString()} Contracts
+            <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.text.secondary};margin-top:4px">
+              Volume: ${sV.toLocaleString()} → ${eV.toLocaleString()} (<span style="color:${dV >= 0 ? '#00C805' : '#FF3B60'}">${dV >= 0 ? '+' : ''}${dV.toLocaleString()}</span>)
             </div>
           `
           const rect = containerRef.current.getBoundingClientRect()
@@ -594,7 +985,7 @@ export function GEXByStrikeChart({
         if (tooltipRef.current) tooltipRef.current.style.opacity = '0'
       })
 
-  }, [scrollableStrikes, volumeValues, dims, showVolumeChart, ticker, containerRef, tooltipRef])
+  }, [scrollableStrikes, startVolumeValues, endVolumeValues, dims, showVolumeChart, ticker, containerRef, tooltipRef])
 
   // Zoom controls
   const zoomPercents = [1, 2, 3, 5, 10, 20, 30]

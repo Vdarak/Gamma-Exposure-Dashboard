@@ -57,12 +57,13 @@ export function EnhancedTimeMachine({
   const [ticker, setTicker] = useState<string>(initialTicker || 'NIFTY')
   
   const [timestamps, setTimestamps] = useState<TimestampInfo[]>([])
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
+  const [selectedRange, setSelectedRange] = useState<[number, number] | null>(null)
   const [isLive, setIsLive] = useState(true)
   const [isPlaying, setIsPlaying] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [optionData, setOptionData] = useState<SnapshotData | null>(null)
+  const [startOptionData, setStartOptionData] = useState<SnapshotData | null>(null)
+  const [endOptionData, setEndOptionData] = useState<SnapshotData | null>(null)
   const [healthStatus, setHealthStatus] = useState<'checking' | 'healthy' | 'unhealthy' | null>(null)
   
   // Pricing method state (for Indian markets, force Black-Scholes)
@@ -71,11 +72,11 @@ export function EnhancedTimeMachine({
   // GEX visualization controls
   const [selectedExpiry, setSelectedExpiry] = useState<string>('All Dates')
   
-  // Convert backend data to OptionData format
-  const convertedOptions = useMemo((): OptionData[] => {
-    if (!optionData?.options) return []
+  // Convert start backend data to OptionData format
+  const convertedStartOptions = useMemo((): OptionData[] => {
+    if (!startOptionData?.options) return []
     
-    return optionData.options.map(opt => ({
+    return startOptionData.options.map(opt => ({
       option: `${ticker} ${opt.strike} ${opt.type}`,
       strike: opt.strike,
       type: opt.type,
@@ -89,52 +90,80 @@ export function EnhancedTimeMachine({
       delta: opt.delta || 0,
       gamma: opt.gamma || 0,
     }))
-  }, [optionData, ticker])
+  }, [startOptionData, ticker])
+
+  // Convert end backend data to OptionData format
+  const convertedEndOptions = useMemo((): OptionData[] => {
+    if (!endOptionData?.options) return []
+    
+    return endOptionData.options.map(opt => ({
+      option: `${ticker} ${opt.strike} ${opt.type}`,
+      strike: opt.strike,
+      type: opt.type,
+      expiration: new Date(opt.expiration),
+      last: opt.last || 0,
+      bid: opt.bid || 0,
+      ask: opt.ask || 0,
+      volume: opt.volume || 0,
+      open_interest: opt.open_interest || 0,
+      iv: (opt.iv || 0.2) * 100,
+      delta: opt.delta || 0,
+      gamma: opt.gamma || 0,
+    }))
+  }, [endOptionData, ticker])
   
   // Get available expiries from option data
   const availableExpiries = useMemo(() => {
-    if (!convertedOptions.length) return []
-    const expiries = [...new Set(convertedOptions.map(opt => 
+    const opts = convertedEndOptions.length ? convertedEndOptions : convertedStartOptions
+    if (!opts.length) return []
+    const expiries = [...new Set(opts.map(opt => 
       opt.expiration.toISOString().split('T')[0]
     ))].sort()
     return expiries
-  }, [convertedOptions])
+  }, [convertedStartOptions, convertedEndOptions])
 
   useEffect(() => {
     fetchTimestamps()
   }, [ticker, backendUrl])
 
   useEffect(() => {
-    if (selectedIndex !== null && timestamps[selectedIndex]) {
-      fetchHistoricalData(timestamps[selectedIndex].timestamp)
-    } else if (isLive) {
+    if (isLive) {
       fetchCurrentData()
+    } else if (selectedRange && selectedRange.length === 2) {
+      const [startIdx, endIdx] = selectedRange
+      const startTs = timestamps[startIdx]?.timestamp
+      const endTs = timestamps[endIdx]?.timestamp
+      if (startTs && endTs) {
+        fetchHistoricalRangeData(startTs, endTs)
+      }
     }
-  }, [selectedIndex, isLive, ticker])
+  }, [selectedRange, isLive, ticker, timestamps])
 
-  // Auto-play functionality
+  // Auto-play functionality (expands the end range)
   useEffect(() => {
-    if (!isPlaying || !timestamps.length || isLive) return
+    if (!isPlaying || !timestamps.length || isLive || !selectedRange) return
 
     const interval = setInterval(() => {
-      setSelectedIndex(prev => {
-        const nextIndex = (prev ?? 0) + 1
-        if (nextIndex >= timestamps.length - 1) {
+      setSelectedRange(prev => {
+        if (!prev) return [0, 0]
+        const [start, end] = prev
+        const nextEnd = end + 1
+        if (nextEnd >= timestamps.length) {
           setIsPlaying(false)
-          return timestamps.length - 1
+          return prev
         }
-        return nextIndex
+        return [start, nextEnd]
       })
     }, 1000)
 
     return () => clearInterval(interval)
-  }, [isPlaying, timestamps, selectedIndex])
+  }, [isPlaying, timestamps, isLive, selectedRange])
   
   // Reset state when ticker changes
   useEffect(() => {
     setIsLive(true)
-    setSelectedIndex(null)
-    setSelectedExpiry('nearest')
+    setSelectedRange(null)
+    setSelectedExpiry('All Dates')
     fetchTimestamps()
   }, [ticker])
 
@@ -177,7 +206,7 @@ export function EnhancedTimeMachine({
         setTimestamps(timestampData)
         
         if (timestampData.length > 0) {
-          setSelectedIndex(timestampData.length - 1)
+          setSelectedRange([timestampData.length - 1, timestampData.length - 1])
         }
       } else {
         throw new Error('Invalid response structure')
@@ -198,7 +227,7 @@ export function EnhancedTimeMachine({
         })
       }
       setTimestamps(sampleList)
-      setSelectedIndex(sampleList.length - 1)
+      setSelectedRange([sampleList.length - 1, sampleList.length - 1])
     } finally {
       setLoading(false)
     }
@@ -210,7 +239,8 @@ export function EnhancedTimeMachine({
       if (response.ok) {
         const result = await response.json()
         if (result.success && result.data) {
-          setOptionData(result.data)
+          setStartOptionData(result.data)
+          setEndOptionData(result.data)
           onDataUpdate?.(result.data)
         }
       }
@@ -219,48 +249,56 @@ export function EnhancedTimeMachine({
     }
   }
 
-  async function fetchHistoricalData(timestamp: Date) {
+  async function fetchHistoricalRangeData(startTimestamp: Date, endTimestamp: Date) {
     try {
-      const response = await fetch(
-        `${BACKEND_URL}/api/historical-data?ticker=${ticker}&timestamp=${timestamp.toISOString()}`
-      )
-      if (response.ok) {
-        const result = await response.json()
-        if (result.success && result.data && result.data.length > 0) {
-          setOptionData(result.data[0])
-          onDataUpdate?.(result.data[0])
+      const [startRes, endRes] = await Promise.all([
+        fetch(`${BACKEND_URL}/api/historical-data?ticker=${ticker}&timestamp=${startTimestamp.toISOString()}`),
+        fetch(`${BACKEND_URL}/api/historical-data?ticker=${ticker}&timestamp=${endTimestamp.toISOString()}`)
+      ])
+      
+      if (startRes.ok && endRes.ok) {
+        const startResult = await startRes.json()
+        const endResult = await endRes.json()
+        
+        if (startResult.success && startResult.data && startResult.data.length > 0) {
+          setStartOptionData(startResult.data[0])
+        }
+        if (endResult.success && endResult.data && endResult.data.length > 0) {
+          setEndOptionData(endResult.data[0])
         }
       }
     } catch (err) {
-      console.error('Error fetching historical data:', err)
+      console.error('Error fetching historical range data:', err)
     }
   }
 
   function handleSliderChange(value: number[]) {
-    const index = value[0]
-    setSelectedIndex(index)
-    setIsLive(index === timestamps.length - 1)
-    setIsPlaying(false)
-    
-    if (index === timestamps.length - 1) {
-      onTimestampChange?.(null)
-    } else {
-      onTimestampChange?.(timestamps[index].timestamp)
+    if (value.length === 2) {
+      setSelectedRange([value[0], value[1]])
+      const latestIdx = timestamps.length - 1
+      setIsLive(value[0] === latestIdx && value[1] === latestIdx)
+    } else if (value.length === 1) {
+      setSelectedRange([value[0], value[0]])
+      setIsLive(value[0] === timestamps.length - 1)
     }
+    setIsPlaying(false)
   }
 
   function goLive() {
     setIsLive(true)
     setIsPlaying(false)
-    setSelectedIndex(timestamps.length - 1)
+    if (timestamps.length > 0) {
+      const latestIdx = timestamps.length - 1
+      setSelectedRange([latestIdx, latestIdx])
+    }
     onTimestampChange?.(null)
   }
 
   function togglePlayPause() {
     if (isLive && timestamps.length > 0) {
-      setSelectedIndex(0)
+      const latestIdx = timestamps.length - 1
+      setSelectedRange([0, latestIdx])
       setIsLive(false)
-      onTimestampChange?.(timestamps[0].timestamp)
     }
     setIsPlaying(!isPlaying)
   }
@@ -276,12 +314,20 @@ export function EnhancedTimeMachine({
     )
   }
 
-  const currentTimestamp = selectedIndex !== null && timestamps[selectedIndex]
-    ? timestamps[selectedIndex].timestamp 
+  const startTimestamp = selectedRange && timestamps[selectedRange[0]]
+    ? timestamps[selectedRange[0]].timestamp
     : new Date()
-  const currentSpotPrice = selectedIndex !== null && timestamps[selectedIndex]
-    ? timestamps[selectedIndex].spotPrice 
+  const endTimestamp = selectedRange && timestamps[selectedRange[1]]
+    ? timestamps[selectedRange[1]].timestamp
+    : new Date()
+
+  const startSpotPrice = selectedRange && timestamps[selectedRange[0]]
+    ? timestamps[selectedRange[0]].spotPrice
     : 0
+  const endSpotPrice = selectedRange && timestamps[selectedRange[1]]
+    ? timestamps[selectedRange[1]].spotPrice
+    : 0
+
   const oldestTimestamp = timestamps[0]?.timestamp
   const newestTimestamp = timestamps[timestamps.length - 1]?.timestamp
 
@@ -382,7 +428,7 @@ export function EnhancedTimeMachine({
               <div>
                 <h3 className="text-lg font-semibold text-white">Time Machine</h3>
                 <p className="text-xs text-gray-400">
-                  {timestamps.length} snapshots • {ticker} @ ${currentSpotPrice.toFixed(2)}
+                  {timestamps.length} snapshots • {ticker} @ {isLive ? `$${endSpotPrice.toFixed(2)}` : `$${startSpotPrice.toFixed(2)} → $${endSpotPrice.toFixed(2)}`}
                 </p>
               </div>
             </div>
@@ -441,23 +487,36 @@ export function EnhancedTimeMachine({
           {timestamps.length > 0 && (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
-                <div className="text-gray-300 flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-gray-400" />
-                  {currentTimestamp.toLocaleString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
+                <div className="text-gray-300 flex flex-col gap-0.5">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-gray-400" />
+                    {isLive ? (
+                      <span>LIVE (Present)</span>
+                    ) : selectedRange && selectedRange[0] === selectedRange[1] ? (
+                      <span>Checkpoint: {startTimestamp.toLocaleString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}</span>
+                    ) : (
+                      <span className="text-xs text-terminal-green">
+                        Range: {startTimestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} → {endTimestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        <span className="text-gray-500 ml-1">
+                          ({startTimestamp.toLocaleDateString()})
+                        </span>
+                      </span>
+                    )}
+                  </div>
                 </div>
                 
-                <Badge variant="outline" className="bg-[#181C2A] border-gray-700 text-white">
-                  {selectedIndex !== null ? selectedIndex + 1 : timestamps.length} / {timestamps.length}
+                <Badge variant="outline" className="bg-[#181C2A] border-gray-700 text-white font-mono">
+                  {isLive ? 'LIVE' : selectedRange ? `${selectedRange[0] + 1} - ${selectedRange[1] + 1}` : '0'} / {timestamps.length}
                 </Badge>
               </div>
 
               <Slider
-                value={[selectedIndex ?? timestamps.length - 1]}
+                value={selectedRange ?? [timestamps.length - 1, timestamps.length - 1]}
                 min={0}
                 max={timestamps.length - 1}
                 step={1}
@@ -529,11 +588,13 @@ export function EnhancedTimeMachine({
             <h3 className="text-lg font-semibold text-white mb-4">
               Gamma Exposure by Strike
             </h3>
-            {convertedOptions.length > 0 ? (
+            {(convertedStartOptions.length > 0 || convertedEndOptions.length > 0) ? (
               <GEXByStrikeChart
-                data={convertedOptions}
+                startData={convertedStartOptions}
+                endData={convertedEndOptions}
                 ticker={ticker}
-                spotPrice={optionData?.spot_price || 0}
+                startSpotPrice={startSpotPrice}
+                endSpotPrice={endSpotPrice}
                 selectedExpiries={selectedExpiry === 'All Dates' ? [] : [selectedExpiry]}
                 pricingMethod={pricingMethod}
                 onPricingMethodChange={setPricingMethod}
