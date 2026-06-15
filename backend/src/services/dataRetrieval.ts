@@ -74,50 +74,69 @@ export async function getHistoricalData(
  */
 export async function getCurrentData(ticker: string): Promise<OptionSnapshot | null> {
   try {
-    const result = await pool.query(
-      `SELECT 
-        s.id, s.ticker, s.timestamp, s.spot_price, s.market,
-        json_agg(json_build_object(
-          'strike', o.strike,
-          'type', o.option_type,
-          'expiration', o.expiration,
-          'lastPrice', o.last_price,
-          'bid', o.bid,
-          'ask', o.ask,
-          'volume', o.volume,
-          'openInterest', o.open_interest,
-          'impliedVolatility', o.implied_volatility,
-          'delta', o.delta,
-          'gamma', o.gamma,
-          'theta', o.theta,
-          'vega', o.vega,
-          'rho', o.rho
-        ) ORDER BY o.strike, o.option_type) as options
-      FROM option_snapshots s
-      JOIN option_data o ON s.id = o.snapshot_id
-      WHERE s.ticker = $1
-      GROUP BY s.id
-      ORDER BY s.timestamp DESC
-      LIMIT 1`,
+    const snapResult = await pool.query(
+      `SELECT id, ticker, timestamp, spot_price, market
+       FROM option_snapshots
+       WHERE ticker = $1
+       ORDER BY timestamp DESC
+       LIMIT 1`,
       [ticker]
     );
 
-    if (result.rows.length === 0) {
+    if (snapResult.rows.length === 0) {
       return null;
     }
 
-    const row = result.rows[0];
+    const snapRow = snapResult.rows[0];
+    const snapshotId = snapRow.id;
+
+    const optionRows = await pool.query(
+      `SELECT 
+        strike,
+        option_type as type,
+        expiration,
+        last_price as "lastPrice",
+        bid,
+        ask,
+        volume,
+        open_interest as "openInterest",
+        implied_volatility as "impliedVolatility",
+        delta,
+        gamma,
+        theta,
+        vega,
+        rho
+      FROM option_data
+      WHERE snapshot_id = $1
+      ORDER BY strike, option_type`,
+      [snapshotId]
+    );
+
+    const options = optionRows.rows.map((row: any) => ({
+      strike: parseFloat(row.strike),
+      type: row.type as 'C' | 'P',
+      expiration: new Date(row.expiration),
+      lastPrice: row.lastPrice !== null && row.lastPrice !== undefined ? parseFloat(row.lastPrice) : 0,
+      bid: row.bid !== null && row.bid !== undefined ? parseFloat(row.bid) : undefined,
+      ask: row.ask !== null && row.ask !== undefined ? parseFloat(row.ask) : undefined,
+      volume: row.volume !== null && row.volume !== undefined ? parseInt(row.volume, 10) : 0,
+      openInterest: row.openInterest !== null && row.openInterest !== undefined ? parseInt(row.openInterest, 10) : 0,
+      impliedVolatility: row.impliedVolatility !== null && row.impliedVolatility !== undefined ? parseFloat(row.impliedVolatility) : 0,
+      delta: row.delta !== null && row.delta !== undefined ? parseFloat(row.delta) : undefined,
+      gamma: row.gamma !== null && row.gamma !== undefined ? parseFloat(row.gamma) : undefined,
+      theta: row.theta !== null && row.theta !== undefined ? parseFloat(row.theta) : undefined,
+      vega: row.vega !== null && row.vega !== undefined ? parseFloat(row.vega) : undefined,
+      rho: row.rho !== null && row.rho !== undefined ? parseFloat(row.rho) : undefined,
+    }));
+
     return {
-      id: row.id,
-      ticker: row.ticker,
-      timestamp: new Date(row.timestamp),
-      spotPrice: parseFloat(row.spot_price),
-      dataCount: row.options.length,
-      market: row.market,
-      options: row.options.map((opt: any) => ({
-        ...opt,
-        expiration: new Date(opt.expiration),
-      })),
+      id: snapRow.id,
+      ticker: snapRow.ticker,
+      timestamp: new Date(snapRow.timestamp),
+      spotPrice: parseFloat(snapRow.spot_price),
+      dataCount: options.length,
+      market: snapRow.market,
+      options,
     };
   } catch (error) {
     console.error('❌ Error fetching current data:', error);
@@ -133,50 +152,69 @@ export async function getDataAtTimestamp(
   timestamp: Date
 ): Promise<OptionSnapshot | null> {
   try {
-    const result = await pool.query(
-      `SELECT 
-        s.id, s.ticker, s.timestamp, s.spot_price, s.market,
-        json_agg(json_build_object(
-          'strike', o.strike,
-          'type', o.option_type,
-          'expiration', o.expiration,
-          'lastPrice', o.last_price,
-          'bid', o.bid,
-          'ask', o.ask,
-          'volume', o.volume,
-          'openInterest', o.open_interest,
-          'impliedVolatility', o.implied_volatility,
-          'delta', o.delta,
-          'gamma', o.gamma,
-          'theta', o.theta,
-          'vega', o.vega,
-          'rho', o.rho
-        ) ORDER BY o.strike, o.option_type) as options
-      FROM option_snapshots s
-      JOIN option_data o ON s.id = o.snapshot_id
-      WHERE s.ticker = $1
-      GROUP BY s.id
-      ORDER BY ABS(EXTRACT(EPOCH FROM (s.timestamp - $2)))
-      LIMIT 1`,
+    const snapResult = await pool.query(
+      `SELECT id, ticker, timestamp, spot_price, market
+       FROM option_snapshots
+       WHERE ticker = $1
+       ORDER BY ABS(EXTRACT(EPOCH FROM (timestamp - $2)))
+       LIMIT 1`,
       [ticker, timestamp]
     );
 
-    if (result.rows.length === 0) {
+    if (snapResult.rows.length === 0) {
       return null;
     }
 
-    const row = result.rows[0];
+    const snapRow = snapResult.rows[0];
+    const snapshotId = snapRow.id;
+
+    const optionRows = await pool.query(
+      `SELECT 
+        strike,
+        option_type as type,
+        expiration,
+        last_price as "lastPrice",
+        bid,
+        ask,
+        volume,
+        open_interest as "openInterest",
+        implied_volatility as "impliedVolatility",
+        delta,
+        gamma,
+        theta,
+        vega,
+        rho
+      FROM option_data
+      WHERE snapshot_id = $1
+      ORDER BY strike, option_type`,
+      [snapshotId]
+    );
+
+    const options = optionRows.rows.map((row: any) => ({
+      strike: parseFloat(row.strike),
+      type: row.type as 'C' | 'P',
+      expiration: new Date(row.expiration),
+      lastPrice: row.lastPrice !== null && row.lastPrice !== undefined ? parseFloat(row.lastPrice) : 0,
+      bid: row.bid !== null && row.bid !== undefined ? parseFloat(row.bid) : undefined,
+      ask: row.ask !== null && row.ask !== undefined ? parseFloat(row.ask) : undefined,
+      volume: row.volume !== null && row.volume !== undefined ? parseInt(row.volume, 10) : 0,
+      openInterest: row.openInterest !== null && row.openInterest !== undefined ? parseInt(row.openInterest, 10) : 0,
+      impliedVolatility: row.impliedVolatility !== null && row.impliedVolatility !== undefined ? parseFloat(row.impliedVolatility) : 0,
+      delta: row.delta !== null && row.delta !== undefined ? parseFloat(row.delta) : undefined,
+      gamma: row.gamma !== null && row.gamma !== undefined ? parseFloat(row.gamma) : undefined,
+      theta: row.theta !== null && row.theta !== undefined ? parseFloat(row.theta) : undefined,
+      vega: row.vega !== null && row.vega !== undefined ? parseFloat(row.vega) : undefined,
+      rho: row.rho !== null && row.rho !== undefined ? parseFloat(row.rho) : undefined,
+    }));
+
     return {
-      id: row.id,
-      ticker: row.ticker,
-      timestamp: new Date(row.timestamp),
-      spotPrice: parseFloat(row.spot_price),
-      dataCount: row.options.length,
-      market: row.market,
-      options: row.options.map((opt: any) => ({
-        ...opt,
-        expiration: new Date(opt.expiration),
-      })),
+      id: snapRow.id,
+      ticker: snapRow.ticker,
+      timestamp: new Date(snapRow.timestamp),
+      spotPrice: parseFloat(snapRow.spot_price),
+      dataCount: options.length,
+      market: snapRow.market,
+      options,
     };
   } catch (error) {
     console.error('❌ Error fetching data at timestamp:', error);
