@@ -107,7 +107,9 @@ export function OptionFlowDashboard({ ticker, onTickerSelect, availableTickers }
   // Filter & Sort Pipeline
   const processedData = useMemo(() => {
     const preset = presets.find(p => p.id === activePreset)
-    let filtered = data
+    
+    // Filter by selected ticker (case-insensitively)
+    let filtered = data.filter(item => item.ticker.toUpperCase() === ticker.toUpperCase())
 
     // Filter by preset
     if (preset) {
@@ -129,7 +131,7 @@ export function OptionFlowDashboard({ ticker, onTickerSelect, availableTickers }
         ? (aVal as number) - (bVal as number) 
         : (bVal as number) - (aVal as number)
     })
-  }, [data, activePreset, sortField, sortDirection])
+  }, [data, activePreset, sortField, sortDirection, ticker])
 
   const handleSort = (field: keyof OptionFlowItem) => {
     if (sortField === field) {
