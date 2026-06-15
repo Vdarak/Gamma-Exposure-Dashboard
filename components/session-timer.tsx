@@ -14,8 +14,8 @@ interface TimestampInfo {
 
 interface SessionTimerProps {
   ticker: string
-  currentTimestamp: string | null
-  onCheckpointChange: (timestamp: string | null, isLive: boolean) => void
+  currentRange: [string | null, string | null]
+  onCheckpointChange: (start: string | null, end: string | null, isLive: boolean) => void
   isLive: boolean
   onLiveChange: (live: boolean) => void
   onTimestampsLoad?: (timestamps: string[]) => void
@@ -23,7 +23,7 @@ interface SessionTimerProps {
 
 export function SessionTimer({
   ticker,
-  currentTimestamp,
+  currentRange,
   onCheckpointChange,
   isLive,
   onLiveChange,
@@ -54,9 +54,9 @@ export function SessionTimer({
 
         // Handle initial selection if not set or if we are in live mode
         if (sorted.length > 0) {
-          if (isLive || !currentTimestamp) {
+          if (isLive || !currentRange[0] || !currentRange[1]) {
             const latest = sorted[sorted.length - 1].timestamp
-            onCheckpointChange(latest, isLive)
+            onCheckpointChange(latest, latest, isLive)
           }
         }
       }
@@ -91,9 +91,9 @@ export function SessionTimer({
 
             if (sorted.length > 0 && isLive) {
               const latest = sorted[sorted.length - 1].timestamp
-              if (latest !== currentTimestamp) {
+              if (latest !== currentRange[1]) {
                 // Silently transition to latest in LIVE mode
-                onCheckpointChange(latest, true)
+                onCheckpointChange(latest, latest, true)
               }
             }
           }
@@ -102,7 +102,7 @@ export function SessionTimer({
     }, 60000)
 
     return () => clearInterval(interval)
-  }, [ticker, isLive, currentTimestamp])
+  }, [ticker, isLive, currentRange])
 
   // Handle Play/Pause Automation
   useEffect(() => {
@@ -116,18 +116,25 @@ export function SessionTimer({
         setCheckpoints((currentCheckpoints) => {
           if (currentCheckpoints.length === 0) return currentCheckpoints
           
-          const currentIndex = currentCheckpoints.findIndex(
-            (c) => c.timestamp === currentTimestamp
+          const endIdx = currentCheckpoints.findIndex(
+            (c) => c.timestamp === currentRange[1]
           )
           
-          let nextIndex = currentIndex + 1
-          if (nextIndex >= currentCheckpoints.length || currentIndex === -1) {
-            nextIndex = 0 // Loop back to start
+          let nextEndIndex = endIdx + 1
+          let nextStartIndex = currentCheckpoints.findIndex(
+            (c) => c.timestamp === currentRange[0]
+          )
+          if (nextStartIndex === -1) nextStartIndex = 0
+          
+          if (nextEndIndex >= currentCheckpoints.length || endIdx === -1) {
+            nextEndIndex = 0 // Loop back to start
+            nextStartIndex = 0
           }
           
-          const nextCheckpoint = currentCheckpoints[nextIndex].timestamp
+          const nextStartCP = currentCheckpoints[nextStartIndex].timestamp
+          const nextEndCP = currentCheckpoints[nextEndIndex].timestamp
           // Silent change
-          onCheckpointChange(nextCheckpoint, false)
+          onCheckpointChange(nextStartCP, nextEndCP, false)
           return currentCheckpoints
         })
       }, 2000) // advance every 2 seconds
@@ -143,20 +150,35 @@ export function SessionTimer({
         clearInterval(playIntervalRef.current)
       }
     }
-  }, [isPlaying, currentTimestamp, isLive])
+  }, [isPlaying, currentRange, isLive])
 
-  // Get index of current timestamp
-  const currentIndex = checkpoints.findIndex((c) => c.timestamp === currentTimestamp)
-  const displayIndex = currentIndex === -1 ? 0 : currentIndex
+  // Get range indexes
+  const startIdx = checkpoints.findIndex((c) => c.timestamp === currentRange[0])
+  const endIdx = checkpoints.findIndex((c) => c.timestamp === currentRange[1])
+  
+  const displayStartIdx = startIdx === -1 ? 0 : startIdx
+  const displayEndIdx = endIdx === -1 ? Math.max(0, checkpoints.length - 1) : endIdx
 
   const handleSliderChange = (values: number[]) => {
     setIsPlaying(false) // Pause playback on manual slider move
     if (isLive) {
       onLiveChange(false) // Turn off LIVE mode
     }
-    const idx = values[0]
-    if (checkpoints[idx]) {
-      onCheckpointChange(checkpoints[idx].timestamp, false)
+    
+    let startVal = values[0]
+    let endVal = values.length > 1 ? values[1] : values[0]
+    
+    // Sort values to ensure start index is always <= end index
+    if (startVal > endVal) {
+      const temp = startVal
+      startVal = endVal
+      endVal = temp
+    }
+    
+    const startCP = checkpoints[startVal]
+    const endCP = checkpoints[endVal]
+    if (startCP && endCP) {
+      onCheckpointChange(startCP.timestamp, endCP.timestamp, false)
     }
   }
 
@@ -170,7 +192,7 @@ export function SessionTimer({
     onLiveChange(newLive)
     if (newLive && checkpoints.length > 0) {
       const latest = checkpoints[checkpoints.length - 1].timestamp
-      onCheckpointChange(latest, true)
+      onCheckpointChange(latest, latest, true)
     }
   }
 
@@ -205,14 +227,20 @@ export function SessionTimer({
             <Play className="h-4 w-4 fill-current text-white" />
           )}
         </Button>
-        <div className="flex flex-col text-left justify-center min-w-[150px]">
+        <div className="flex flex-col text-left justify-center min-w-[200px]">
           <span className="text-[11px] text-gray-500 font-medium tracking-wide uppercase">
-            Checkpoint Time
+            Checkpoint Time Range
           </span>
           <span className="text-sm font-semibold text-white font-mono">
-            {formatNYTime(currentTimestamp)}
+            {currentRange[0] === currentRange[1] || !currentRange[1] ? (
+              formatNYTime(currentRange[0])
+            ) : (
+              <span className="text-terminal-green">
+                {formatNYTime(currentRange[0])} <span className="text-gray-500">→</span> {formatNYTime(currentRange[1])}
+              </span>
+            )}
             <span className="text-gray-500 text-xs font-normal ml-2 font-sans">
-              ({checkpoints.length > 0 ? displayIndex + 1 : 0} / {checkpoints.length})
+              ({checkpoints.length > 0 ? `${displayStartIdx + 1} - ${displayEndIdx + 1}` : "0"} / {checkpoints.length})
             </span>
           </span>
         </div>
@@ -223,7 +251,7 @@ export function SessionTimer({
           min={0}
           max={Math.max(0, checkpoints.length - 1)}
           step={1}
-          value={[displayIndex]}
+          value={[displayStartIdx, displayEndIdx]}
           onValueChange={handleSliderChange}
           disabled={checkpoints.length <= 1}
           className="cursor-pointer py-2"

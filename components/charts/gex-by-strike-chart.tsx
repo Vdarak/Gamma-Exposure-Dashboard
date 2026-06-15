@@ -396,7 +396,16 @@ export function GEXByStrikeChart({
 
     // Bars
     if (showAbsoluteGEX && greekMode === 'gamma') {
-      const absData = barsData.filter(d => d.isAbsolute)
+      const absData = barsData.filter(d => d.isAbsolute) as {
+        strike: number
+        startCall: number
+        endCall: number
+        deltaCall: number
+        startPut: number
+        endPut: number
+        deltaPut: number
+        isAbsolute: boolean
+      }[]
 
       // Call start bars
       g.selectAll('.bar-call-start')
@@ -541,7 +550,13 @@ export function GEXByStrikeChart({
         )
 
     } else {
-      const netData = barsData.filter(d => !d.isAbsolute)
+      const netData = barsData.filter(d => !d.isAbsolute) as {
+        strike: number
+        startVal: number
+        endVal: number
+        delta: number
+        isAbsolute: boolean
+      }[]
 
       // Net Start bars (Solid, semi-transparent)
       g.selectAll('.bar-net-start')

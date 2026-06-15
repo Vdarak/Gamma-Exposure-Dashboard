@@ -167,9 +167,11 @@ export function GradientChartsWorkspace({
               strike: opt.strike,
               type: opt.type,
               expiration: opt.expiration,
-              open_interest: opt.open_interest || opt.openInterest || 0,
+              open_interest: opt.open_interest || 0,
               volume: opt.volume || 0,
               iv: opt.iv || 20,
+              gamma: opt.gamma || 0,
+              delta: opt.delta || 0,
             }))
           } else {
             // Fallback synthetic generator if no prop data
@@ -186,6 +188,8 @@ export function GradientChartsWorkspace({
                 open_interest: Math.round(baseOI * (1.2 - distFromATM)),
                 volume: Math.round(baseOI * 0.15 * random()),
                 iv: iv * 100,
+                gamma: 0,
+                delta: 0,
               })
               snapshotOptions.push({
                 option: `${ticker} ${strike} P`,
@@ -195,6 +199,8 @@ export function GradientChartsWorkspace({
                 open_interest: Math.round(baseOI * (0.9 + distFromATM)),
                 volume: Math.round(baseOI * 0.12 * random()),
                 iv: (iv + 0.02) * 100,
+                gamma: 0,
+                delta: 0,
               })
             })
           }
@@ -410,6 +416,29 @@ export function GradientChartsWorkspace({
 // ────────────────────────────────────────────────────────
 // POSITIONS PROFILE VIEW (Left panel strike profiles)
 // ────────────────────────────────────────────────────────
+function normalCDF(x: number): number {
+  const a1 = 0.254829592;
+  const a2 = -0.284496736;
+  const a3 = 1.421413741;
+  const a4 = -1.453152027;
+  const a5 = 1.061405429;
+  const p = 0.3275911;
+
+  const sign = x < 0 ? -1 : 1;
+  x = Math.abs(x) / Math.sqrt(2.0);
+
+  const t = 1.0 / (1.0 + p * x);
+  const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+
+  return 0.5 * (1.0 + sign * y);
+}
+
+function calculateBSDelta(S: number, K: number, T: number, r: number, vol: number, isCall: boolean): number {
+  if (T <= 0 || vol <= 0 || S <= 0 || K <= 0) return isCall ? 0.5 : -0.5;
+  const d1 = (Math.log(S / K) + (r + 0.5 * vol * vol) * T) / (vol * Math.sqrt(T));
+  return isCall ? normalCDF(d1) : normalCDF(d1) - 1;
+}
+
 interface PositionsProfileViewProps {
   ticker: string
   strikes: number[]
@@ -453,10 +482,10 @@ function PositionsProfileView({
     const strikeOptions = options.filter(o => o.strike === strike)
     const callOI = strikeOptions
       .filter(o => o.type === "C")
-      .reduce((sum, o) => sum + (o.open_interest || o.openInterest || 0), 0)
+      .reduce((sum, o) => sum + (o.open_interest || 0), 0)
     const putOI = strikeOptions
       .filter(o => o.type === "P")
-      .reduce((sum, o) => sum + (o.open_interest || o.openInterest || 0), 0)
+      .reduce((sum, o) => sum + (o.open_interest || 0), 0)
     return callOI - putOI
   }
 
@@ -581,6 +610,12 @@ function PositionsProfileView({
     let hedgeShares = 0
     strikeOptions.forEach(opt => {
       let d = opt.delta || 0
+      if (d === 0) {
+        const t = Math.max(1 / 365, (opt.expiration.getTime() - new Date(timestamp).getTime()) / (1000 * 60 * 60 * 24 * 365))
+        const r = ['NIFTY', 'BANKNIFTY', 'RELIANCE'].includes(ticker) ? 0.065 : 0.05
+        const vol = (opt.iv && opt.iv > 0) ? opt.iv / 100 : 0.3
+        d = calculateBSDelta(spotPrice, opt.strike, t, r, vol, opt.type === "C")
+      }
       if (opt.type === "P" && d > 0) d = -d
       if (opt.type === "C" && d < 0) d = -d
       hedgeShares += (opt.open_interest || 0) * 100 * d

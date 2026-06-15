@@ -28,9 +28,11 @@ function formatBillions(num: number): string {
 }
 
 interface SyncedStrikeWorkspaceProps {
-  optionData: OptionData[]
+  startOptionData: OptionData[]
+  endOptionData: OptionData[]
   ticker: string
-  spotPrice: number
+  startSpotPrice: number
+  endSpotPrice: number
   market: 'USA' | 'INDIA'
   pricingMethod: PricingMethod
   expiryMode: string
@@ -38,9 +40,11 @@ interface SyncedStrikeWorkspaceProps {
 
 
 export function SyncedStrikeWorkspace({
-  optionData,
+  startOptionData,
+  endOptionData,
   ticker,
-  spotPrice,
+  startSpotPrice,
+  endSpotPrice,
   market,
   pricingMethod,
   expiryMode,
@@ -160,10 +164,10 @@ export function SyncedStrikeWorkspace({
     // Fallback Mock Generator
     const count = 80
     const list: any[] = []
-    let currentPrice = spotPrice
+    let currentPrice = endSpotPrice
     const now = new Date()
 
-    const seedString = ticker + spotPrice + timeframe
+    const seedString = ticker + endSpotPrice + timeframe
     let seed = seedString.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)
     const random = () => {
       const x = Math.sin(seed++) * 10000
@@ -208,10 +212,10 @@ export function SyncedStrikeWorkspace({
 
     list.reverse()
     if (list.length > 0) {
-      list[list.length - 1].close = spotPrice
+      list[list.length - 1].close = endSpotPrice
     }
     return list
-  }, [ticker, spotPrice, timeframe, candlesData])
+  }, [ticker, endSpotPrice, timeframe, candlesData])
 
   // Slice visible candles and indicator data
   const visibleCandlesData = useMemo(() => {
@@ -245,45 +249,69 @@ export function SyncedStrikeWorkspace({
   const activeR = market === 'INDIA' ? ratesInfo.indiaRiskFreeRate : ratesInfo.usRiskFreeRate
   const activeQ = market === 'INDIA' ? 0.012 : 0.013 // 1.2% NIFTY dividend yield vs 1.3% SPX dividend yield
 
-  const gexProfile = useMemo(() => {
-    const raw = computeGEXByStrike(spotPrice, optionData, pricingMethod)
+  const startGexProfile = useMemo(() => {
+    const raw = computeGEXByStrike(startSpotPrice, startOptionData, pricingMethod)
     return raw.sort((a, b) => a.strike - b.strike)
-  }, [spotPrice, optionData, pricingMethod])
+  }, [startSpotPrice, startOptionData, pricingMethod])
 
-  const volProfile = useMemo(() => {
-    const raw = computeVolumeByStrike(optionData)
+  const endGexProfile = useMemo(() => {
+    const raw = computeGEXByStrike(endSpotPrice, endOptionData, pricingMethod)
     return raw.sort((a, b) => a.strike - b.strike)
-  }, [optionData])
+  }, [endSpotPrice, endOptionData, pricingMethod])
 
-  const vannaProfile = useMemo(() => {
-    return computeVannaByStrike(spotPrice, optionData, activeR, activeQ, pricingMethod)
-  }, [spotPrice, optionData, activeR, activeQ, pricingMethod])
+  const startVolProfile = useMemo(() => {
+    const raw = computeVolumeByStrike(startOptionData)
+    return raw.sort((a, b) => a.strike - b.strike)
+  }, [startOptionData])
 
-  const charmProfile = useMemo(() => {
-    return computeCharmByStrike(spotPrice, optionData, activeR, activeQ, pricingMethod)
-  }, [spotPrice, optionData, activeR, activeQ, pricingMethod])
+  const endVolProfile = useMemo(() => {
+    const raw = computeVolumeByStrike(endOptionData)
+    return raw.sort((a, b) => a.strike - b.strike)
+  }, [endOptionData])
 
-  const zeroGamma = useMemo(() => findZeroGammaLevel(optionData, spotPrice), [optionData, spotPrice])
+  const startVannaProfile = useMemo(() => {
+    return computeVannaByStrike(startSpotPrice, startOptionData, activeR, activeQ, pricingMethod)
+  }, [startSpotPrice, startOptionData, activeR, activeQ, pricingMethod])
+
+  const endVannaProfile = useMemo(() => {
+    return computeVannaByStrike(endSpotPrice, endOptionData, activeR, activeQ, pricingMethod)
+  }, [endSpotPrice, endOptionData, activeR, activeQ, pricingMethod])
+
+  const startCharmProfile = useMemo(() => {
+    return computeCharmByStrike(startSpotPrice, startOptionData, activeR, activeQ, pricingMethod)
+  }, [startSpotPrice, startOptionData, activeR, activeQ, pricingMethod])
+
+  const endCharmProfile = useMemo(() => {
+    return computeCharmByStrike(endSpotPrice, endOptionData, activeR, activeQ, pricingMethod)
+  }, [endSpotPrice, endOptionData, activeR, activeQ, pricingMethod])
+
+  const endZeroGamma = useMemo(() => findZeroGammaLevel(endOptionData, endSpotPrice), [endOptionData, endSpotPrice])
 
   // 4. Set initial domain based on Spot Price & Active Mode
   useEffect(() => {
-    const activeProfile = displayMode === 'gamma-vol' ? gexProfile : vannaProfile
-    const activeProfileRight = displayMode === 'gamma-vol' ? volProfile : charmProfile
+    const activeProfile = displayMode === 'gamma-vol' ? endGexProfile : endVannaProfile
+    const activeProfileRight = displayMode === 'gamma-vol' ? endVolProfile : endCharmProfile
     const allStrikes = Array.from(new Set([
-      ...activeProfile.map(p => p.strike),
-      ...activeProfileRight.map(p => p.strike),
+      ...startGexProfile.map(p => p.strike),
+      ...endGexProfile.map(p => p.strike),
+      ...startVolProfile.map(p => p.strike),
+      ...endVolProfile.map(p => p.strike),
+      ...startVannaProfile.map(p => p.strike),
+      ...endVannaProfile.map(p => p.strike),
+      ...startCharmProfile.map(p => p.strike),
+      ...endCharmProfile.map(p => p.strike),
     ])).sort((a, b) => a - b)
 
     if (allStrikes.length === 0) {
       const pct = expiryMode === '0dte' ? 0.025 : 0.08
-      setYDomain([spotPrice * (1 - pct), spotPrice * (1 + pct)])
+      setYDomain([endSpotPrice * (1 - pct), endSpotPrice * (1 + pct)])
       return
     }
 
     const pct = expiryMode === '0dte' ? 0.025 : 0.08
-    const zoomRange = spotPrice * pct
-    setYDomain([spotPrice - zoomRange, spotPrice + zoomRange])
-  }, [gexProfile, volProfile, vannaProfile, charmProfile, spotPrice, ticker, expiryMode, displayMode])
+    const zoomRange = endSpotPrice * pct
+    setYDomain([endSpotPrice - zoomRange, endSpotPrice + zoomRange])
+  }, [startGexProfile, endGexProfile, startVolProfile, endVolProfile, startVannaProfile, endVannaProfile, startCharmProfile, endCharmProfile, endSpotPrice, ticker, expiryMode, displayMode])
 
 
   // Global Mouse Move and Mouse Up Listeners for Dragging (TradingView style)
@@ -301,7 +329,7 @@ export function SyncedStrikeWorkspace({
         const [minY, maxY] = dragState.initialYDomain
         const center = (minY + maxY) / 2
         const halfSpan = (maxY - minY) / 2
-        const newHalfSpan = Math.max(spotPrice * 0.001, Math.min(spotPrice * 0.4, halfSpan * factor))
+        const newHalfSpan = Math.max(endSpotPrice * 0.001, Math.min(endSpotPrice * 0.4, halfSpan * factor))
         setYDomain([center - newHalfSpan, center + newHalfSpan])
       } else {
         // Dragging Chart Body: Pan horizontally (scroll timeline) and vertically (shift center)
@@ -335,7 +363,7 @@ export function SyncedStrikeWorkspace({
       window.removeEventListener('mousemove', handleMouseMoveGlobal)
       window.removeEventListener('mouseup', handleMouseUpGlobal)
     }
-  }, [dragState, spotPrice, dimensions.height, candles.length])
+  }, [dragState, endSpotPrice, dimensions.height, candles.length])
 
   // Native non-passive wheel event listener to prevent main page scrolling while zooming
   useEffect(() => {
@@ -386,8 +414,8 @@ export function SyncedStrikeWorkspace({
     
     if (isPriceScale) {
       const pct = expiryMode === '0dte' ? 0.025 : 0.08
-      const zoomRange = spotPrice * pct
-      setYDomain([spotPrice - zoomRange, spotPrice + zoomRange])
+      const zoomRange = endSpotPrice * pct
+      setYDomain([endSpotPrice - zoomRange, endSpotPrice + zoomRange])
       setXRange([Math.max(0, candles.length - 40), candles.length])
     }
   }
@@ -407,8 +435,8 @@ export function SyncedStrikeWorkspace({
   // Double click resets zoom from profile charts
   const handleProfileDoubleClick = () => {
     const pct = expiryMode === '0dte' ? 0.025 : 0.08
-    const zoomRange = spotPrice * pct
-    setYDomain([spotPrice - zoomRange, spotPrice + zoomRange])
+    const zoomRange = endSpotPrice * pct
+    setYDomain([endSpotPrice - zoomRange, endSpotPrice + zoomRange])
     setXRange([Math.max(0, candles.length - 40), candles.length])
   }
 
@@ -486,7 +514,7 @@ export function SyncedStrikeWorkspace({
           .attr('font-size', '24px')
           .attr('font-weight', '700')
           .attr('font-family', typography.fontMono)
-          .text(`${symbol}${spotPrice.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`)
+          .text(`${symbol}${endSpotPrice.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`)
 
         const xScale = d3.scaleBand()
           .domain(visibleCandlesData.map((_, i) => i.toString()))
@@ -647,15 +675,61 @@ export function SyncedStrikeWorkspace({
       const g = gexSvg.append('g').attr('transform', `translate(${margin.right},${margin.top})`)
       const width = profileWidth - margin.right - margin.left
 
-      const activeProfile = displayMode === 'gamma-vol' ? gexProfile : vannaProfile
-      const filteredProfile = activeProfile.filter(p => p.strike >= yDomain[0] && p.strike <= yDomain[1])
-      
-      const getVal = (p: any) => displayMode === 'gamma-vol' ? p.gex : p.vanna
-      const maxVal = (d3.max(filteredProfile.map(p => Math.abs(getVal(p)))) || 1) * 1.1
+      const startProfile = displayMode === 'gamma-vol' ? startGexProfile : startVannaProfile
+      const endProfile = displayMode === 'gamma-vol' ? endGexProfile : endVannaProfile
+
+      const leftStrikes = Array.from(new Set([
+        ...startProfile.map(p => p.strike),
+        ...endProfile.map(p => p.strike),
+      ])).sort((a, b) => a - b)
+
+      const getProfileVal = (profile: any[], strike: number) => {
+        const item = profile.find(p => p.strike === strike)
+        if (!item) return 0
+        return displayMode === 'gamma-vol' ? (item.gex || 0) : (item.vanna || 0)
+      }
+
+      const leftProfileData = leftStrikes.map(strike => {
+        const startVal = getProfileVal(startProfile, strike)
+        const endVal = getProfileVal(endProfile, strike)
+        return {
+          strike,
+          startVal,
+          endVal,
+          delta: endVal - startVal
+        }
+      }).filter(p => p.strike >= yDomain[0] && p.strike <= yDomain[1])
+
+      const maxVal = (d3.max(leftProfileData.map(p => Math.max(Math.abs(p.startVal), Math.abs(p.endVal)))) || 1) * 1.1
 
       const xScale = d3.scaleLinear()
         .domain([-maxVal, maxVal])
         .range([0, width])
+
+      // Append definitions for striped patterns
+      const defs = gexSvg.append('defs')
+      
+      defs.append('pattern')
+        .attr('id', 'increase-stripes-left')
+        .attr('width', 8)
+        .attr('height', 8)
+        .attr('patternUnits', 'userSpaceOnUse')
+        .append('path')
+        .attr('d', 'M-2,2 L2,-2 M0,8 L8,0 M6,10 L10,6')
+        .attr('stroke', '#00C805')
+        .attr('stroke-width', 1.8)
+        .attr('fill', 'none')
+        
+      defs.append('pattern')
+        .attr('id', 'decrease-stripes-left')
+        .attr('width', 8)
+        .attr('height', 8)
+        .attr('patternUnits', 'userSpaceOnUse')
+        .append('path')
+        .attr('d', 'M-2,6 L6,-2 M0,0 L8,8 M2,10 L10,2')
+        .attr('stroke', '#FF3B60')
+        .attr('stroke-width', 1.8)
+        .attr('fill', 'none')
 
       // Zero-exposure center line
       g.append('line')
@@ -663,27 +737,55 @@ export function SyncedStrikeWorkspace({
         .attr('y1', 0).attr('y2', chartHeight)
         .attr('stroke', '#222').attr('stroke-width', 1)
 
-      // Draw solid filled horizontal bars
-      filteredProfile.forEach(p => {
+      // Draw horizontal bars
+      leftProfileData.forEach(p => {
         const y = yScale(p.strike)
         if (y === undefined || y < 0 || y > chartHeight) return
 
-        const val = getVal(p)
-        const barWidth = Math.abs(xScale(val) - xScale(0))
-        const x = val >= 0 ? xScale(0) : xScale(val)
-
+        // 1. Draw Start bar (Solid, 35% opacity)
+        const startWidth = Math.abs(xScale(p.startVal) - xScale(0))
+        const startX = p.startVal >= 0 ? xScale(0) : xScale(p.startVal)
         g.append('rect')
-          .attr('x', x).attr('y', y - 2)
-          .attr('width', Math.max(1.5, barWidth))
+          .attr('x', startX).attr('y', y - 2)
+          .attr('width', Math.max(1, startWidth))
           .attr('height', 5)
-          .attr('fill', val >= 0 ? 'rgba(0, 200, 5, 0.75)' : 'rgba(255, 59, 96, 0.75)')
-          .attr('stroke', val >= 0 ? '#00C805' : '#FF3B60')
-          .attr('stroke-width', 0.6)
+          .attr('fill', p.startVal >= 0 ? 'rgba(0, 200, 5, 0.35)' : 'rgba(255, 59, 96, 0.35)')
+          .attr('stroke', p.startVal >= 0 ? '#00C805' : '#FF3B60')
+          .attr('stroke-opacity', 0.35)
+          .attr('stroke-width', 0.5)
           .attr('rx', 1)
+
+        // 2. Draw End bar (Solid, 80% opacity)
+        const endWidth = Math.abs(xScale(p.endVal) - xScale(0))
+        const endX = p.endVal >= 0 ? xScale(0) : xScale(p.endVal)
+        g.append('rect')
+          .attr('x', endX).attr('y', y - 2)
+          .attr('width', Math.max(1, endWidth))
+          .attr('height', 5)
+          .attr('fill', p.endVal >= 0 ? 'rgba(0, 200, 5, 0.8)' : 'rgba(255, 59, 96, 0.8)')
+          .attr('stroke', p.endVal >= 0 ? '#00C805' : '#FF3B60')
+          .attr('stroke-opacity', 0.8)
+          .attr('stroke-width', 0.5)
+          .attr('rx', 1)
+
+        // 3. Draw Delta change bar (Striped, 95% opacity)
+        if (Math.abs(p.delta) > 1e-5) {
+          const deltaWidth = Math.abs(xScale(p.endVal) - xScale(p.startVal))
+          const deltaX = xScale(Math.min(p.startVal, p.endVal))
+          g.append('rect')
+            .attr('x', deltaX).attr('y', y - 2)
+            .attr('width', Math.max(1, deltaWidth))
+            .attr('height', 5)
+            .attr('fill', p.delta >= 0 ? 'url(#increase-stripes-left)' : 'url(#decrease-stripes-left)')
+            .attr('stroke', p.delta >= 0 ? '#00C805' : '#FF3B60')
+            .attr('stroke-opacity', 0.95)
+            .attr('stroke-width', 0.5)
+            .attr('rx', 1)
+        }
       })
 
       // Spot Line
-      const spotY = yScale(spotPrice)
+      const spotY = yScale(endSpotPrice)
       if (spotY >= 0 && spotY <= chartHeight) {
         g.append('line')
           .attr('x1', 0).attr('x2', width)
@@ -692,8 +794,8 @@ export function SyncedStrikeWorkspace({
       }
 
       // Gamma Flip / Zero Cross Line (Only relevant in Gamma Mode)
-      if (displayMode === 'gamma-vol' && zeroGamma) {
-        const flipY = yScale(zeroGamma)
+      if (displayMode === 'gamma-vol' && endZeroGamma) {
+        const flipY = yScale(endZeroGamma)
         if (flipY >= 0 && flipY <= chartHeight) {
           g.append('line')
             .attr('x1', 0).attr('x2', width)
@@ -724,18 +826,23 @@ export function SyncedStrikeWorkspace({
           const [, my] = d3.pointer(event)
           const price = yScale.invert(my)
 
-          const closest = filteredProfile.reduce((prev, curr) => {
+          const closest = leftProfileData.reduce((prev, curr) => {
             return Math.abs(curr.strike - price) < Math.abs(prev.strike - price) ? curr : prev
-          }, filteredProfile[0])
+          }, leftProfileData[0])
 
           if (closest && tooltipRef.current && containerRef.current) {
             const containerRect = containerRef.current.getBoundingClientRect()
-            const val = getVal(closest)
             const labelText = displayMode === 'gamma-vol' ? 'Net GEX' : 'Net Vanna'
             tooltipRef.current.innerHTML = `
               <div style="font-family:${typography.fontSans};font-size:12px;color:${colors.text.primary};font-weight:600">Strike ${closest.strike.toFixed(0)}</div>
-              <div style="font-family:${typography.fontMono};font-size:11px;color:${val >= 0 ? '#00C805' : '#FF3B60'};margin-top:2.5px">
-                ${labelText}: ${formatBillions(val)}
+              <div style="font-family:${typography.fontMono};font-size:11px;color:#949494;margin-top:2.5px">
+                Start ${labelText}: ${formatBillions(closest.startVal)}
+              </div>
+              <div style="font-family:${typography.fontMono};font-size:11px;color:#E5E5E5;margin-top:2.5px">
+                End ${labelText}: ${formatBillions(closest.endVal)}
+              </div>
+              <div style="font-family:${typography.fontMono};font-size:11px;color:${closest.delta >= 0 ? '#00C805' : '#FF3B60'};margin-top:2.5px;font-weight:bold">
+                Change: ${closest.delta >= 0 ? '+' : ''}${formatBillions(closest.delta)}
               </div>
             `
             tooltipRef.current.style.opacity = '1'
@@ -751,17 +858,62 @@ export function SyncedStrikeWorkspace({
       const g = volSvg.append('g').attr('transform', `translate(${margin.right},${margin.top})`)
       const width = profileWidth - margin.right - margin.left
 
-      const activeProfileRight = displayMode === 'gamma-vol' ? volProfile : charmProfile
-      const filteredProfileRight = activeProfileRight.filter(p => p.strike >= yDomain[0] && p.strike <= yDomain[1])
-      
-      const getRightVal = (p: any) => displayMode === 'gamma-vol' ? p.volume : p.charm
+      const startProfileRight = displayMode === 'gamma-vol' ? startVolProfile : startCharmProfile
+      const endProfileRight = displayMode === 'gamma-vol' ? endVolProfile : endCharmProfile
+
+      const rightStrikes = Array.from(new Set([
+        ...startProfileRight.map(p => p.strike),
+        ...endProfileRight.map(p => p.strike),
+      ])).sort((a, b) => a - b)
+
+      const getProfileValRight = (profile: any[], strike: number) => {
+        const item = profile.find(p => p.strike === strike)
+        if (!item) return 0
+        return displayMode === 'gamma-vol' ? (item.volume || 0) : (item.charm || 0)
+      }
+
+      const rightProfileData = rightStrikes.map(strike => {
+        const startVal = getProfileValRight(startProfileRight, strike)
+        const endVal = getProfileValRight(endProfileRight, strike)
+        return {
+          strike,
+          startVal,
+          endVal,
+          delta: endVal - startVal
+        }
+      }).filter(p => p.strike >= yDomain[0] && p.strike <= yDomain[1])
+
       const isSymmetric = displayMode === 'vanna-charm'
-      
-      const maxVal = (d3.max(filteredProfileRight.map(p => Math.abs(getRightVal(p)))) || 1) * 1.1
+      const maxVal = (d3.max(rightProfileData.map(p => Math.max(Math.abs(p.startVal), Math.abs(p.endVal)))) || 1) * 1.1
 
       const xScale = d3.scaleLinear()
         .domain(isSymmetric ? [-maxVal, maxVal] : [0, maxVal])
         .range([0, width])
+
+      // Append definitions for striped patterns
+      const defsRight = volSvg.append('defs')
+      
+      defsRight.append('pattern')
+        .attr('id', 'increase-stripes-right')
+        .attr('width', 8)
+        .attr('height', 8)
+        .attr('patternUnits', 'userSpaceOnUse')
+        .append('path')
+        .attr('d', 'M-2,2 L2,-2 M0,8 L8,0 M6,10 L10,6')
+        .attr('stroke', '#00C805')
+        .attr('stroke-width', 1.8)
+        .attr('fill', 'none')
+        
+      defsRight.append('pattern')
+        .attr('id', 'decrease-stripes-right')
+        .attr('width', 8)
+        .attr('height', 8)
+        .attr('patternUnits', 'userSpaceOnUse')
+        .append('path')
+        .attr('d', 'M-2,6 L6,-2 M0,0 L8,8 M2,10 L10,2')
+        .attr('stroke', '#FF3B60')
+        .attr('stroke-width', 1.8)
+        .attr('fill', 'none')
 
       if (isSymmetric) {
         // Zero line in the center for Charm
@@ -771,31 +923,63 @@ export function SyncedStrikeWorkspace({
           .attr('stroke', '#222').attr('stroke-width', 1)
       }
 
-      // Draw solid filled bars
-      filteredProfileRight.forEach(p => {
+      // Draw horizontal bars
+      rightProfileData.forEach(p => {
         const y = yScale(p.strike)
         if (y === undefined || y < 0 || y > chartHeight) return
 
-        const val = getRightVal(p)
-        const barWidth = isSymmetric ? Math.abs(xScale(val) - xScale(0)) : xScale(val)
-        const x = isSymmetric ? (val >= 0 ? xScale(0) : xScale(val)) : 0
-
+        // 1. Draw Start bar (Solid, 35% opacity)
+        const startWidth = Math.abs(xScale(p.startVal) - xScale(0))
+        const startX = isSymmetric ? (p.startVal >= 0 ? xScale(0) : xScale(p.startVal)) : xScale(0)
         g.append('rect')
-          .attr('x', x).attr('y', y - 2)
-          .attr('width', Math.max(1.5, barWidth))
+          .attr('x', startX).attr('y', y - 2)
+          .attr('width', Math.max(1, startWidth))
           .attr('height', 5)
           .attr('fill', isSymmetric 
-            ? (val >= 0 ? 'rgba(0, 200, 5, 0.75)' : 'rgba(255, 59, 96, 0.75)') 
-            : 'rgba(0, 200, 255, 0.55)')
+            ? (p.startVal >= 0 ? 'rgba(0, 200, 5, 0.35)' : 'rgba(255, 59, 96, 0.35)') 
+            : 'rgba(0, 200, 255, 0.35)')
           .attr('stroke', isSymmetric 
-            ? (val >= 0 ? '#00C805' : '#FF3B60') 
+            ? (p.startVal >= 0 ? '#00C805' : '#FF3B60') 
             : '#00C8FF')
-          .attr('stroke-width', 0.6)
+          .attr('stroke-opacity', 0.35)
+          .attr('stroke-width', 0.5)
           .attr('rx', 1)
+
+        // 2. Draw End bar (Solid, 80% opacity)
+        const endWidth = Math.abs(xScale(p.endVal) - xScale(0))
+        const endX = isSymmetric ? (p.endVal >= 0 ? xScale(0) : xScale(p.endVal)) : xScale(0)
+        g.append('rect')
+          .attr('x', endX).attr('y', y - 2)
+          .attr('width', Math.max(1, endWidth))
+          .attr('height', 5)
+          .attr('fill', isSymmetric 
+            ? (p.endVal >= 0 ? 'rgba(0, 200, 5, 0.8)' : 'rgba(255, 59, 96, 0.8)') 
+            : 'rgba(0, 200, 255, 0.8)')
+          .attr('stroke', isSymmetric 
+            ? (p.endVal >= 0 ? '#00C805' : '#FF3B60') 
+            : '#00C8FF')
+          .attr('stroke-opacity', 0.8)
+          .attr('stroke-width', 0.5)
+          .attr('rx', 1)
+
+        // 3. Draw Delta change bar (Striped, 95% opacity)
+        if (Math.abs(p.delta) > 1e-5) {
+          const deltaWidth = Math.abs(xScale(p.endVal) - xScale(p.startVal))
+          const deltaX = xScale(Math.min(p.startVal, p.endVal))
+          g.append('rect')
+            .attr('x', deltaX).attr('y', y - 2)
+            .attr('width', Math.max(1, deltaWidth))
+            .attr('height', 5)
+            .attr('fill', p.delta >= 0 ? 'url(#increase-stripes-right)' : 'url(#decrease-stripes-right)')
+            .attr('stroke', p.delta >= 0 ? '#00C805' : '#FF3B60')
+            .attr('stroke-opacity', 0.95)
+            .attr('stroke-width', 0.5)
+            .attr('rx', 1)
+        }
       })
 
       // Spot Line
-      const spotY = yScale(spotPrice)
+      const spotY = yScale(endSpotPrice)
       if (spotY >= 0 && spotY <= chartHeight) {
         g.append('line')
           .attr('x1', 0).attr('x2', width)
@@ -825,25 +1009,32 @@ export function SyncedStrikeWorkspace({
           const [, my] = d3.pointer(event)
           const price = yScale.invert(my)
 
-          const closest = filteredProfileRight.reduce((prev, curr) => {
+          const closest = rightProfileData.reduce((prev, curr) => {
             return Math.abs(curr.strike - price) < Math.abs(prev.strike - price) ? curr : prev
-          }, filteredProfileRight[0])
+          }, rightProfileData[0])
 
           if (closest && tooltipRef.current && containerRef.current) {
             const containerRect = containerRef.current.getBoundingClientRect()
-            const val = getRightVal(closest)
             
             const isVolMode = displayMode === 'gamma-vol'
-            const formattedVal = isVolMode ? val.toLocaleString() + ' contracts' : formatBillions(val)
             const labelText = isVolMode ? 'Volume' : 'Net Charm'
-            const textClr = isVolMode 
-              ? colors.accent.cyan 
-              : (val >= 0 ? '#00C805' : '#FF3B60')
+            
+            const startText = isVolMode ? closest.startVal.toLocaleString() + ' contracts' : formatBillions(closest.startVal)
+            const endText = isVolMode ? closest.endVal.toLocaleString() + ' contracts' : formatBillions(closest.endVal)
+            const deltaText = isVolMode 
+              ? (closest.delta >= 0 ? '+' : '') + closest.delta.toLocaleString() + ' contracts' 
+              : (closest.delta >= 0 ? '+' : '') + formatBillions(closest.delta)
 
             tooltipRef.current.innerHTML = `
               <div style="font-family:${typography.fontSans};font-size:12px;color:${colors.text.primary};font-weight:600">Strike ${closest.strike.toFixed(0)}</div>
-              <div style="font-family:${typography.fontMono};font-size:11px;color:${textClr};margin-top:2.5px">
-                ${labelText}: ${formattedVal}
+              <div style="font-family:${typography.fontMono};font-size:11px;color:#949494;margin-top:2.5px">
+                Start ${labelText}: ${startText}
+              </div>
+              <div style="font-family:${typography.fontMono};font-size:11px;color:#E5E5E5;margin-top:2.5px">
+                End ${labelText}: ${endText}
+              </div>
+              <div style="font-family:${typography.fontMono};font-size:11px;color:${closest.delta >= 0 ? '#00C805' : '#FF3B60'};margin-top:2.5px;font-weight:bold">
+                Change: ${deltaText}
               </div>
             `
             tooltipRef.current.style.opacity = '1'
@@ -854,7 +1045,7 @@ export function SyncedStrikeWorkspace({
         .on('mouseleave', hideCrosshairs)
     }
 
-  }, [dimensions, yDomain, visibleCandlesData, indicatorData, gexProfile, volProfile, vannaProfile, charmProfile, spotPrice, zeroGamma, market, ticker, displayMode, isCandlesCollapsed])
+  }, [dimensions, yDomain, visibleCandlesData, indicatorData, startGexProfile, endGexProfile, startVolProfile, endVolProfile, startVannaProfile, endVannaProfile, startCharmProfile, endCharmProfile, endSpotPrice, endZeroGamma, market, ticker, displayMode, isCandlesCollapsed])
 
   return (
     <div
