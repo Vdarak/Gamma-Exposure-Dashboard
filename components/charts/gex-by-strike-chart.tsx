@@ -109,19 +109,35 @@ export function GEXByStrikeChart({
       ? selectedExpiries[0]
       : `${selectedExpiries.length} Expiries`
 
+  const enrichedStartFilteredData = useMemo(() => {
+    const cloned = (startFilteredData || []).map(o => ({ ...o }))
+    computeGEXByStrike(startSpotPrice, cloned, effectivePricingMethod)
+    computeVannaByStrike(startSpotPrice, cloned, activeR, activeQ, effectivePricingMethod)
+    computeCharmByStrike(startSpotPrice, cloned, activeR, activeQ, effectivePricingMethod)
+    return cloned
+  }, [startFilteredData, startSpotPrice, effectivePricingMethod, activeR, activeQ])
+
+  const enrichedEndFilteredData = useMemo(() => {
+    const cloned = (endFilteredData || []).map(o => ({ ...o }))
+    computeGEXByStrike(endSpotPrice, cloned, effectivePricingMethod)
+    computeVannaByStrike(endSpotPrice, cloned, activeR, activeQ, effectivePricingMethod)
+    computeCharmByStrike(endSpotPrice, cloned, activeR, activeQ, effectivePricingMethod)
+    return cloned
+  }, [endFilteredData, endSpotPrice, effectivePricingMethod, activeR, activeQ])
+
   // Compute GEX and volume for start data
-  const startGexByStrike = useMemo(() => computeGEXByStrike(startSpotPrice, startFilteredData, effectivePricingMethod), [startSpotPrice, startFilteredData, effectivePricingMethod])
-  const startVolumeByStrike = useMemo(() => computeVolumeByStrike(startFilteredData), [startFilteredData])
-  const startVannaByStrike = useMemo(() => computeVannaByStrike(startSpotPrice, startFilteredData, activeR, activeQ, effectivePricingMethod), [startSpotPrice, startFilteredData, activeR, activeQ, effectivePricingMethod])
-  const startCharmByStrike = useMemo(() => computeCharmByStrike(startSpotPrice, startFilteredData, activeR, activeQ, effectivePricingMethod), [startSpotPrice, startFilteredData, activeR, activeQ, effectivePricingMethod])
+  const startGexByStrike = useMemo(() => computeGEXByStrike(startSpotPrice, enrichedStartFilteredData, effectivePricingMethod), [startSpotPrice, enrichedStartFilteredData, effectivePricingMethod])
+  const startVolumeByStrike = useMemo(() => computeVolumeByStrike(enrichedStartFilteredData), [enrichedStartFilteredData])
+  const startVannaByStrike = useMemo(() => computeVannaByStrike(startSpotPrice, enrichedStartFilteredData, activeR, activeQ, effectivePricingMethod), [startSpotPrice, enrichedStartFilteredData, activeR, activeQ, effectivePricingMethod])
+  const startCharmByStrike = useMemo(() => computeCharmByStrike(startSpotPrice, enrichedStartFilteredData, activeR, activeQ, effectivePricingMethod), [startSpotPrice, enrichedStartFilteredData, activeR, activeQ, effectivePricingMethod])
 
   // Compute GEX and volume for end data
-  const endGexByStrike = useMemo(() => computeGEXByStrike(endSpotPrice, endFilteredData, effectivePricingMethod), [endSpotPrice, endFilteredData, effectivePricingMethod])
-  const endVolumeByStrike = useMemo(() => computeVolumeByStrike(endFilteredData), [endFilteredData])
-  const endVannaByStrike = useMemo(() => computeVannaByStrike(endSpotPrice, endFilteredData, activeR, activeQ, effectivePricingMethod), [endSpotPrice, endFilteredData, activeR, activeQ, effectivePricingMethod])
-  const endCharmByStrike = useMemo(() => computeCharmByStrike(endSpotPrice, endFilteredData, activeR, activeQ, effectivePricingMethod), [endSpotPrice, endFilteredData, activeR, activeQ, effectivePricingMethod])
+  const endGexByStrike = useMemo(() => computeGEXByStrike(endSpotPrice, enrichedEndFilteredData, effectivePricingMethod), [endSpotPrice, enrichedEndFilteredData, effectivePricingMethod])
+  const endVolumeByStrike = useMemo(() => computeVolumeByStrike(enrichedEndFilteredData), [enrichedEndFilteredData])
+  const endVannaByStrike = useMemo(() => computeVannaByStrike(endSpotPrice, enrichedEndFilteredData, activeR, activeQ, effectivePricingMethod), [endSpotPrice, enrichedEndFilteredData, activeR, activeQ, effectivePricingMethod])
+  const endCharmByStrike = useMemo(() => computeCharmByStrike(endSpotPrice, enrichedEndFilteredData, activeR, activeQ, effectivePricingMethod), [endSpotPrice, enrichedEndFilteredData, activeR, activeQ, effectivePricingMethod])
 
-  const zeroGammaLevel = useMemo(() => findZeroGammaLevel(endFilteredData.length ? endFilteredData : startFilteredData, endSpotPrice || startSpotPrice), [startFilteredData, endFilteredData, startSpotPrice, endSpotPrice])
+  const zeroGammaLevel = useMemo(() => findZeroGammaLevel(enrichedEndFilteredData.length ? enrichedEndFilteredData : enrichedStartFilteredData, endSpotPrice || startSpotPrice), [enrichedStartFilteredData, enrichedEndFilteredData, startSpotPrice, endSpotPrice])
 
   // Merge strikes
   const allStrikes = useMemo(() => Array.from(new Set([
@@ -160,7 +176,7 @@ export function GEXByStrikeChart({
   // Absolute Exposure (GEX, VEX, Charm based on greekMode)
   const { startCallGEX, startPutGEX } = useMemo(() => {
     const startCallGEX = scrollableStrikes.map(strike => {
-      const callOptions = startFilteredData.filter(o => o.strike === strike && o.type === "C")
+      const callOptions = enrichedStartFilteredData.filter(o => o.strike === strike && o.type === "C")
       let val = 0
       callOptions.forEach(o => {
         const field = greekMode === 'gamma' ? o.GEX_BS : greekMode === 'vanna' ? o.VEX_BS : o.CEX_BS
@@ -169,7 +185,7 @@ export function GEXByStrikeChart({
       return val / 1e9
     })
     const startPutGEX = scrollableStrikes.map(strike => {
-      const putOptions = startFilteredData.filter(o => o.strike === strike && o.type === "P")
+      const putOptions = enrichedStartFilteredData.filter(o => o.strike === strike && o.type === "P")
       let val = 0
       putOptions.forEach(o => {
         const field = greekMode === 'gamma' ? o.GEX_BS : greekMode === 'vanna' ? o.VEX_BS : o.CEX_BS
@@ -178,11 +194,11 @@ export function GEXByStrikeChart({
       return -val / 1e9
     })
     return { startCallGEX, startPutGEX }
-  }, [scrollableStrikes, startFilteredData, greekMode, startGexByStrike, startVannaByStrike, startCharmByStrike])
+  }, [scrollableStrikes, enrichedStartFilteredData, greekMode])
 
   const { endCallGEX, endPutGEX } = useMemo(() => {
     const endCallGEX = scrollableStrikes.map(strike => {
-      const callOptions = endFilteredData.filter(o => o.strike === strike && o.type === "C")
+      const callOptions = enrichedEndFilteredData.filter(o => o.strike === strike && o.type === "C")
       let val = 0
       callOptions.forEach(o => {
         const field = greekMode === 'gamma' ? o.GEX_BS : greekMode === 'vanna' ? o.VEX_BS : o.CEX_BS
@@ -191,7 +207,7 @@ export function GEXByStrikeChart({
       return val / 1e9
     })
     const endPutGEX = scrollableStrikes.map(strike => {
-      const putOptions = endFilteredData.filter(o => o.strike === strike && o.type === "P")
+      const putOptions = enrichedEndFilteredData.filter(o => o.strike === strike && o.type === "P")
       let val = 0
       putOptions.forEach(o => {
         const field = greekMode === 'gamma' ? o.GEX_BS : greekMode === 'vanna' ? o.VEX_BS : o.CEX_BS
@@ -200,7 +216,7 @@ export function GEXByStrikeChart({
       return -val / 1e9
     })
     return { endCallGEX, endPutGEX }
-  }, [scrollableStrikes, endFilteredData, greekMode, endGexByStrike, endVannaByStrike, endCharmByStrike])
+  }, [scrollableStrikes, enrichedEndFilteredData, greekMode])
 
   // Zoom range constraints to compute the x-axis scale range
   const xDomain = useMemo<[number, number]>(() => {

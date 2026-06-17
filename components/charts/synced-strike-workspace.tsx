@@ -252,43 +252,59 @@ export function SyncedStrikeWorkspace({
   const activeR = market === 'INDIA' ? ratesInfo.indiaRiskFreeRate : ratesInfo.usRiskFreeRate
   const activeQ = market === 'INDIA' ? 0.012 : 0.013 // 1.2% NIFTY dividend yield vs 1.3% SPX dividend yield
 
+  const enrichedStartOptionData = useMemo(() => {
+    const cloned = startOptionData.map(o => ({ ...o }))
+    computeGEXByStrike(startSpotPrice, cloned, pricingMethod)
+    computeVannaByStrike(startSpotPrice, cloned, activeR, activeQ, pricingMethod)
+    computeCharmByStrike(startSpotPrice, cloned, activeR, activeQ, pricingMethod)
+    return cloned
+  }, [startOptionData, startSpotPrice, pricingMethod, activeR, activeQ])
+
+  const enrichedEndOptionData = useMemo(() => {
+    const cloned = endOptionData.map(o => ({ ...o }))
+    computeGEXByStrike(endSpotPrice, cloned, pricingMethod)
+    computeVannaByStrike(endSpotPrice, cloned, activeR, activeQ, pricingMethod)
+    computeCharmByStrike(endSpotPrice, cloned, activeR, activeQ, pricingMethod)
+    return cloned
+  }, [endOptionData, endSpotPrice, pricingMethod, activeR, activeQ])
+
   const startGexProfile = useMemo(() => {
-    const raw = computeGEXByStrike(startSpotPrice, startOptionData, pricingMethod)
+    const raw = computeGEXByStrike(startSpotPrice, enrichedStartOptionData, pricingMethod)
     return raw.sort((a, b) => a.strike - b.strike)
-  }, [startSpotPrice, startOptionData, pricingMethod])
+  }, [startSpotPrice, enrichedStartOptionData, pricingMethod])
 
   const endGexProfile = useMemo(() => {
-    const raw = computeGEXByStrike(endSpotPrice, endOptionData, pricingMethod)
+    const raw = computeGEXByStrike(endSpotPrice, enrichedEndOptionData, pricingMethod)
     return raw.sort((a, b) => a.strike - b.strike)
-  }, [endSpotPrice, endOptionData, pricingMethod])
+  }, [endSpotPrice, enrichedEndOptionData, pricingMethod])
 
   const startVolProfile = useMemo(() => {
-    const raw = computeVolumeByStrike(startOptionData)
+    const raw = computeVolumeByStrike(enrichedStartOptionData)
     return raw.sort((a, b) => a.strike - b.strike)
-  }, [startOptionData])
+  }, [enrichedStartOptionData])
 
   const endVolProfile = useMemo(() => {
-    const raw = computeVolumeByStrike(endOptionData)
+    const raw = computeVolumeByStrike(enrichedEndOptionData)
     return raw.sort((a, b) => a.strike - b.strike)
-  }, [endOptionData])
+  }, [enrichedEndOptionData])
 
   const startVannaProfile = useMemo(() => {
-    return computeVannaByStrike(startSpotPrice, startOptionData, activeR, activeQ, pricingMethod)
-  }, [startSpotPrice, startOptionData, activeR, activeQ, pricingMethod])
+    return computeVannaByStrike(startSpotPrice, enrichedStartOptionData, activeR, activeQ, pricingMethod)
+  }, [startSpotPrice, enrichedStartOptionData, activeR, activeQ, pricingMethod])
 
   const endVannaProfile = useMemo(() => {
-    return computeVannaByStrike(endSpotPrice, endOptionData, activeR, activeQ, pricingMethod)
-  }, [endSpotPrice, endOptionData, activeR, activeQ, pricingMethod])
+    return computeVannaByStrike(endSpotPrice, enrichedEndOptionData, activeR, activeQ, pricingMethod)
+  }, [endSpotPrice, enrichedEndOptionData, activeR, activeQ, pricingMethod])
 
   const startCharmProfile = useMemo(() => {
-    return computeCharmByStrike(startSpotPrice, startOptionData, activeR, activeQ, pricingMethod)
-  }, [startSpotPrice, startOptionData, activeR, activeQ, pricingMethod])
+    return computeCharmByStrike(startSpotPrice, enrichedStartOptionData, activeR, activeQ, pricingMethod)
+  }, [startSpotPrice, enrichedStartOptionData, activeR, activeQ, pricingMethod])
 
   const endCharmProfile = useMemo(() => {
-    return computeCharmByStrike(endSpotPrice, endOptionData, activeR, activeQ, pricingMethod)
-  }, [endSpotPrice, endOptionData, activeR, activeQ, pricingMethod])
+    return computeCharmByStrike(endSpotPrice, enrichedEndOptionData, activeR, activeQ, pricingMethod)
+  }, [endSpotPrice, enrichedEndOptionData, activeR, activeQ, pricingMethod])
 
-  const endZeroGamma = useMemo(() => findZeroGammaLevel(endOptionData, endSpotPrice), [endOptionData, endSpotPrice])
+  const endZeroGamma = useMemo(() => findZeroGammaLevel(enrichedEndOptionData, endSpotPrice), [enrichedEndOptionData, endSpotPrice])
 
   // Profile data combining NET and ABS exposures
   const leftProfileDataCombined = useMemo(() => {
@@ -302,8 +318,8 @@ export function SyncedStrikeWorkspace({
     ])).sort((a, b) => a - b)
     
     return strikes.map(strike => {
-      const startOptions = startOptionData.filter(o => o.strike === strike)
-      const endOptions = endOptionData.filter(o => o.strike === strike)
+      const startOptions = enrichedStartOptionData.filter(o => o.strike === strike)
+      const endOptions = enrichedEndOptionData.filter(o => o.strike === strike)
       
       let startCallVal = 0
       let startPutVal = 0
@@ -342,7 +358,7 @@ export function SyncedStrikeWorkspace({
     displayMode,
     startGexProfile, endGexProfile,
     startVannaProfile, endVannaProfile,
-    startOptionData, endOptionData
+    enrichedStartOptionData, enrichedEndOptionData
   ])
 
   const rightProfileDataCombined = useMemo(() => {
@@ -356,8 +372,8 @@ export function SyncedStrikeWorkspace({
     ])).sort((a, b) => a - b)
     
     return strikes.map(strike => {
-      const startOptions = startOptionData.filter(o => o.strike === strike)
-      const endOptions = endOptionData.filter(o => o.strike === strike)
+      const startOptions = enrichedStartOptionData.filter(o => o.strike === strike)
+      const endOptions = enrichedEndOptionData.filter(o => o.strike === strike)
       
       let startCallVal = 0
       let startPutVal = 0
@@ -396,7 +412,7 @@ export function SyncedStrikeWorkspace({
     displayMode,
     startVolProfile, endVolProfile,
     startCharmProfile, endCharmProfile,
-    startOptionData, endOptionData
+    enrichedStartOptionData, enrichedEndOptionData
   ])
 
   // Helper to reset to fully zoomed out state
