@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from "react"
 import { JournalTrade } from "./types"
 import { compressImage } from "./image-utils"
-import { Upload, X, AlertTriangle } from "lucide-react"
+import { Upload, X, AlertTriangle, RefreshCw } from "lucide-react"
 
 interface TradeFormProps {
   isOpen: boolean
@@ -24,6 +24,77 @@ const STRATEGIES = [
   "Opening Range Breakout",
   "Custom/Other"
 ]
+
+function normalizeOption(opt: any) {
+  if (!opt) return { strike: 0, type: null, expirationStr: null, price: 0 }
+
+  let strike = 0
+  if (typeof opt.strike === 'number') {
+    strike = opt.strike
+  } else if (opt.strike) {
+    strike = parseFloat(opt.strike)
+  }
+
+  let type: "C" | "P" | null = null
+  const rawType = (opt.type || opt.option_type || '').toString().toUpperCase()
+  if (rawType === 'C' || rawType === 'CALL') {
+    type = 'C'
+  } else if (rawType === 'P' || rawType === 'PUT') {
+    type = 'P'
+  }
+
+  let expirationStr: string | null = null
+  const rawExp = opt.expiration || opt.expiration_date
+  if (rawExp) {
+    if (typeof rawExp === 'string' && /^\d{4}-\d{2}-\d{2}/.test(rawExp)) {
+      expirationStr = rawExp.substring(0, 10)
+    } else {
+      try {
+        const d = new Date(rawExp)
+        if (!isNaN(d.getTime())) {
+          expirationStr = d.toISOString().split('T')[0]
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+
+  // Parse from symbol if fields are missing (e.g. OSI symbol format: [Ticker][YYMMDD][C/P][Strike (8 digits)])
+  const symbol = opt.option || ''
+  const match = symbol.match(/^([A-Z_]+)(\d{6})([CP])(\d{8})$/)
+  if (match) {
+    const [, , yyymmdd, cp, strikeCode] = match
+    
+    if (strike === 0) {
+      strike = parseInt(strikeCode, 10) / 1000
+    }
+    
+    if (!type) {
+      type = cp === 'C' ? 'C' : 'P'
+    }
+    
+    if (!expirationStr) {
+      const yy = yyymmdd.substring(0, 2)
+      const mm = yyymmdd.substring(2, 4)
+      const dd = yyymmdd.substring(4, 6)
+      expirationStr = `20${yy}-${mm}-${dd}`
+    }
+  }
+
+  const bid = parseFloat(opt.bid || '0')
+  const ask = parseFloat(opt.ask || '0')
+  const last = parseFloat(opt.last || opt.lastPrice || opt.last_price || opt.last_trade_price || '0')
+
+  let price = 0
+  if (!isNaN(ask) && ask > 0) {
+    price = ask
+  } else if (!isNaN(last) && last > 0) {
+    price = last
+  }
+
+  return { strike, type, expirationStr, price }
+}
 
 export function TradeForm({ isOpen, onClose, onSubmit, initialTrade }: TradeFormProps) {
   const [ticker, setTicker] = useState("")
@@ -167,23 +238,22 @@ export function TradeForm({ isOpen, onClose, onSubmit, initialTrade }: TradeForm
           }
         } else {
           const options = data.options || []
-          const normalizedExp = expiration // format: YYYY-MM-DD
+          const targetStrike = parseFloat(strike)
+          const targetExp = expiration // format: YYYY-MM-DD
           
           const matched = options.find((opt: any) => {
-            const optExpStr = opt.expiration ? new Date(opt.expiration).toISOString().split('T')[0] : null
+            const normalizedOpt = normalizeOption(opt)
             return (
-              opt.strike === parseFloat(strike) &&
-              opt.type === optionType &&
-              optExpStr === normalizedExp
+              normalizedOpt.strike === targetStrike &&
+              normalizedOpt.type === optionType &&
+              normalizedOpt.expirationStr === targetExp
             )
           })
 
           if (matched) {
-            const price = (matched.bid && matched.ask) 
-              ? (matched.bid + matched.ask) / 2 
-              : (matched.last || 0)
-            if (price > 0) {
-              setCurrentPrice(price.toString())
+            const normalizedOpt = normalizeOption(matched)
+            if (normalizedOpt.price > 0) {
+              setCurrentPrice(normalizedOpt.price.toString())
             }
           }
         }
@@ -588,8 +658,15 @@ export function TradeForm({ isOpen, onClose, onSubmit, initialTrade }: TradeForm
 
               {/* Option Expiration */}
               <div className="flex flex-col gap-1">
-                <div className="flex items-center justify-between">
-                  <label className="text-[#D4D4D4] text-[9px] uppercase font-bold">Contract Expiry</label>
+                <label className="text-[#D4D4D4] text-[9px] uppercase font-bold">Contract Expiry</label>
+                <div className="flex gap-1.5 items-center">
+                  <input
+                    required={tradeType === "Option"}
+                    type="date"
+                    value={expiration}
+                    onChange={(e) => setExpiration(e.target.value)}
+                    className="h-[26px] bg-black border border-[#1A1A1E] text-white px-2.5 rounded outline-none flex-1 focus:border-terminal-green/45"
+                  />
                   <button
                     type="button"
                     onClick={() => {
@@ -597,18 +674,11 @@ export function TradeForm({ isOpen, onClose, onSubmit, initialTrade }: TradeForm
                       setTradeDate(today)
                       setExpiration(today)
                     }}
-                    className="text-[8px] bg-terminal-green/10 text-terminal-green border border-terminal-green/20 px-1.5 py-0.5 rounded hover:bg-terminal-green hover:text-black font-bold uppercase transition-all"
+                    className="h-[26px] text-[10px] bg-terminal-green/10 text-terminal-green border border-terminal-green/20 px-3 rounded hover:bg-terminal-green hover:text-black font-bold uppercase transition-all flex items-center justify-center"
                   >
                     0DTE
                   </button>
                 </div>
-                <input
-                  required={tradeType === "Option"}
-                  type="date"
-                  value={expiration}
-                  onChange={(e) => setExpiration(e.target.value)}
-                  className="bg-black border border-[#1A1A1E] text-white px-2.5 py-1 rounded outline-none w-full focus:border-terminal-green/45"
-                />
               </div>
             </div>
           )}
@@ -646,11 +716,13 @@ export function TradeForm({ isOpen, onClose, onSubmit, initialTrade }: TradeForm
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between">
                   <label className="text-[#D4D4D4] text-[10px] uppercase font-bold">Current Price ($)</label>
-                  <span className={`text-[8px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${
-                    isFetchingPrice ? "bg-terminal-amber/10 text-terminal-amber animate-pulse" : "bg-terminal-green/10 text-terminal-green"
-                  }`}>
-                    {isFetchingPrice ? "Fetching..." : "Live Price"}
-                  </span>
+                  <div className="flex items-center">
+                    {isFetchingPrice ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-terminal-amber" />
+                    ) : (
+                      <span className="w-2 h-2 rounded-full bg-[#00C805] shadow-[0_0_8px_#00C805]" />
+                    )}
+                  </div>
                 </div>
                 <input
                   disabled

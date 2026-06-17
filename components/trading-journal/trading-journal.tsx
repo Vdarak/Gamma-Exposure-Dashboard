@@ -16,6 +16,77 @@ import {
 } from "@/lib/backend-api"
 import { Plus, RefreshCw, X, TrendingUp, ArrowDownRight, Percent, Zap, Calendar as CalendarIcon } from "lucide-react"
 
+function normalizeOption(opt: any) {
+  if (!opt) return { strike: 0, type: null, expirationStr: null, price: 0 }
+
+  let strike = 0
+  if (typeof opt.strike === 'number') {
+    strike = opt.strike
+  } else if (opt.strike) {
+    strike = parseFloat(opt.strike)
+  }
+
+  let type: "C" | "P" | null = null
+  const rawType = (opt.type || opt.option_type || '').toString().toUpperCase()
+  if (rawType === 'C' || rawType === 'CALL') {
+    type = 'C'
+  } else if (rawType === 'P' || rawType === 'PUT') {
+    type = 'P'
+  }
+
+  let expirationStr: string | null = null
+  const rawExp = opt.expiration || opt.expiration_date
+  if (rawExp) {
+    if (typeof rawExp === 'string' && /^\d{4}-\d{2}-\d{2}/.test(rawExp)) {
+      expirationStr = rawExp.substring(0, 10)
+    } else {
+      try {
+        const d = new Date(rawExp)
+        if (!isNaN(d.getTime())) {
+          expirationStr = d.toISOString().split('T')[0]
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+
+  // Parse from symbol if fields are missing (e.g. OSI symbol format: [Ticker][YYMMDD][C/P][Strike (8 digits)])
+  const symbol = opt.option || ''
+  const match = symbol.match(/^([A-Z_]+)(\d{6})([CP])(\d{8})$/)
+  if (match) {
+    const [, , yyymmdd, cp, strikeCode] = match
+    
+    if (strike === 0) {
+      strike = parseInt(strikeCode, 10) / 1000
+    }
+    
+    if (!type) {
+      type = cp === 'C' ? 'C' : 'P'
+    }
+    
+    if (!expirationStr) {
+      const yy = yyymmdd.substring(0, 2)
+      const mm = yyymmdd.substring(2, 4)
+      const dd = yyymmdd.substring(4, 6)
+      expirationStr = `20${yy}-${mm}-${dd}`
+    }
+  }
+
+  const bid = parseFloat(opt.bid || '0')
+  const ask = parseFloat(opt.ask || '0')
+  const last = parseFloat(opt.last || opt.lastPrice || opt.last_price || opt.last_trade_price || '0')
+
+  let price = 0
+  if (!isNaN(ask) && ask > 0) {
+    price = ask
+  } else if (!isNaN(last) && last > 0) {
+    price = last
+  }
+
+  return { strike, type, expirationStr, price }
+}
+
 export function TradingJournal() {
   const [trades, setTrades] = useState<JournalTrade[]>([])
   const [loading, setLoading] = useState(false)
@@ -116,21 +187,26 @@ export function TradingJournal() {
         } else if (trade.tradeType === "Option") {
           // Find option contract matching strike, optionType, expiration
           const options = tickerData.options || []
-          const tradeExpStr = trade.expiration // format: YYYY-MM-DD
+          const targetStrike = trade.strike
+          const targetExp = trade.expiration // format: YYYY-MM-DD
           
           const matchedOpt = options.find((opt: any) => {
-            const optExpStr = opt.expiration ? new Date(opt.expiration).toISOString().split('T')[0] : null
+            const normalizedOpt = normalizeOption(opt)
             return (
-              opt.strike === trade.strike &&
-              opt.type === trade.optionType &&
-              optExpStr === tradeExpStr
+              normalizedOpt.strike === targetStrike &&
+              normalizedOpt.type === trade.optionType &&
+              normalizedOpt.expirationStr === targetExp
             )
           })
 
           if (matchedOpt) {
-            newPrice = (matchedOpt.bid && matchedOpt.ask) 
-              ? (matchedOpt.bid + matchedOpt.ask) / 2 
-              : (matchedOpt.last || 0)
+            const normalizedOpt = normalizeOption(matchedOpt)
+            if (normalizedOpt.price > 0) {
+              newPrice = normalizedOpt.price
+            } else {
+              failedCount++
+              continue
+            }
           } else {
             failedCount++
             continue
