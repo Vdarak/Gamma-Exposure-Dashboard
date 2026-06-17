@@ -429,10 +429,34 @@ export function SyncedStrikeWorkspace({
     ])).sort((a, b) => a - b)
 
     if (allStrikes.length > 0) {
-      const minStrike = allStrikes[0]
-      const maxStrike = allStrikes[allStrikes.length - 1]
-      const pad = (maxStrike - minStrike) * 0.015
-      setYDomain([Math.max(0, minStrike - pad), maxStrike + pad])
+      // Find strike spacing near spot
+      let strikeSpacing = 5 // fallback
+      const strikesNearSpot = allStrikes.filter(s => s >= endSpotPrice * 0.95 && s <= endSpotPrice * 1.05)
+      if (strikesNearSpot.length > 1) {
+        const diffs: number[] = []
+        for (let i = 1; i < strikesNearSpot.length; i++) {
+          const diff = strikesNearSpot[i] - strikesNearSpot[i - 1]
+          if (diff > 0) diffs.push(diff)
+        }
+        if (diffs.length > 0) {
+          diffs.sort((a, b) => a - b)
+          strikeSpacing = diffs[Math.floor(diffs.length / 2)]
+        }
+      }
+
+      // We want to limit the vertical range of strikes to prevent overlapping of bars
+      const chartHeight = dimensions.height - 60 // average padding (margin top 20, margin bottom 40)
+      const minSpacingPixels = 7.5 // bar height is 5px, we want at least 2.5px gap to prevent overlap
+      const maxStrikes = Math.floor(chartHeight / minSpacingPixels)
+      
+      const W = (maxStrikes / 2) * strikeSpacing
+      const minRange = endSpotPrice - W
+      const maxRange = endSpotPrice + W
+
+      const clampedMin = Math.max(allStrikes[0], minRange)
+      const clampedMax = Math.min(allStrikes[allStrikes.length - 1], maxRange)
+      
+      setYDomain([Math.max(0, clampedMin - strikeSpacing * 0.5), clampedMax + strikeSpacing * 0.5])
     } else {
       const pct = expiryMode === '0dte' ? 0.025 : 0.08
       const zoomRange = endSpotPrice * pct
@@ -444,7 +468,7 @@ export function SyncedStrikeWorkspace({
   // 4. Set initial domain based on all strikes (fully zoomed out)
   useEffect(() => {
     resetToFullyZoomedOut()
-  }, [startGexProfile, endGexProfile, startVolProfile, endVolProfile, startVannaProfile, endVannaProfile, startCharmProfile, endCharmProfile, endSpotPrice, ticker, expiryMode, displayMode, candles.length])
+  }, [startGexProfile, endGexProfile, startVolProfile, endVolProfile, startVannaProfile, endVannaProfile, startCharmProfile, endCharmProfile, endSpotPrice, ticker, expiryMode, displayMode, candles.length, dimensions.height])
 
 
   // Global Mouse Move and Mouse Up Listeners for Dragging (TradingView style)
