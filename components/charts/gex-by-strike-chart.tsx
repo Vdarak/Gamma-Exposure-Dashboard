@@ -85,13 +85,9 @@ export function GEXByStrikeChart({
   const activeR = market === 'INDIA' ? ratesInfo.indiaRiskFreeRate : ratesInfo.usRiskFreeRate
   const activeQ = market === 'INDIA' ? 0.012 : 0.013
 
-  // 1. Set default zoom based on ticker: 1% for SPX/SPY, 2% for others
+  // 1. Set default zoom to start fully zoomed out (30%)
   useEffect(() => {
-    if (ticker === 'SPX' || ticker === 'SPY') {
-      setActiveZoom(1)
-    } else {
-      setActiveZoom(2)
-    }
+    setActiveZoom(30)
   }, [ticker])
 
   // Filter data by selected expiries
@@ -161,48 +157,60 @@ export function GEXByStrikeChart({
   const startVolumeValues = useMemo(() => scrollableStrikes.map(s => startVolumeByStrike.find(i => i.strike === s)?.volume || 0), [scrollableStrikes, startVolumeByStrike])
   const endVolumeValues = useMemo(() => scrollableStrikes.map(s => endVolumeByStrike.find(i => i.strike === s)?.volume || 0), [scrollableStrikes, endVolumeByStrike])
 
-  // Absolute GEX
+  // Absolute Exposure (GEX, VEX, Charm based on greekMode)
   const { startCallGEX, startPutGEX } = useMemo(() => {
     const startCallGEX = scrollableStrikes.map(strike => {
       const callOptions = startFilteredData.filter(o => o.strike === strike && o.type === "C")
-      let gex = 0
-      callOptions.forEach(o => { if (o.GEX_BS) gex += Math.abs(o.GEX_BS) })
-      return gex / 1e9
+      let val = 0
+      callOptions.forEach(o => {
+        const field = greekMode === 'gamma' ? o.GEX_BS : greekMode === 'vanna' ? o.VEX_BS : o.CEX_BS
+        if (field) val += Math.abs(field)
+      })
+      return val / 1e9
     })
     const startPutGEX = scrollableStrikes.map(strike => {
       const putOptions = startFilteredData.filter(o => o.strike === strike && o.type === "P")
-      let gex = 0
-      putOptions.forEach(o => { if (o.GEX_BS) gex += Math.abs(o.GEX_BS) })
-      return -gex / 1e9
+      let val = 0
+      putOptions.forEach(o => {
+        const field = greekMode === 'gamma' ? o.GEX_BS : greekMode === 'vanna' ? o.VEX_BS : o.CEX_BS
+        if (field) val += Math.abs(field)
+      })
+      return -val / 1e9
     })
     return { startCallGEX, startPutGEX }
-  }, [scrollableStrikes, startFilteredData])
+  }, [scrollableStrikes, startFilteredData, greekMode, startGexByStrike, startVannaByStrike, startCharmByStrike])
 
   const { endCallGEX, endPutGEX } = useMemo(() => {
     const endCallGEX = scrollableStrikes.map(strike => {
       const callOptions = endFilteredData.filter(o => o.strike === strike && o.type === "C")
-      let gex = 0
-      callOptions.forEach(o => { if (o.GEX_BS) gex += Math.abs(o.GEX_BS) })
-      return gex / 1e9
+      let val = 0
+      callOptions.forEach(o => {
+        const field = greekMode === 'gamma' ? o.GEX_BS : greekMode === 'vanna' ? o.VEX_BS : o.CEX_BS
+        if (field) val += Math.abs(field)
+      })
+      return val / 1e9
     })
     const endPutGEX = scrollableStrikes.map(strike => {
       const putOptions = endFilteredData.filter(o => o.strike === strike && o.type === "P")
-      let gex = 0
-      putOptions.forEach(o => { if (o.GEX_BS) gex += Math.abs(o.GEX_BS) })
-      return -gex / 1e9
+      let val = 0
+      putOptions.forEach(o => {
+        const field = greekMode === 'gamma' ? o.GEX_BS : greekMode === 'vanna' ? o.VEX_BS : o.CEX_BS
+        if (field) val += Math.abs(field)
+      })
+      return -val / 1e9
     })
     return { endCallGEX, endPutGEX }
-  }, [scrollableStrikes, endFilteredData])
+  }, [scrollableStrikes, endFilteredData, greekMode, endGexByStrike, endVannaByStrike, endCharmByStrike])
 
   // Zoom range constraints to compute the x-axis scale range
   const xDomain = useMemo<[number, number]>(() => {
-    const zoomPct = activeZoom || 10
+    const zoomPct = activeZoom || 30
     const range = atmStrike * (zoomPct / 100)
     
     const zoomStrikes = scrollableStrikes.filter(s => s >= atmStrike - range && s <= atmStrike + range)
     if (zoomStrikes.length === 0) return [-1, 1]
 
-    if (showAbsoluteGEX && greekMode === 'gamma') {
+    if (showAbsoluteGEX) {
       const maxStartCall = d3.max(zoomStrikes.map(s => {
         const idx = scrollableStrikes.indexOf(s)
         return idx !== -1 ? Math.abs(startCallGEX[idx]) : 0
@@ -370,7 +378,7 @@ export function GEXByStrikeChart({
     const endValues = greekMode === 'gamma' ? endGammaValues : greekMode === 'vanna' ? endVannaValues : endCharmValues
 
     const barsData = scrollableStrikes.map((strike, i) => {
-      if (showAbsoluteGEX && greekMode === 'gamma') {
+      if (showAbsoluteGEX) {
         return {
           strike,
           startCall: startCallGEX[i],
@@ -395,7 +403,7 @@ export function GEXByStrikeChart({
     })
 
     // Bars
-    if (showAbsoluteGEX && greekMode === 'gamma') {
+    if (showAbsoluteGEX) {
       const absData = barsData.filter(d => d.isAbsolute) as {
         strike: number
         startCall: number
@@ -669,24 +677,24 @@ export function GEXByStrikeChart({
     styleAxis(xAxisG)
 
     // X-axis label
+    let xAxisText = ''
+    if (showAbsoluteGEX) {
+      xAxisText = greekMode === 'gamma' ? 'Gamma (Calls → | ← Puts)' : greekMode === 'vanna' ? 'Vanna (Calls → | ← Puts)' : 'Charm (Calls → | ← Puts)'
+    } else {
+      xAxisText = greekMode === 'gamma' ? 'Net Gamma' : greekMode === 'vanna' ? 'Net Vanna (VEX)' : 'Net Charm (CEX)'
+    }
+
     g.append('text')
       .attr('x', width / 2).attr('y', chartHeight + 36)
       .attr('text-anchor', 'middle')
       .attr('fill', colors.text.secondary)
       .style('font-family', typography.fontSans)
       .style('font-size', '11px')
-      .text(
-        greekMode === 'gamma'
-          ? (showAbsoluteGEX ? 'Gamma (Calls → | ← Puts)' : 'Net Gamma')
-          : (greekMode === 'vanna' ? 'Net Vanna (VEX)' : 'Net Charm (CEX)')
-      )
+      .text(xAxisText)
 
     // Title / Header
-    const titleText = greekMode === 'gamma'
-      ? `${ticker} ${showAbsoluteGEX ? 'Absolute' : 'Net'} Gamma by Strike (${selectedExpiryLabel})`
-      : greekMode === 'vanna'
-        ? `${ticker} Net Vanna by Strike (${selectedExpiryLabel})`
-        : `${ticker} Net Charm by Strike (${selectedExpiryLabel})`
+    const modeLabel = greekMode === 'gamma' ? 'Gamma' : greekMode === 'vanna' ? 'Vanna' : 'Charm'
+    const titleText = `${ticker} ${showAbsoluteGEX ? 'Absolute' : 'Net'} ${modeLabel} by Strike (${selectedExpiryLabel})`
 
     svg.append('text')
       .attr('x', margin.left + width / 2).attr('y', 16)
@@ -729,48 +737,29 @@ export function GEXByStrikeChart({
               Strike ${strike.toFixed(0)}
             </div>
           `
-          if (greekMode === 'gamma') {
-            if (showAbsoluteGEX) {
-              const sCall = startCallGEX[strikeIdx]
-              const eCall = endCallGEX[strikeIdx]
-              const dCall = eCall - sCall
-              const sPut = startPutGEX[strikeIdx]
-              const ePut = endPutGEX[strikeIdx]
-              const dPut = ePut - sPut
-              html += `
-                <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.text.secondary};margin-top:4px">
-                  Call: ${sCall.toFixed(3)}B → ${eCall.toFixed(3)}B (<span style="color:${dCall >= 0 ? '#00C805' : '#FF3B60'}">${dCall >= 0 ? '+' : ''}${dCall.toFixed(3)}B</span>)
-                </div>
-                <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.text.secondary};margin-top:2px">
-                  Put: ${sPut.toFixed(3)}B → ${ePut.toFixed(3)}B (<span style="color:${dPut >= 0 ? '#00C805' : '#FF3B60'}">${dPut >= 0 ? '+' : ''}${dPut.toFixed(3)}B</span>)
-                </div>
-              `
-            } else {
-              const sG = startGammaValues[strikeIdx]
-              const eG = endGammaValues[strikeIdx]
-              const dG = eG - sG
-              html += `
-                <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.text.secondary};margin-top:4px">
-                  Net GEX: ${sG.toFixed(3)}B → ${eG.toFixed(3)}B (<span style="color:${dG >= 0 ? '#00C805' : '#FF3B60'}">${dG >= 0 ? '+' : ''}${dG.toFixed(3)}B</span>)
-                </div>
-              `
-            }
-          } else if (greekMode === 'vanna') {
-            const sV = startVannaValues[strikeIdx]
-            const eV = endVannaValues[strikeIdx]
-            const dV = eV - sV
+          const label = greekMode === 'gamma' ? 'GEX' : greekMode === 'vanna' ? 'Vanna' : 'Charm'
+          if (showAbsoluteGEX) {
+            const sCall = startCallGEX[strikeIdx]
+            const eCall = endCallGEX[strikeIdx]
+            const dCall = eCall - sCall
+            const sPut = Math.abs(startPutGEX[strikeIdx])
+            const ePut = Math.abs(endPutGEX[strikeIdx])
+            const dPut = ePut - sPut
             html += `
               <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.text.secondary};margin-top:4px">
-                Net Vanna: ${sV.toFixed(3)}B → ${eV.toFixed(3)}B (<span style="color:${dV >= 0 ? '#00C805' : '#FF3B60'}">${dV >= 0 ? '+' : ''}${dV.toFixed(3)}B</span>)
+                Call ${label}: ${sCall.toFixed(3)}B → ${eCall.toFixed(3)}B (<span style="color:${dCall >= 0 ? '#00C805' : '#FF3B60'}">${dCall >= 0 ? '+' : ''}${dCall.toFixed(3)}B</span>)
+              </div>
+              <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.text.secondary};margin-top:2px">
+                Put ${label}: ${sPut.toFixed(3)}B → ${ePut.toFixed(3)}B (<span style="color:${dPut >= 0 ? '#00C805' : '#FF3B60'}">${dPut >= 0 ? '+' : ''}${dPut.toFixed(3)}B</span>)
               </div>
             `
-          } else if (greekMode === 'charm') {
-            const sC = startCharmValues[strikeIdx]
-            const eC = endCharmValues[strikeIdx]
-            const dC = eC - sC
+          } else {
+            const sG = greekMode === 'gamma' ? startGammaValues[strikeIdx] : greekMode === 'vanna' ? startVannaValues[strikeIdx] : startCharmValues[strikeIdx]
+            const eG = greekMode === 'gamma' ? endGammaValues[strikeIdx] : greekMode === 'vanna' ? endVannaValues[strikeIdx] : endCharmValues[strikeIdx]
+            const dG = eG - sG
             html += `
               <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.text.secondary};margin-top:4px">
-                Net Charm: ${sC.toFixed(3)}B → ${eC.toFixed(3)}B (<span style="color:${dC >= 0 ? '#00C805' : '#FF3B60'}">${dC >= 0 ? '+' : ''}${dC.toFixed(3)}B</span>)
+                Net ${label}: ${sG.toFixed(3)}B → ${eG.toFixed(3)}B (<span style="color:${dG >= 0 ? '#00C805' : '#FF3B60'}">${dG >= 0 ? '+' : ''}${dG.toFixed(3)}B</span>)
               </div>
             `
           }
@@ -1086,19 +1075,17 @@ export function GEXByStrikeChart({
             </span>
           )}
           
-          {greekMode === 'gamma' && (
-            <button
-              className={`px-2 py-0.5 rounded text-xxs font-mono border transition-colors ${
-                showAbsoluteGEX
-                  ? 'text-terminal-green border-terminal-green/30'
-                  : 'text-terminal-purple border-terminal-purple/30'
-              }`}
-              onClick={() => setShowAbsoluteGEX(!showAbsoluteGEX)}
-              type="button"
-            >
-              {showAbsoluteGEX ? "ABS" : "NET"}
-            </button>
-          )}
+          <button
+            className={`px-2 py-0.5 rounded text-xxs font-mono border transition-colors ${
+              showAbsoluteGEX
+                ? 'text-terminal-green border-terminal-green/30'
+                : 'text-terminal-purple border-terminal-purple/30'
+            }`}
+            onClick={() => setShowAbsoluteGEX(!showAbsoluteGEX)}
+            type="button"
+          >
+            {showAbsoluteGEX ? "ABS" : "NET"}
+          </button>
           
           <button
             className={`px-1.5 py-0.5 rounded text-xxs font-mono border transition-colors ${

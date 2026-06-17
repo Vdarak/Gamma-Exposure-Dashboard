@@ -59,10 +59,11 @@ export function SyncedStrikeWorkspace({
 
   const [dimensions, setDimensions] = useState({ width: 1000, height: 500 })
   const [yDomain, setYDomain] = useState<[number, number]>([0, 0])
-  const [xRange, setXRange] = useState<[number, number]>([40, 80])
+  const [xRange, setXRange] = useState<[number, number]>([0, 80])
   
   // Timeframe state: defaults to 1D (Daily), switches to 5m for 0DTE
   const [timeframe, setTimeframe] = useState<string>('1D')
+  const [showAbsolute, setShowAbsolute] = useState(false)
   const [candlesData, setCandlesData] = useState<any[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
 
@@ -119,14 +120,14 @@ export function SyncedStrikeWorkspace({
         if (active && res.success && Array.isArray(res.candles) && res.candles.length > 0) {
           setCandlesData(res.candles)
           const len = res.candles.length
-          setXRange([Math.max(0, len - 40), len])
+          setXRange([0, len])
         }
       })
       .catch(err => {
         console.warn('Unable to load real history. Falling back to mock generator.', err)
         // Clear candlesData so we fall back to mock walk
         setCandlesData([])
-        setXRange([40, 80])
+        setXRange([0, 80])
       })
       .finally(() => {
         if (active) setLoadingHistory(false)
@@ -289,10 +290,117 @@ export function SyncedStrikeWorkspace({
 
   const endZeroGamma = useMemo(() => findZeroGammaLevel(endOptionData, endSpotPrice), [endOptionData, endSpotPrice])
 
-  // 4. Set initial domain based on Spot Price & Active Mode
-  useEffect(() => {
-    const activeProfile = displayMode === 'gamma-vol' ? endGexProfile : endVannaProfile
-    const activeProfileRight = displayMode === 'gamma-vol' ? endVolProfile : endCharmProfile
+  // Profile data combining NET and ABS exposures
+  const leftProfileDataCombined = useMemo(() => {
+    const isGammaMode = displayMode === 'gamma-vol'
+    const startProfile = isGammaMode ? startGexProfile : startVannaProfile
+    const endProfile = isGammaMode ? endGexProfile : endVannaProfile
+    
+    const strikes = Array.from(new Set([
+      ...startProfile.map(p => p.strike),
+      ...endProfile.map(p => p.strike),
+    ])).sort((a, b) => a - b)
+    
+    return strikes.map(strike => {
+      const startOptions = startOptionData.filter(o => o.strike === strike)
+      const endOptions = endOptionData.filter(o => o.strike === strike)
+      
+      let startCallVal = 0
+      let startPutVal = 0
+      let endCallVal = 0
+      let endPutVal = 0
+      
+      startOptions.forEach(o => {
+        const val = isGammaMode ? (o.GEX_BS || 0) : (o.VEX_BS || 0)
+        if (o.type === 'C') startCallVal += Math.abs(val)
+        else startPutVal += Math.abs(val)
+      })
+      
+      endOptions.forEach(o => {
+        const val = isGammaMode ? (o.GEX_BS || 0) : (o.VEX_BS || 0)
+        if (o.type === 'C') endCallVal += Math.abs(val)
+        else endPutVal += Math.abs(val)
+      })
+      
+      const startItem = startProfile.find(p => p.strike === strike)
+      const endItem = endProfile.find(p => p.strike === strike)
+      
+      const startNetVal = startItem ? (isGammaMode ? ((startItem as any).gex || 0) : ((startItem as any).vanna || 0)) : 0
+      const endNetVal = endItem ? (isGammaMode ? ((endItem as any).gex || 0) : ((endItem as any).vanna || 0)) : 0
+      
+      return {
+        strike,
+        startNetVal,
+        endNetVal,
+        startCallVal: startCallVal / 1e9,
+        startPutVal: -startPutVal / 1e9,
+        endCallVal: endCallVal / 1e9,
+        endPutVal: -endPutVal / 1e9,
+      }
+    })
+  }, [
+    displayMode,
+    startGexProfile, endGexProfile,
+    startVannaProfile, endVannaProfile,
+    startOptionData, endOptionData
+  ])
+
+  const rightProfileDataCombined = useMemo(() => {
+    const isVolMode = displayMode === 'gamma-vol'
+    const startProfile = isVolMode ? startVolProfile : startCharmProfile
+    const endProfile = isVolMode ? endVolProfile : endCharmProfile
+    
+    const strikes = Array.from(new Set([
+      ...startProfile.map(p => p.strike),
+      ...endProfile.map(p => p.strike),
+    ])).sort((a, b) => a - b)
+    
+    return strikes.map(strike => {
+      const startOptions = startOptionData.filter(o => o.strike === strike)
+      const endOptions = endOptionData.filter(o => o.strike === strike)
+      
+      let startCallVal = 0
+      let startPutVal = 0
+      let endCallVal = 0
+      let endPutVal = 0
+      
+      startOptions.forEach(o => {
+        const val = isVolMode ? (o.volume || 0) : (o.CEX_BS || 0)
+        if (o.type === 'C') startCallVal += Math.abs(val)
+        else startPutVal += Math.abs(val)
+      })
+      
+      endOptions.forEach(o => {
+        const val = isVolMode ? (o.volume || 0) : (o.CEX_BS || 0)
+        if (o.type === 'C') endCallVal += Math.abs(val)
+        else endPutVal += Math.abs(val)
+      })
+      
+      const startItem = startProfile.find(p => p.strike === strike)
+      const endItem = endProfile.find(p => p.strike === strike)
+      
+      const startNetVal = startItem ? (isVolMode ? ((startItem as any).volume || 0) : ((startItem as any).charm || 0)) : 0
+      const endNetVal = endItem ? (isVolMode ? ((endItem as any).volume || 0) : ((endItem as any).charm || 0)) : 0
+      
+      return {
+        strike,
+        startNetVal,
+        endNetVal,
+        startCallVal: startCallVal / 1e9,
+        startPutVal: -startPutVal / 1e9,
+        endCallVal: endCallVal / 1e9,
+        endPutVal: -endPutVal / 1e9,
+      }
+    })
+  }, [
+    displayMode,
+    startVolProfile, endVolProfile,
+    startCharmProfile, endCharmProfile,
+    startOptionData, endOptionData
+  ])
+
+  // Helper to reset to fully zoomed out state
+  const resetToFullyZoomedOut = () => {
     const allStrikes = Array.from(new Set([
       ...startGexProfile.map(p => p.strike),
       ...endGexProfile.map(p => p.strike),
@@ -304,16 +412,23 @@ export function SyncedStrikeWorkspace({
       ...endCharmProfile.map(p => p.strike),
     ])).sort((a, b) => a - b)
 
-    if (allStrikes.length === 0) {
+    if (allStrikes.length > 0) {
+      const minStrike = allStrikes[0]
+      const maxStrike = allStrikes[allStrikes.length - 1]
+      const pad = (maxStrike - minStrike) * 0.015
+      setYDomain([Math.max(0, minStrike - pad), maxStrike + pad])
+    } else {
       const pct = expiryMode === '0dte' ? 0.025 : 0.08
-      setYDomain([endSpotPrice * (1 - pct), endSpotPrice * (1 + pct)])
-      return
+      const zoomRange = endSpotPrice * pct
+      setYDomain([endSpotPrice - zoomRange, endSpotPrice + zoomRange])
     }
+    setXRange([0, candles.length])
+  }
 
-    const pct = expiryMode === '0dte' ? 0.025 : 0.08
-    const zoomRange = endSpotPrice * pct
-    setYDomain([endSpotPrice - zoomRange, endSpotPrice + zoomRange])
-  }, [startGexProfile, endGexProfile, startVolProfile, endVolProfile, startVannaProfile, endVannaProfile, startCharmProfile, endCharmProfile, endSpotPrice, ticker, expiryMode, displayMode])
+  // 4. Set initial domain based on all strikes (fully zoomed out)
+  useEffect(() => {
+    resetToFullyZoomedOut()
+  }, [startGexProfile, endGexProfile, startVolProfile, endVolProfile, startVannaProfile, endVannaProfile, startCharmProfile, endCharmProfile, endSpotPrice, ticker, expiryMode, displayMode, candles.length])
 
 
   // Global Mouse Move and Mouse Up Listeners for Dragging (TradingView style)
@@ -415,11 +530,13 @@ export function SyncedStrikeWorkspace({
     const isPriceScale = isCandlesCollapsed || clickX >= (rect.width - 45)
     
     if (isPriceScale) {
-      const pct = expiryMode === '0dte' ? 0.025 : 0.08
-      const zoomRange = endSpotPrice * pct
-      setYDomain([endSpotPrice - zoomRange, endSpotPrice + zoomRange])
-      setXRange([Math.max(0, candles.length - 40), candles.length])
+      resetToFullyZoomedOut()
     }
+  }
+
+  // Double click resets zoom from profile charts
+  const handleProfileDoubleClick = () => {
+    resetToFullyZoomedOut()
   }
 
   // Mouse down on profile charts (always acts as a vertical pan/drag)
@@ -432,14 +549,6 @@ export function SyncedStrikeWorkspace({
       initialYDomain: [...yDomain] as [number, number],
       initialXRange: [...xRange] as [number, number],
     })
-  }
-
-  // Double click resets zoom from profile charts
-  const handleProfileDoubleClick = () => {
-    const pct = expiryMode === '0dte' ? 0.025 : 0.08
-    const zoomRange = endSpotPrice * pct
-    setYDomain([endSpotPrice - zoomRange, endSpotPrice + zoomRange])
-    setXRange([Math.max(0, candles.length - 40), candles.length])
   }
 
   // ─── D3 Rendering ───
@@ -677,32 +786,19 @@ export function SyncedStrikeWorkspace({
       const g = gexSvg.append('g').attr('transform', `translate(${margin.right},${margin.top})`)
       const width = profileWidth - margin.right - margin.left
 
-      const startProfile = displayMode === 'gamma-vol' ? startGexProfile : startVannaProfile
-      const endProfile = displayMode === 'gamma-vol' ? endGexProfile : endVannaProfile
+      const leftProfileData = leftProfileDataCombined.filter(p => p.strike >= yDomain[0] && p.strike <= yDomain[1])
 
-      const leftStrikes = Array.from(new Set([
-        ...startProfile.map(p => p.strike),
-        ...endProfile.map(p => p.strike),
-      ])).sort((a, b) => a - b)
-
-      const getProfileVal = (profile: any[], strike: number) => {
-        const item = profile.find(p => p.strike === strike)
-        if (!item) return 0
-        return displayMode === 'gamma-vol' ? (item.gex || 0) : (item.vanna || 0)
+      let maxVal = 1
+      if (showAbsolute) {
+        maxVal = (d3.max(leftProfileData.map(p => Math.max(
+          Math.abs(p.startCallVal), Math.abs(p.endCallVal),
+          Math.abs(p.startPutVal), Math.abs(p.endPutVal)
+        ))) || 1) * 1.1
+      } else {
+        maxVal = (d3.max(leftProfileData.map(p => Math.max(
+          Math.abs(p.startNetVal), Math.abs(p.endNetVal)
+        ))) || 1) * 1.1
       }
-
-      const leftProfileData = leftStrikes.map(strike => {
-        const startVal = getProfileVal(startProfile, strike)
-        const endVal = getProfileVal(endProfile, strike)
-        return {
-          strike,
-          startVal,
-          endVal,
-          delta: endVal - startVal
-        }
-      }).filter(p => p.strike >= yDomain[0] && p.strike <= yDomain[1])
-
-      const maxVal = (d3.max(leftProfileData.map(p => Math.max(Math.abs(p.startVal), Math.abs(p.endVal)))) || 1) * 1.1
 
       const xScale = d3.scaleLinear()
         .domain([-maxVal, maxVal])
@@ -756,45 +852,132 @@ export function SyncedStrikeWorkspace({
         const y = yScale(p.strike)
         if (y === undefined || y < 0 || y > chartHeight) return
 
-        if (!isLive) {
-          // 1. Draw Start bar (Solid, 35% opacity)
-          const startWidth = Math.abs(xScale(p.startVal) - xScale(0))
-          const startX = p.startVal >= 0 ? xScale(0) : xScale(p.startVal)
+        if (showAbsolute) {
+          // Absolute Mode: Draw Call bars (green, right) and Put bars (red, left)
+          if (!isLive) {
+            // Start Call bar (Solid green, 35% opacity)
+            const startCallWidth = Math.abs(xScale(p.startCallVal) - xScale(0))
+            g.append('rect')
+              .attr('x', xScale(0)).attr('y', y - 2)
+              .attr('width', Math.max(1, startCallWidth))
+              .attr('height', 5)
+              .attr('fill', 'rgba(0, 200, 5, 0.35)')
+              .attr('stroke', '#00C805')
+              .attr('stroke-opacity', 0.35)
+              .attr('stroke-width', 0.5)
+              .attr('rx', 1)
+
+            // Start Put bar (Solid red, 35% opacity)
+            const startPutWidth = Math.abs(xScale(p.startPutVal) - xScale(0))
+            g.append('rect')
+              .attr('x', xScale(p.startPutVal)).attr('y', y - 2)
+              .attr('width', Math.max(1, startPutWidth))
+              .attr('height', 5)
+              .attr('fill', 'rgba(255, 59, 96, 0.35)')
+              .attr('stroke', '#FF3B60')
+              .attr('stroke-opacity', 0.35)
+              .attr('stroke-width', 0.5)
+              .attr('rx', 1)
+          }
+
+          // End Call bar (Solid green, 80% opacity)
+          const endCallWidth = Math.abs(xScale(p.endCallVal) - xScale(0))
           g.append('rect')
-            .attr('x', startX).attr('y', y - 2)
-            .attr('width', Math.max(1, startWidth))
+            .attr('x', xScale(0)).attr('y', y - 2)
+            .attr('width', Math.max(1, endCallWidth))
             .attr('height', 5)
-            .attr('fill', p.startVal >= 0 ? 'rgba(0, 200, 5, 0.35)' : 'rgba(255, 59, 96, 0.35)')
-            .attr('stroke', p.startVal >= 0 ? '#00C805' : '#FF3B60')
-            .attr('stroke-opacity', 0.35)
+            .attr('fill', 'rgba(0, 200, 5, 0.8)')
+            .attr('stroke', '#00C805')
+            .attr('stroke-opacity', 0.8)
             .attr('stroke-width', 0.5)
             .attr('rx', 1)
-        }
 
-        // 2. Draw End bar (Solid, 80% opacity)
-        const endWidth = Math.abs(xScale(p.endVal) - xScale(0))
-        const endX = p.endVal >= 0 ? xScale(0) : xScale(p.endVal)
-        g.append('rect')
-          .attr('x', endX).attr('y', y - 2)
-          .attr('width', Math.max(1, endWidth))
-          .attr('height', 5)
-          .attr('fill', p.endVal >= 0 ? 'rgba(0, 200, 5, 0.8)' : 'rgba(255, 59, 96, 0.8)')
-          .attr('stroke', p.endVal >= 0 ? '#00C805' : '#FF3B60')
-          .attr('stroke-opacity', 0.8)
-          .attr('stroke-width', 0.5)
-          .attr('rx', 1)
+          // End Put bar (Solid red, 80% opacity)
+          const endPutWidth = Math.abs(xScale(p.endPutVal) - xScale(0))
+          g.append('rect')
+            .attr('x', xScale(p.endPutVal)).attr('y', y - 2)
+            .attr('width', Math.max(1, endPutWidth))
+            .attr('height', 5)
+            .attr('fill', 'rgba(255, 59, 96, 0.8)')
+            .attr('stroke', '#FF3B60')
+            .attr('stroke-opacity', 0.8)
+            .attr('stroke-width', 0.5)
+            .attr('rx', 1)
 
-        if (!isLive) {
-          // 3. Draw Delta change bar (Striped, 95% opacity)
-          if (Math.abs(p.delta) > 1e-5) {
-            const deltaWidth = Math.abs(xScale(p.endVal) - xScale(p.startVal))
-            const deltaX = xScale(Math.min(p.startVal, p.endVal))
+          if (!isLive) {
+            // Delta Call change bar
+            const deltaCall = p.endCallVal - p.startCallVal
+            if (Math.abs(deltaCall) > 1e-5) {
+              const deltaWidth = Math.abs(xScale(p.endCallVal) - xScale(p.startCallVal))
+              const deltaX = xScale(Math.min(p.startCallVal, p.endCallVal))
+              g.append('rect')
+                .attr('x', deltaX).attr('y', y - 2)
+                .attr('width', Math.max(1, deltaWidth))
+                .attr('height', 5)
+                .attr('fill', deltaCall >= 0 ? 'url(#increase-stripes-left)' : 'url(#decrease-stripes-left)')
+                .attr('stroke', deltaCall >= 0 ? '#00C805' : '#FF3B60')
+                .attr('stroke-opacity', 0.95)
+                .attr('stroke-width', 0.5)
+                .attr('rx', 1)
+            }
+
+            // Delta Put change bar (magnitude change)
+            const deltaPutRaw = Math.abs(p.endPutVal) - Math.abs(p.startPutVal)
+            const deltaPutWidth = Math.abs(xScale(p.endPutVal) - xScale(p.startPutVal))
+            const deltaPutX = xScale(Math.min(p.startPutVal, p.endPutVal))
+            if (Math.abs(deltaPutRaw) > 1e-5) {
+              g.append('rect')
+                .attr('x', deltaPutX).attr('y', y - 2)
+                .attr('width', Math.max(1, deltaPutWidth))
+                .attr('height', 5)
+                .attr('fill', deltaPutRaw >= 0 ? 'url(#increase-stripes-left)' : 'url(#decrease-stripes-left)')
+                .attr('stroke', deltaPutRaw >= 0 ? '#00C805' : '#FF3B60')
+                .attr('stroke-opacity', 0.95)
+                .attr('stroke-width', 0.5)
+                .attr('rx', 1)
+            }
+          }
+        } else {
+          // Net Mode
+          const startVal = p.startNetVal
+          const endVal = p.endNetVal
+          const delta = endVal - startVal
+
+          if (!isLive) {
+            const startWidth = Math.abs(xScale(startVal) - xScale(0))
+            const startX = startVal >= 0 ? xScale(0) : xScale(startVal)
+            g.append('rect')
+              .attr('x', startX).attr('y', y - 2)
+              .attr('width', Math.max(1, startWidth))
+              .attr('height', 5)
+              .attr('fill', startVal >= 0 ? 'rgba(0, 200, 5, 0.35)' : 'rgba(255, 59, 96, 0.35)')
+              .attr('stroke', startVal >= 0 ? '#00C805' : '#FF3B60')
+              .attr('stroke-opacity', 0.35)
+              .attr('stroke-width', 0.5)
+              .attr('rx', 1)
+          }
+
+          const endWidth = Math.abs(xScale(endVal) - xScale(0))
+          const endX = endVal >= 0 ? xScale(0) : xScale(endVal)
+          g.append('rect')
+            .attr('x', endX).attr('y', y - 2)
+            .attr('width', Math.max(1, endWidth))
+            .attr('height', 5)
+            .attr('fill', endVal >= 0 ? 'rgba(0, 200, 5, 0.8)' : 'rgba(255, 59, 96, 0.8)')
+            .attr('stroke', endVal >= 0 ? '#00C805' : '#FF3B60')
+            .attr('stroke-opacity', 0.8)
+            .attr('stroke-width', 0.5)
+            .attr('rx', 1)
+
+          if (!isLive && Math.abs(delta) > 1e-5) {
+            const deltaWidth = Math.abs(xScale(endVal) - xScale(startVal))
+            const deltaX = xScale(Math.min(startVal, endVal))
             g.append('rect')
               .attr('x', deltaX).attr('y', y - 2)
               .attr('width', Math.max(1, deltaWidth))
               .attr('height', 5)
-              .attr('fill', p.delta >= 0 ? 'url(#increase-stripes-left)' : 'url(#decrease-stripes-left)')
-              .attr('stroke', p.delta >= 0 ? '#00C805' : '#FF3B60')
+              .attr('fill', delta >= 0 ? 'url(#increase-stripes-left)' : 'url(#decrease-stripes-left)')
+              .attr('stroke', delta >= 0 ? '#00C805' : '#FF3B60')
               .attr('stroke-opacity', 0.95)
               .attr('stroke-width', 0.5)
               .attr('rx', 1)
@@ -834,7 +1017,9 @@ export function SyncedStrikeWorkspace({
         .attr('x', width / 2).attr('y', chartHeight + 32)
         .attr('text-anchor', 'middle')
         .attr('fill', '#949494').style('font-family', typography.fontSans).style('font-size', '9px')
-        .text(displayMode === 'gamma-vol' ? 'GEX Profile' : 'Vanna Profile (VEX)')
+        .text(displayMode === 'gamma-vol' 
+          ? (showAbsolute ? 'Absolute GEX (Calls → | ← Puts)' : 'GEX Profile') 
+          : (showAbsolute ? 'Absolute VEX (Calls → | ← Puts)' : 'Vanna Profile (VEX)'))
 
       // Hover overlay (tooltips only)
       g.append('rect')
@@ -850,29 +1035,61 @@ export function SyncedStrikeWorkspace({
 
           if (closest && tooltipRef.current && containerRef.current) {
             const containerRect = containerRef.current.getBoundingClientRect()
-            const labelText = displayMode === 'gamma-vol' ? 'Net GEX' : 'Net Vanna'
+            const isGamma = displayMode === 'gamma-vol'
+            const greekLabel = isGamma ? 'GEX' : 'Vanna'
             
             let htmlContent = `
               <div style="font-family:${typography.fontSans};font-size:12px;color:${colors.text.primary};font-weight:600">Strike ${closest.strike.toFixed(0)}</div>
             `
-            if (isLive) {
-              htmlContent += `
-                <div style="font-family:${typography.fontMono};font-size:11px;color:${closest.endVal >= 0 ? '#00C805' : '#FF3B60'};margin-top:2.5px;font-weight:bold">
-                  ${labelText}: ${formatBillions(closest.endVal)}
-                </div>
-              `
+            if (showAbsolute) {
+              if (isLive) {
+                htmlContent += `
+                  <div style="font-family:${typography.fontMono};font-size:11px;color:#00C805;margin-top:2.5px;font-weight:bold">
+                    Call ${greekLabel}: ${formatBillions(closest.endCallVal)}
+                  </div>
+                  <div style="font-family:${typography.fontMono};font-size:11px;color:#FF3B60;margin-top:2.5px;font-weight:bold">
+                    Put ${greekLabel}: ${formatBillions(Math.abs(closest.endPutVal))}
+                  </div>
+                `
+              } else {
+                const deltaCall = closest.endCallVal - closest.startCallVal
+                const deltaPut = Math.abs(closest.endPutVal) - Math.abs(closest.startPutVal)
+                htmlContent += `
+                  <div style="font-family:${typography.fontMono};font-size:11px;color:#949494;margin-top:2.5px">
+                    Start Call/Put: ${formatBillions(closest.startCallVal)} / ${formatBillions(Math.abs(closest.startPutVal))}
+                  </div>
+                  <div style="font-family:${typography.fontMono};font-size:11px;color:#E5E5E5;margin-top:2.5px">
+                    End Call/Put: ${formatBillions(closest.endCallVal)} / ${formatBillions(Math.abs(closest.endPutVal))}
+                  </div>
+                  <div style="font-family:${typography.fontMono};font-size:11px;color:#00C805;margin-top:2.5px;font-weight:bold">
+                    Call Change: ${deltaCall >= 0 ? '+' : ''}${formatBillions(deltaCall)}
+                  </div>
+                  <div style="font-family:${typography.fontMono};font-size:11px;color:#FF3B60;margin-top:2.5px;font-weight:bold">
+                    Put Change: ${deltaPut >= 0 ? '+' : ''}${formatBillions(deltaPut)}
+                  </div>
+                `
+              }
             } else {
-              htmlContent += `
-                <div style="font-family:${typography.fontMono};font-size:11px;color:#949494;margin-top:2.5px">
-                  Start ${labelText}: ${formatBillions(closest.startVal)}
-                </div>
-                <div style="font-family:${typography.fontMono};font-size:11px;color:#E5E5E5;margin-top:2.5px">
-                  End ${labelText}: ${formatBillions(closest.endVal)}
-                </div>
-                <div style="font-family:${typography.fontMono};font-size:11px;color:${closest.delta >= 0 ? '#00C805' : '#FF3B60'};margin-top:2.5px;font-weight:bold">
-                  Change: ${closest.delta >= 0 ? '+' : ''}${formatBillions(closest.delta)}
-                </div>
-              `
+              if (isLive) {
+                htmlContent += `
+                  <div style="font-family:${typography.fontMono};font-size:11px;color:${closest.endNetVal >= 0 ? '#00C805' : '#FF3B60'};margin-top:2.5px;font-weight:bold">
+                    Net ${greekLabel}: ${formatBillions(closest.endNetVal)}
+                  </div>
+                `
+              } else {
+                const deltaNet = closest.endNetVal - closest.startNetVal
+                htmlContent += `
+                  <div style="font-family:${typography.fontMono};font-size:11px;color:#949494;margin-top:2.5px">
+                    Start Net ${greekLabel}: ${formatBillions(closest.startNetVal)}
+                  </div>
+                  <div style="font-family:${typography.fontMono};font-size:11px;color:#E5E5E5;margin-top:2.5px">
+                    End Net ${greekLabel}: ${formatBillions(closest.endNetVal)}
+                  </div>
+                  <div style="font-family:${typography.fontMono};font-size:11px;color:${deltaNet >= 0 ? '#00C805' : '#FF3B60'};margin-top:2.5px;font-weight:bold">
+                    Change: ${deltaNet >= 0 ? '+' : ''}${formatBillions(deltaNet)}
+                  </div>
+                `
+              }
             }
             tooltipRef.current.innerHTML = htmlContent
             tooltipRef.current.style.opacity = '1'
@@ -888,33 +1105,22 @@ export function SyncedStrikeWorkspace({
       const g = volSvg.append('g').attr('transform', `translate(${margin.right},${margin.top})`)
       const width = profileWidth - margin.right - margin.left
 
-      const startProfileRight = displayMode === 'gamma-vol' ? startVolProfile : startCharmProfile
-      const endProfileRight = displayMode === 'gamma-vol' ? endVolProfile : endCharmProfile
+      const rightProfileData = rightProfileDataCombined.filter(p => p.strike >= yDomain[0] && p.strike <= yDomain[1])
 
-      const rightStrikes = Array.from(new Set([
-        ...startProfileRight.map(p => p.strike),
-        ...endProfileRight.map(p => p.strike),
-      ])).sort((a, b) => a - b)
-
-      const getProfileValRight = (profile: any[], strike: number) => {
-        const item = profile.find(p => p.strike === strike)
-        if (!item) return 0
-        return displayMode === 'gamma-vol' ? (item.volume || 0) : (item.charm || 0)
-      }
-
-      const rightProfileData = rightStrikes.map(strike => {
-        const startVal = getProfileValRight(startProfileRight, strike)
-        const endVal = getProfileValRight(endProfileRight, strike)
-        return {
-          strike,
-          startVal,
-          endVal,
-          delta: endVal - startVal
-        }
-      }).filter(p => p.strike >= yDomain[0] && p.strike <= yDomain[1])
-
+      const isVolMode = displayMode === 'gamma-vol'
       const isSymmetric = displayMode === 'vanna-charm'
-      const maxVal = (d3.max(rightProfileData.map(p => Math.max(Math.abs(p.startVal), Math.abs(p.endVal)))) || 1) * 1.1
+      
+      let maxVal = 1
+      if (showAbsolute && !isVolMode) {
+        maxVal = (d3.max(rightProfileData.map(p => Math.max(
+          Math.abs(p.startCallVal), Math.abs(p.endCallVal),
+          Math.abs(p.startPutVal), Math.abs(p.endPutVal)
+        ))) || 1) * 1.1
+      } else {
+        maxVal = (d3.max(rightProfileData.map(p => Math.max(
+          Math.abs(p.startNetVal), Math.abs(p.endNetVal)
+        ))) || 1) * 1.1
+      }
 
       const xScale = d3.scaleLinear()
         .domain(isSymmetric ? [-maxVal, maxVal] : [0, maxVal])
@@ -970,53 +1176,140 @@ export function SyncedStrikeWorkspace({
         const y = yScale(p.strike)
         if (y === undefined || y < 0 || y > chartHeight) return
 
-        if (!isLive) {
-          // 1. Draw Start bar (Solid, 35% opacity)
-          const startWidth = Math.abs(xScale(p.startVal) - xScale(0))
-          const startX = isSymmetric ? (p.startVal >= 0 ? xScale(0) : xScale(p.startVal)) : xScale(0)
+        if (showAbsolute && !isVolMode) {
+          // Absolute Mode for Charm
+          if (!isLive) {
+            // Start Call bar
+            const startCallWidth = Math.abs(xScale(p.startCallVal) - xScale(0))
+            g.append('rect')
+              .attr('x', xScale(0)).attr('y', y - 2)
+              .attr('width', Math.max(1, startCallWidth))
+              .attr('height', 5)
+              .attr('fill', 'rgba(0, 200, 5, 0.35)')
+              .attr('stroke', '#00C805')
+              .attr('stroke-opacity', 0.35)
+              .attr('stroke-width', 0.5)
+              .attr('rx', 1)
+
+            // Start Put bar
+            const startPutWidth = Math.abs(xScale(p.startPutVal) - xScale(0))
+            g.append('rect')
+              .attr('x', xScale(p.startPutVal)).attr('y', y - 2)
+              .attr('width', Math.max(1, startPutWidth))
+              .attr('height', 5)
+              .attr('fill', 'rgba(255, 59, 96, 0.35)')
+              .attr('stroke', '#FF3B60')
+              .attr('stroke-opacity', 0.35)
+              .attr('stroke-width', 0.5)
+              .attr('rx', 1)
+          }
+
+          // End Call bar
+          const endCallWidth = Math.abs(xScale(p.endCallVal) - xScale(0))
           g.append('rect')
-            .attr('x', startX).attr('y', y - 2)
-            .attr('width', Math.max(1, startWidth))
+            .attr('x', xScale(0)).attr('y', y - 2)
+            .attr('width', Math.max(1, endCallWidth))
             .attr('height', 5)
-            .attr('fill', isSymmetric 
-              ? (p.startVal >= 0 ? 'rgba(0, 200, 5, 0.35)' : 'rgba(255, 59, 96, 0.35)') 
-              : 'rgba(0, 200, 255, 0.35)')
-            .attr('stroke', isSymmetric 
-              ? (p.startVal >= 0 ? '#00C805' : '#FF3B60') 
-              : '#00C8FF')
-            .attr('stroke-opacity', 0.35)
+            .attr('fill', 'rgba(0, 200, 5, 0.8)')
+            .attr('stroke', '#00C805')
+            .attr('stroke-opacity', 0.8)
             .attr('stroke-width', 0.5)
             .attr('rx', 1)
-        }
 
-        // 2. Draw End bar (Solid, 80% opacity)
-        const endWidth = Math.abs(xScale(p.endVal) - xScale(0))
-        const endX = isSymmetric ? (p.endVal >= 0 ? xScale(0) : xScale(p.endVal)) : xScale(0)
-        g.append('rect')
-          .attr('x', endX).attr('y', y - 2)
-          .attr('width', Math.max(1, endWidth))
-          .attr('height', 5)
-          .attr('fill', isSymmetric 
-            ? (p.endVal >= 0 ? 'rgba(0, 200, 5, 0.8)' : 'rgba(255, 59, 96, 0.8)') 
-            : 'rgba(0, 200, 255, 0.8)')
-          .attr('stroke', isSymmetric 
-            ? (p.endVal >= 0 ? '#00C805' : '#FF3B60') 
-            : '#00C8FF')
-          .attr('stroke-opacity', 0.8)
-          .attr('stroke-width', 0.5)
-          .attr('rx', 1)
+          // End Put bar
+          const endPutWidth = Math.abs(xScale(p.endPutVal) - xScale(0))
+          g.append('rect')
+            .attr('x', xScale(p.endPutVal)).attr('y', y - 2)
+            .attr('width', Math.max(1, endPutWidth))
+            .attr('height', 5)
+            .attr('fill', 'rgba(255, 59, 96, 0.8)')
+            .attr('stroke', '#FF3B60')
+            .attr('stroke-opacity', 0.8)
+            .attr('stroke-width', 0.5)
+            .attr('rx', 1)
 
-        if (!isLive) {
-          // 3. Draw Delta change bar (Striped, 95% opacity)
-          if (Math.abs(p.delta) > 1e-5) {
-            const deltaWidth = Math.abs(xScale(p.endVal) - xScale(p.startVal))
-            const deltaX = xScale(Math.min(p.startVal, p.endVal))
+          if (!isLive) {
+            // Delta Call
+            const deltaCall = p.endCallVal - p.startCallVal
+            if (Math.abs(deltaCall) > 1e-5) {
+              const deltaWidth = Math.abs(xScale(p.endCallVal) - xScale(p.startCallVal))
+              const deltaX = xScale(Math.min(p.startCallVal, p.endCallVal))
+              g.append('rect')
+                .attr('x', deltaX).attr('y', y - 2)
+                .attr('width', Math.max(1, deltaWidth))
+                .attr('height', 5)
+                .attr('fill', deltaCall >= 0 ? 'url(#increase-stripes-right)' : 'url(#decrease-stripes-right)')
+                .attr('stroke', deltaCall >= 0 ? '#00C805' : '#FF3B60')
+                .attr('stroke-opacity', 0.95)
+                .attr('stroke-width', 0.5)
+                .attr('rx', 1)
+            }
+
+            // Delta Put
+            const deltaPutRaw = Math.abs(p.endPutVal) - Math.abs(p.startPutVal)
+            const deltaPutWidth = Math.abs(xScale(p.endPutVal) - xScale(p.startPutVal))
+            const deltaPutX = xScale(Math.min(p.startPutVal, p.endPutVal))
+            if (Math.abs(deltaPutRaw) > 1e-5) {
+              g.append('rect')
+                .attr('x', deltaPutX).attr('y', y - 2)
+                .attr('width', Math.max(1, deltaPutWidth))
+                .attr('height', 5)
+                .attr('fill', deltaPutRaw >= 0 ? 'url(#increase-stripes-right)' : 'url(#decrease-stripes-right)')
+                .attr('stroke', deltaPutRaw >= 0 ? '#00C805' : '#FF3B60')
+                .attr('stroke-opacity', 0.95)
+                .attr('stroke-width', 0.5)
+                .attr('rx', 1)
+            }
+          }
+        } else {
+          // Net Mode (Volume or original Charm)
+          const startVal = p.startNetVal
+          const endVal = p.endNetVal
+          const delta = endVal - startVal
+
+          if (!isLive) {
+            const startWidth = Math.abs(xScale(startVal) - xScale(0))
+            const startX = isSymmetric ? (startVal >= 0 ? xScale(0) : xScale(startVal)) : xScale(0)
+            g.append('rect')
+              .attr('x', startX).attr('y', y - 2)
+              .attr('width', Math.max(1, startWidth))
+              .attr('height', 5)
+              .attr('fill', isSymmetric 
+                ? (startVal >= 0 ? 'rgba(0, 200, 5, 0.35)' : 'rgba(255, 59, 96, 0.35)') 
+                : 'rgba(0, 200, 255, 0.35)')
+              .attr('stroke', isSymmetric 
+                ? (startVal >= 0 ? '#00C805' : '#FF3B60') 
+                : '#00C8FF')
+              .attr('stroke-opacity', 0.35)
+              .attr('stroke-width', 0.5)
+              .attr('rx', 1)
+          }
+
+          const endWidth = Math.abs(xScale(endVal) - xScale(0))
+          const endX = isSymmetric ? (endVal >= 0 ? xScale(0) : xScale(endVal)) : xScale(0)
+          g.append('rect')
+            .attr('x', endX).attr('y', y - 2)
+            .attr('width', Math.max(1, endWidth))
+            .attr('height', 5)
+            .attr('fill', isSymmetric 
+              ? (endVal >= 0 ? 'rgba(0, 200, 5, 0.8)' : 'rgba(255, 59, 96, 0.8)') 
+              : 'rgba(0, 200, 255, 0.8)')
+            .attr('stroke', isSymmetric 
+              ? (endVal >= 0 ? '#00C805' : '#FF3B60') 
+              : '#00C8FF')
+            .attr('stroke-opacity', 0.8)
+            .attr('stroke-width', 0.5)
+            .attr('rx', 1)
+
+          if (!isLive && Math.abs(delta) > 1e-5) {
+            const deltaWidth = Math.abs(xScale(endVal) - xScale(startVal))
+            const deltaX = xScale(Math.min(startVal, endVal))
             g.append('rect')
               .attr('x', deltaX).attr('y', y - 2)
               .attr('width', Math.max(1, deltaWidth))
               .attr('height', 5)
-              .attr('fill', p.delta >= 0 ? 'url(#increase-stripes-right)' : 'url(#decrease-stripes-right)')
-              .attr('stroke', p.delta >= 0 ? '#00C805' : '#FF3B60')
+              .attr('fill', delta >= 0 ? 'url(#increase-stripes-right)' : 'url(#decrease-stripes-right)')
+              .attr('stroke', delta >= 0 ? '#00C805' : '#FF3B60')
               .attr('stroke-opacity', 0.95)
               .attr('stroke-width', 0.5)
               .attr('rx', 1)
@@ -1045,7 +1338,9 @@ export function SyncedStrikeWorkspace({
         .attr('x', width / 2).attr('y', chartHeight + 32)
         .attr('text-anchor', 'middle')
         .attr('fill', '#949494').style('font-family', typography.fontSans).style('font-size', '9px')
-        .text(displayMode === 'gamma-vol' ? 'Volume Profile' : 'Charm Profile (CEX)')
+        .text(displayMode === 'gamma-vol' 
+          ? 'Volume Profile' 
+          : (showAbsolute ? 'Absolute Charm (Calls → | ← Puts)' : 'Charm Profile (CEX)'))
 
       // Hover overlay
       g.append('rect')
@@ -1063,41 +1358,82 @@ export function SyncedStrikeWorkspace({
             const containerRect = containerRef.current.getBoundingClientRect()
             
             const isVolMode = displayMode === 'gamma-vol'
-            const labelText = isVolMode ? 'Volume' : 'Net Charm'
             
-            const startText = isVolMode ? closest.startVal.toLocaleString() + ' contracts' : formatBillions(closest.startVal)
-            const endText = isVolMode ? closest.endVal.toLocaleString() + ' contracts' : formatBillions(closest.endVal)
-            const deltaText = isVolMode 
-              ? (closest.delta >= 0 ? '+' : '') + closest.delta.toLocaleString() + ' contracts' 
-              : (closest.delta >= 0 ? '+' : '') + formatBillions(closest.delta)
-
             let htmlContent = `
               <div style="font-family:${typography.fontSans};font-size:12px;color:${colors.text.primary};font-weight:600">Strike ${closest.strike.toFixed(0)}</div>
             `
-            if (isLive) {
-              const textClr = isVolMode 
-                ? colors.accent.cyan 
-                : (closest.endVal >= 0 ? '#00C805' : '#FF3B60')
-              htmlContent += `
-                <div style="font-family:${typography.fontMono};font-size:11px;color:${textClr};margin-top:2.5px;font-weight:bold">
-                  ${labelText}: ${endText}
-                </div>
-              `
+            if (isVolMode) {
+              // Volume Profile Hover
+              const startText = closest.startNetVal.toLocaleString() + ' contracts'
+              const endText = closest.endNetVal.toLocaleString() + ' contracts'
+              const deltaVal = closest.endNetVal - closest.startNetVal
+              const deltaText = (deltaVal >= 0 ? '+' : '') + deltaVal.toLocaleString() + ' contracts'
+              
+              if (isLive) {
+                htmlContent += `
+                  <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.accent.cyan};margin-top:2.5px;font-weight:bold">
+                    Volume: ${endText}
+                  </div>
+                `
+              } else {
+                htmlContent += `
+                  <div style="font-family:${typography.fontMono};font-size:11px;color:#949494;margin-top:2.5px">
+                    Start Volume: ${startText}
+                  </div>
+                  <div style="font-family:${typography.fontMono};font-size:11px;color:#E5E5E5;margin-top:2.5px">
+                    End Volume: ${endText}
+                  </div>
+                  <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.accent.cyan};margin-top:2.5px;font-weight:bold">
+                    Change: ${deltaText}
+                  </div>
+                `
+              }
             } else {
-              const textClr = isVolMode 
-                ? colors.accent.cyan 
-                : (closest.delta >= 0 ? '#00C805' : '#FF3B60')
-              htmlContent += `
-                <div style="font-family:${typography.fontMono};font-size:11px;color:#949494;margin-top:2.5px">
-                  Start ${labelText}: ${startText}
-                </div>
-                <div style="font-family:${typography.fontMono};font-size:11px;color:#E5E5E5;margin-top:2.5px">
-                  End ${labelText}: ${endText}
-                </div>
-                <div style="font-family:${typography.fontMono};font-size:11px;color:${textClr};margin-top:2.5px;font-weight:bold">
-                  Change: ${deltaText}
-                </div>
-              `
+              // Charm Profile Hover
+              if (showAbsolute) {
+                if (isLive) {
+                  htmlContent += `
+                    <div style="font-family:${typography.fontMono};font-size:11px;color:#00C805;margin-top:2.5px;font-weight:bold">
+                      Call Charm: ${formatBillions(closest.endCallVal)}
+                    </div>
+                    <div style="font-family:${typography.fontMono};font-size:11px;color:#FF3B60;margin-top:2.5px;font-weight:bold">
+                      Put Charm: ${formatBillions(Math.abs(closest.endPutVal))}
+                    </div>
+                  `
+                } else {
+                  const deltaCall = closest.endCallVal - closest.startCallVal
+                  const deltaPut = Math.abs(closest.endPutVal) - Math.abs(closest.startPutVal)
+                  htmlContent += `
+                    <div style="font-family:${typography.fontMono};font-size:11px;color:#949494;margin-top:2.5px">
+                      Start Call/Put: ${formatBillions(closest.startCallVal)} / ${formatBillions(Math.abs(closest.startPutVal))}
+                    </div>
+                    <div style="font-family:${typography.fontMono};font-size:11px;color:#E5E5E5;margin-top:2.5px">
+                      End Call/Put: ${formatBillions(closest.endCallVal)} / ${formatBillions(Math.abs(closest.endPutVal))}
+                    </div>
+                    <div style="font-family:${typography.fontMono};font-size:11px;color:#00C805;margin-top:2.5px;font-weight:bold">
+                      Call Change: ${deltaCall >= 0 ? '+' : ''}${formatBillions(deltaCall)}
+                    </div>
+                    <div style="font-family:${typography.fontMono};font-size:11px;color:#FF3B60;margin-top:2.5px;font-weight:bold">
+                      Put Change: ${deltaPut >= 0 ? '+' : ''}${formatBillions(deltaPut)}
+                    </div>
+                  `
+                }
+              } else {
+                if (isLive) {
+                  htmlContent += `
+                    <div style="font-family:${typography.fontMono};font-size:11px;color:${closest.endNetVal >= 0 ? '#00C805' : '#FF3B60'};margin-top:2.5px;font-weight:bold">
+                      Net Charm: ${formatBillions(closest.endNetVal)}
+                    </div>
+                  `
+                } else {
+                  const deltaNet = closest.endNetVal - closest.startNetVal
+                  htmlContent += `
+                    <div style="font-family:${typography.fontMono};font-size:11px;color:${deltaNet >= 0 ? '#00C805' : '#FF3B60'};margin-top:2.5px;font-weight:bold">
+                      Change: ${deltaNet >= 0 ? '+' : ''}${formatBillions(deltaNet)}
+                    </div>
+                  `
+                }
+              }
             }
             tooltipRef.current.innerHTML = htmlContent
             tooltipRef.current.style.opacity = '1'
@@ -1108,7 +1444,7 @@ export function SyncedStrikeWorkspace({
         .on('mouseleave', hideCrosshairs)
     }
 
-  }, [dimensions, yDomain, visibleCandlesData, indicatorData, startGexProfile, endGexProfile, startVolProfile, endVolProfile, startVannaProfile, endVannaProfile, startCharmProfile, endCharmProfile, endSpotPrice, endZeroGamma, market, ticker, displayMode, isCandlesCollapsed, isLive])
+  }, [dimensions, yDomain, visibleCandlesData, indicatorData, startGexProfile, endGexProfile, startVolProfile, endVolProfile, startVannaProfile, endVannaProfile, startCharmProfile, endCharmProfile, endSpotPrice, endZeroGamma, market, ticker, displayMode, isCandlesCollapsed, isLive, showAbsolute])
 
   return (
     <div
@@ -1167,6 +1503,32 @@ export function SyncedStrikeWorkspace({
             {ratesInfo.source.startsWith('Assumed') ? 'ASSUMED' : 'SOURCED'}
           </span>
           <span>r: {(activeR * 100).toFixed(2)}%</span>
+        </div>
+
+        {/* Absolute vs Net Toggle */}
+        <div className="flex items-center gap-1 bg-black/70 backdrop-blur-md px-1 py-1 rounded border border-[#222]">
+          <button
+            onClick={() => setShowAbsolute(false)}
+            className={`px-2 py-0.5 rounded text-[10px] font-mono transition-all font-bold ${
+              !showAbsolute
+                ? 'bg-terminal-green/15 text-terminal-green border border-terminal-green/30'
+                : 'bg-transparent text-[#777] border border-transparent hover:text-white'
+            }`}
+            type="button"
+          >
+            NET
+          </button>
+          <button
+            onClick={() => setShowAbsolute(true)}
+            className={`px-2 py-0.5 rounded text-[10px] font-mono transition-all font-bold ${
+              showAbsolute
+                ? 'bg-terminal-green/15 text-terminal-green border border-terminal-green/30'
+                : 'bg-transparent text-[#777] border border-transparent hover:text-white'
+            }`}
+            type="button"
+          >
+            ABS
+          </button>
         </div>
 
         {/* Mode Toggle pills */}

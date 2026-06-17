@@ -13,6 +13,8 @@ export interface OptionData {
   last?: number // Last traded price
   GEX?: number
   GEX_BS?: number
+  VEX_BS?: number
+  CEX_BS?: number
   daysTillExp?: number
 }
 

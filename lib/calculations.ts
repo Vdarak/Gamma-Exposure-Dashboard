@@ -1031,6 +1031,7 @@ export function computeVannaByStrike(
       option.open_interest,
       pricingMethod
     )
+    option.VEX_BS = vex
     const currentVanna = vannaByStrike.get(option.strike) || 0
     vannaByStrike.set(option.strike, currentVanna + vex)
   })
@@ -1073,6 +1074,7 @@ export function computeCharmByStrike(
       option.open_interest,
       pricingMethod
     )
+    option.CEX_BS = cex
     const currentCharm = charmByStrike.get(option.strike) || 0
     charmByStrike.set(option.strike, currentCharm + cex)
   })
