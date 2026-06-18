@@ -24,6 +24,7 @@ import { FlowHistoricalView } from "./flow-historical-view"
 import { ExpirySelector, type ExpiryMode, getOpexDte } from "./controls/expiry-selector"
 import { TradingJournal } from "./trading-journal/trading-journal"
 import { OptionFlowDashboard } from "./option-flow-dashboard"
+import { BacktestDashboard } from "./algorithms/backtest-dashboard"
 
 // UI components
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -676,7 +677,7 @@ export function GammaExposureDashboard() {
             )}
 
             {/* Interactive Sidebar mockups */}
-            {activeSidebarTab !== 'gex' && activeSidebarTab !== 'journal' && activeSidebarTab !== 'flow' && (
+            {activeSidebarTab !== 'gex' && activeSidebarTab !== 'journal' && activeSidebarTab !== 'flow' && activeSidebarTab !== 'algos' && (
               <div className="flex-1 flex flex-col items-center justify-center gap-4 text-[#949494]">
                 <div className="w-12 h-12 rounded-full border border-[#1A1A1E] bg-[#0A0A0C] flex items-center justify-center">
                   <svg className="w-5 h-5 text-[#333]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -704,6 +705,11 @@ export function GammaExposureDashboard() {
             {/* Trading Journal Workspace */}
             {activeSidebarTab === 'journal' && (
               <TradingJournal />
+            )}
+
+            {/* Algorithms Backtesting Workspace */}
+            {activeSidebarTab === 'algos' && (
+              <BacktestDashboard />
             )}
 
             {/* Active GEX Workspace tabs content */}

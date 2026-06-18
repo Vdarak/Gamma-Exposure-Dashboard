@@ -2,7 +2,7 @@
 
 # dependencies
 /node_modules
-
+/backend/data
 # next.js
 /.next/
 /out/

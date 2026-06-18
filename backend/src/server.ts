@@ -23,6 +23,8 @@ import {
   updateSetting,
 } from './services/journalService';
 import { getOptionsFlowData } from './services/optionsFlowService';
+import { getAvailableTickers } from './backtester/duckdbService';
+import { runBacktest } from './backtester/engine';
 
 dotenv.config();
 
@@ -371,6 +373,44 @@ app.get('/api/expiries', async (req: Request, res: Response) => {
   }
 });
 
+// ============= BACKTEST API ROUTES =============
+
+/**
+ * Get tickers with available backtesting data
+ */
+app.get('/api/backtest/tickers', async (req: Request, res: Response) => {
+  try {
+    const tickers = await getAvailableTickers();
+    res.json({
+      success: true,
+      data: tickers,
+    });
+  } catch (error) {
+    console.error('Error in /api/backtest/tickers:', error);
+    res.status(500).json({ error: 'Failed to fetch backtest tickers' });
+  }
+});
+
+/**
+ * Run a backtest strategy simulation
+ */
+app.post('/api/backtest/run', async (req: Request, res: Response) => {
+  try {
+    const config = req.body;
+    if (!config || !config.ticker || !config.startDate || !config.endDate || !config.initialCapital) {
+      return res.status(400).json({ error: 'Missing required backtest parameters' });
+    }
+    const result = await runBacktest(config);
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error: any) {
+    console.error('Error in /api/backtest/run:', error);
+    res.status(500).json({ error: error.message || 'Failed to run backtest simulation' });
+  }
+});
+
 // ============= JOURNAL API ROUTES =============
 
 /**
@@ -643,6 +683,8 @@ async function startServer() {
       console.log(`   GET  /api/historical-data?ticker=SPX&hoursBack=24 - Historical data`);
       console.log(`   GET  /api/timestamps?ticker=SPX - Available timestamps`);
       console.log(`   GET  /api/stats - Database statistics`);
+      console.log(`   GET  /api/backtest/tickers - Backtest available tickers`);
+      console.log(`   POST /api/backtest/run - Execute backtest simulation`);
       console.log(`   POST /api/collect-now - Manual data collection\n`);
     });
   } catch (error) {
