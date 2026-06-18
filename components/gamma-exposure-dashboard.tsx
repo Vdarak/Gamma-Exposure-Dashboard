@@ -484,10 +484,10 @@ export function GammaExposureDashboard() {
   }, [])
 
   return (
-    <div className="min-h-screen bg-black flex flex-col md:flex-row">
+    <div className="h-screen w-screen bg-black flex flex-col md:flex-row overflow-hidden select-none">
       {/* ─── LEFT ICON NAVIGATION SIDEBAR (DESKTOP) ─── */}
-      <aside className="hidden md:flex w-16 bg-[#08080A] border-r border-[#15151A] flex-col items-center py-4 flex-shrink-0 justify-between select-none">
-        <div className="flex flex-col items-center gap-6 w-full">
+      <aside className="hidden md:flex w-16 bg-[#08080A] border-r border-[#15151A] flex-col items-center py-5 flex-shrink-0 justify-between select-none h-full">
+        <div className="flex flex-col items-center gap-5 w-full">
           {SIDEBAR_TABS.map(tab => {
             const active = activeSidebarTab === tab.id
             return (
@@ -497,19 +497,19 @@ export function GammaExposureDashboard() {
                   setActiveSidebarTab(tab.id)
                   if (tab.id === 'gex') setActiveTab('gex-levels')
                 }}
-                className="group flex flex-col items-center gap-1.5 w-full relative transition-all"
+                className="group flex flex-col items-center gap-1 w-full relative transition-all py-2"
                 title={tab.label}
               >
-                {/* Active green indicator tag */}
+                {/* Active bottom underline instead of left bar */}
                 {active && (
-                  <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-terminal-green rounded-r" />
+                  <div className="absolute bottom-0.5 w-7 h-[2px] bg-terminal-green rounded shadow-[0_0_8px_#00FF88]" />
                 )}
 
-                {/* Tab Icon */}
-                <div className={`w-9 h-9 rounded-lg flex items-center justify-center border transition-all ${
+                {/* Tab Icon - No border, clean icon */}
+                <div className={`w-8 h-8 flex items-center justify-center transition-all duration-200 ${
                   active
-                    ? 'bg-terminal-green/5 border-terminal-green/35 text-terminal-green'
-                    : 'bg-transparent border-transparent text-[#444] group-hover:text-[#888]'
+                    ? 'text-terminal-green scale-105'
+                    : 'text-[#444] group-hover:text-[#949499]'
                 }`}>
                   {tab.icon === 'gex' && (
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
@@ -544,8 +544,8 @@ export function GammaExposureDashboard() {
                 </div>
 
                 {/* Tab Label */}
-                <span className={`text-[9px] font-mono leading-none tracking-tight ${
-                  active ? 'text-[#E5E5E5]' : 'text-[#444]'
+                <span className={`text-[9px] font-mono leading-none tracking-tight font-medium pb-2 transition-colors duration-200 ${
+                  active ? 'text-[#E5E5E5]' : 'text-[#444] group-hover:text-[#888]'
                 }`}>
                   {tab.label.split(' ')[0]}
                 </span>
@@ -554,9 +554,9 @@ export function GammaExposureDashboard() {
           })}
         </div>
 
-        {/* Footer info/settings placeholder */}
-        <div className="w-6 h-6 rounded-full bg-[#111] border border-[#222] flex items-center justify-center cursor-pointer hover:border-[#444] transition-colors">
-          <span className="text-[9px] font-mono text-[#949494]">V</span>
+        {/* Stylized Brand Logo (Γ for Gamma) at the bottom */}
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-b from-[#121216] to-[#08080a] border border-[#1d1d24] flex items-center justify-center mb-2 shadow-[0_4px_12px_rgba(0,0,0,0.6)]">
+          <span className="text-terminal-green font-mono font-black text-base tracking-tighter">Γ</span>
         </div>
       </aside>
 
@@ -571,12 +571,17 @@ export function GammaExposureDashboard() {
                 setActiveSidebarTab(tab.id)
                 if (tab.id === 'gex') setActiveTab('gex-levels')
               }}
-              className="flex flex-col items-center justify-center gap-1 w-12"
+              className="group flex flex-col items-center justify-center gap-1 w-12 relative h-full py-1.5"
             >
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center border transition-all ${
+              {/* Active bottom underline */}
+              {active && (
+                <div className="absolute bottom-1 w-6 h-[2px] bg-terminal-green rounded shadow-[0_0_8px_#00FF88]" />
+              )}
+
+              <div className={`w-8 h-8 flex items-center justify-center transition-all duration-200 ${
                 active
-                  ? 'bg-terminal-green/5 border-terminal-green/35 text-terminal-green'
-                  : 'bg-transparent border-transparent text-[#949494]'
+                  ? 'text-terminal-green scale-105'
+                  : 'text-[#555]'
               }`}>
                 {tab.icon === 'gex' && (
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
@@ -609,8 +614,8 @@ export function GammaExposureDashboard() {
                   </svg>
                 )}
               </div>
-              <span className={`text-[8px] font-mono leading-none tracking-tight ${
-                active ? 'text-[#E5E5E5]' : 'text-[#949494]'
+              <span className={`text-[8.5px] font-mono leading-none tracking-tight pb-1.5 transition-colors duration-200 ${
+                active ? 'text-[#E5E5E5]' : 'text-[#444]'
               }`}>
                 {tab.label.split(' ')[0]}
               </span>
