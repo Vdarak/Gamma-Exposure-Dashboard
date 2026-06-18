@@ -3,6 +3,10 @@ import https from 'https';
 import http from 'http';
 import { pool } from '../db/connection';
 import { OptionData, OptionSnapshot } from '../types';
+import { DhanService } from './dhanService';
+
+const dhanService = new DhanService();
+
 
 interface CBOEOptionData {
   option: string;
@@ -487,6 +491,9 @@ function normalizeNSEOptionData(nseData: NSEResponse, spotPrice: number): Option
         theta: greeks.theta,
         vega: greeks.vega,
         rho: undefined, // Not critical for GEX
+        changeInOi: strike.CE.changeinOpenInterest || 0,
+        totalBuyQty: strike.CE.totalBuyQuantity || 0,
+        totalSellQty: strike.CE.totalSellQuantity || 0,
       });
     }
 
@@ -510,8 +517,12 @@ function normalizeNSEOptionData(nseData: NSEResponse, spotPrice: number): Option
         theta: greeks.theta,
         vega: greeks.vega,
         rho: undefined,
+        changeInOi: strike.PE.changeinOpenInterest || 0,
+        totalBuyQty: strike.PE.totalBuyQuantity || 0,
+        totalSellQty: strike.PE.totalSellQuantity || 0,
       });
     }
+
   });
 
   return options;
@@ -573,14 +584,23 @@ async function storeOptionChainSnapshot(
 
     const snapshotId = snapshotResult.rows[0].id;
 
-    // Bulk insert option data
+    // Log to spot price history for quick access
+    await client.query(
+      `INSERT INTO spot_price_history (ticker, timestamp, spot_price)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (ticker, timestamp) DO UPDATE 
+       SET spot_price = EXCLUDED.spot_price`,
+      [ticker, timestamp, spotPrice]
+    );
+
+    // Bulk insert option data including the new metrics
     for (const option of options) {
       await client.query(
         `INSERT INTO option_data (
           snapshot_id, strike, option_type, expiration, last_price,
           bid, ask, volume, open_interest, implied_volatility,
-          delta, gamma, theta, vega, rho
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+          delta, gamma, theta, vega, rho, change_in_oi, total_buy_qty, total_sell_qty
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
         [
           snapshotId,
           option.strike,
@@ -597,11 +617,15 @@ async function storeOptionChainSnapshot(
           option.theta,
           option.vega,
           option.rho,
+          option.changeInOi || null,
+          option.totalBuyQty || null,
+          option.totalSellQty || null,
         ]
       );
     }
 
     await client.query('COMMIT');
+
     console.log(`✅ Stored ${options.length} options for ${ticker} at ${timestamp.toISOString()}`);
 
     return snapshotId;
@@ -649,22 +673,48 @@ export async function fetchAndStoreOptionData(
       const uniqueExpiries = new Set(validDates.map(o => o.expiration.toISOString().split('T')[0])).size;
       console.log(`📈 CBOE: Found ${normalizedOptions.length} options across ${uniqueExpiries} expiries`);
     } else {
-      // Fetch from NSE
-      const nseData = await fetchOptionChainFromNSE(ticker);
+      let fetchedSuccessfully = false;
 
-      if (!nseData || !nseData.records || !nseData.records.data || nseData.records.data.length === 0) {
-        console.error(`❌ No option data received for ${ticker} from NSE`);
-        return false;
+      // Try Dhan API first if credentials exist
+      if (dhanService.isEnabled()) {
+        try {
+          console.log(`[Data Collector] 🎯 Dhan API is enabled. Fetching official options data for ${ticker}...`);
+          normalizedOptions = await dhanService.fetchOptionChain(ticker);
+          if (normalizedOptions.length > 0) {
+            // Get underlying price from the options payload if possible (as an approximation)
+            // Or fallback to checking current-data or Yahoo. Let's assume spot is the average of ATM strikes or look it up.
+            // For now, let's look up if any option price has it, or just use the last stored spot as baseline.
+            const lastSnapshot = await pool.query(
+              'SELECT spot_price FROM option_snapshots WHERE ticker = $1 ORDER BY timestamp DESC LIMIT 1',
+              [ticker]
+            );
+            spotPrice = lastSnapshot.rows.length > 0 ? parseFloat(lastSnapshot.rows[0].spot_price) : 0;
+            fetchedSuccessfully = true;
+          }
+        } catch (dhanError: any) {
+          console.warn(`[Data Collector] ⚠️ Dhan API failed: ${dhanError.message}. Falling back to web scraper.`);
+        }
       }
 
-      spotPrice = nseData.records.underlyingValue || 0;
-      normalizedOptions = normalizeNSEOptionData(nseData, spotPrice);
+      if (!fetchedSuccessfully) {
+        // Fetch from NSE
+        const nseData = await fetchOptionChainFromNSE(ticker);
+
+        if (!nseData || !nseData.records || !nseData.records.data || nseData.records.data.length === 0) {
+          console.error(`❌ No option data received for ${ticker} from NSE`);
+          return false;
+        }
+
+        spotPrice = nseData.records.underlyingValue || 0;
+        normalizedOptions = normalizeNSEOptionData(nseData, spotPrice);
+      }
       
       // Safe logging with date validation
       const validDates = normalizedOptions.filter(o => !isNaN(o.expiration.getTime()));
       const uniqueExpiries = new Set(validDates.map(o => o.expiration.toISOString().split('T')[0])).size;
-      console.log(`📈 NSE: Found ${normalizedOptions.length} options with calculated Greeks across ${uniqueExpiries} expiries`);
+      console.log(`📈 NSE/Dhan: Found ${normalizedOptions.length} options across ${uniqueExpiries} expiries`);
     }
+
 
     // Store in database
     await storeOptionChainSnapshot(ticker, timestamp, spotPrice, normalizedOptions, tickerMarket);

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useMemo } from "react"
+import { Bot } from "lucide-react"
 import { colors } from "@/lib/design-tokens"
 import type { OptionData } from "@/lib/types"
 
@@ -130,6 +131,8 @@ interface TerminalHeaderProps {
   totalGEX?: number
   optionData?: OptionData[]
   gammaFlipLevel?: number | null
+  isAIPanelOpen?: boolean
+  onToggleAIPanel?: () => void
 }
 
 export function TerminalHeader({
@@ -143,6 +146,8 @@ export function TerminalHeader({
   totalGEX,
   optionData,
   gammaFlipLevel,
+  isAIPanelOpen = false,
+  onToggleAIPanel,
 }: TerminalHeaderProps) {
   const [showInput, setShowInput] = useState(false)
   const [inputValue, setInputValue] = useState("")
@@ -334,7 +339,7 @@ export function TerminalHeader({
       )}
 
       {/* Right section: Market info & controls */}
-      <div className="flex items-center gap-3 flex-shrink-0 ml-auto lg:ml-0">
+      <div className="flex items-center gap-2.5 flex-shrink-0 ml-auto lg:ml-0">
         {/* Timestamp */}
         <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded border border-[#1A1A1E] bg-black/20 text-[10px] font-mono text-[#949494]">
           <span>{market}</span>
@@ -361,6 +366,22 @@ export function TerminalHeader({
             IND
           </button>
         </div>
+
+        {/* AI Analyst toggle button */}
+        {onToggleAIPanel && (
+          <button
+            onClick={onToggleAIPanel}
+            title="AI Analyst"
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded border text-[10px] font-mono font-bold transition-all ${
+              isAIPanelOpen
+                ? 'bg-[#00E676]/10 border-[#00E676]/40 text-[#00E676] shadow-[0_0_8px_rgba(0,230,118,0.12)]'
+                : 'border-[#1A1A1E] bg-black/40 text-[#949494] hover:text-[#E5E5E5] hover:border-[#333]'
+            }`}
+          >
+            <Bot className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">AI</span>
+          </button>
+        )}
 
         {/* Refresh button */}
         <button

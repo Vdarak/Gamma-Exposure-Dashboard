@@ -1,4 +1,4 @@
-import { BacktestConfig, BacktestResult, TradeLog, EquityPoint } from './types';
+import { BacktestConfig, BacktestResult, TradeLog, EquityPoint, TradeMarker } from './types';
 import { loadHistoricalData, PriceBar } from './duckdbService';
 import { precomputeIndicators } from './indicators';
 
@@ -75,6 +75,7 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
   
   const trades: TradeLog[] = [];
   const equityCurve: EquityPoint[] = [];
+  const tradeMarkers: TradeMarker[] = [];
 
   let position = {
     active: false,
@@ -178,6 +179,14 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
           exitReason
         });
 
+        // Record sell marker
+        tradeMarkers.push({
+          timestamp: bar.timestamp,
+          type: 'sell',
+          price: exitPriceFinal,
+          text: `SELL Exit (${exitReason}): $${exitPriceFinal.toFixed(2)} (${netPnl >= 0 ? '+' : ''}${netPnl.toFixed(2)} PnL)`
+        });
+
         // Reset position
         position.active = false;
       }
@@ -212,6 +221,14 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
               : 0,
             barsHeld: 0
           };
+
+          // Record buy marker
+          tradeMarkers.push({
+            timestamp: bar.timestamp,
+            type: 'buy',
+            price: entryPriceFinal,
+            text: `BUY Entry: ${maxShares} shares at $${entryPriceFinal.toFixed(2)}`
+          });
         }
       }
     }
@@ -239,6 +256,13 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
       pnl: netPnl,
       pnlPercent: (netPnl / (position.entryPrice * position.quantity)) * 100,
       exitReason: 'end_of_data'
+    });
+
+    tradeMarkers.push({
+      timestamp: lastBar.timestamp,
+      type: 'sell',
+      price: exitPriceFinal,
+      text: `SELL Force Close (EOD): $${exitPriceFinal.toFixed(2)}`
     });
   }
 
@@ -294,6 +318,17 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
     maxDrawdownPercent: maxDrawdown,
     sharpeRatio,
     trades,
-    equityCurve
+    equityCurve,
+    indicatorSeries: precomputed,
+    ohlcv: {
+      timestamp: bars.map(b => b.timestamp),
+      open: bars.map(b => b.open),
+      high: bars.map(b => b.high),
+      low: bars.map(b => b.low),
+      close: bars.map(b => b.close),
+      volume: bars.map(b => b.volume)
+    },
+    tradeMarkers
   };
 }
+

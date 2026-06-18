@@ -55,6 +55,22 @@ export interface EquityPoint {
   price: number;
 }
 
+export interface TradeMarker {
+  timestamp: string;
+  type: 'buy' | 'sell';
+  price: number;
+  text: string;
+}
+
+export interface OHLCVSeries {
+  timestamp: string[];
+  open: number[];
+  high: number[];
+  low: number[];
+  close: number[];
+  volume: number[];
+}
+
 export interface BacktestResult {
   ticker: string;
   startDate: string;
@@ -71,4 +87,8 @@ export interface BacktestResult {
   sharpeRatio: number;
   trades: TradeLog[];
   equityCurve: EquityPoint[];
+  indicatorSeries?: Record<string, number[]>;
+  ohlcv?: OHLCVSeries;
+  tradeMarkers?: TradeMarker[];
 }
+

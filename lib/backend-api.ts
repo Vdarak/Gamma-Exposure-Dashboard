@@ -391,6 +391,9 @@ export interface OptionFlowItem {
   changePercent: number | null
   volume: number
   openInterest: number
+  oiChange: number // Signed OI change
+  notionalChange: number // |oiChange| * lastPrice * 100
+  timeframeType: 'Intraday' | 'Daily' | '5-Day' | 'Custom'
   oi5dChangePercent: number | null
   otmPercent: number
   ivPercent: number
@@ -398,20 +401,104 @@ export interface OptionFlowItem {
   delta: number
   dte: number
   earningsRemainingDays: number | null
+  bid?: number
+  ask?: number
+}
+
+export interface FlowAggregates {
+  dominantSentiment: 'Bullish' | 'Bearish' | 'Neutral'
+  bullishSentimentPercent: number
+  putCallRatio: number
+  callVolume: number
+  putVolume: number
+  callPremium: number
+  putPremium: number
+  callPercentage: number
+  putPercentage: number
+}
+
+export interface OptionsFlowResponse {
+  data: OptionFlowItem[]
+  aggregates: FlowAggregates
+  topNotionalStrikes: OptionFlowItem[]
 }
 
 /**
- * Fetch options flow data from backend
+ * Fetch options flow data from backend with timeframe and optional custom startDate
  */
-export async function getOptionsFlowData(ticker: string): Promise<OptionFlowItem[]> {
+export async function getOptionsFlowData(
+  ticker: string,
+  timeframe: 'Intraday' | 'Daily' | '5-Day' | 'Custom' = 'Intraday',
+  startDate?: string
+): Promise<OptionsFlowResponse> {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/options/flow?ticker=${ticker}`)
+    let url = `${BACKEND_URL}/api/options/flow?ticker=${ticker}&timeframe=${timeframe}`
+    if (startDate) {
+      url += `&startDate=${encodeURIComponent(startDate)}`
+    }
+    const response = await fetch(url)
     if (!response.ok) throw new Error(`Failed to fetch options flow data for ${ticker}`)
     const data = await response.json()
-    return data.data || []
+    return {
+      data: data.data || [],
+      aggregates: data.aggregates || {
+        dominantSentiment: 'Neutral',
+        bullishSentimentPercent: 50,
+        putCallRatio: 1,
+        callVolume: 0,
+        putVolume: 0,
+        callPremium: 0,
+        putPremium: 0,
+        callPercentage: 50,
+        putPercentage: 50
+      },
+      topNotionalStrikes: data.topNotionalStrikes || []
+    }
   } catch (error) {
     console.error(`Error fetching options flow data for ${ticker}:`, error)
     throw error
   }
 }
+
+/**
+ * Generate AI analyst briefing for a ticker
+ */
+export async function getAIBriefing(ticker: string, timeframe: 'Intraday' | 'Daily' | '5-Day' = 'Intraday'): Promise<string> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/analyze?ticker=${ticker}&timeframe=${timeframe}`)
+    if (!response.ok) throw new Error(`Failed to fetch AI briefing for ${ticker}`)
+    const data = await response.json()
+    return data.analysis || "Failed to retrieve briefing."
+  } catch (error) {
+    console.error(`Error fetching AI briefing for ${ticker}:`, error)
+    return `Error retrieving briefing: ${(error as any).message}`
+  }
+}
+
+/**
+ * Send chat message to AI analyst agent
+ */
+export async function sendAIChatMessage(
+  message: string,
+  history: Array<{ role: 'user' | 'model'; text: string }> = [],
+  ticker: string = 'SPX',
+  livePrice?: number
+): Promise<{ text: string; tradeLogged?: JournalTrade }> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/analyst/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ message, history, ticker, livePrice })
+    })
+    if (!response.ok) throw new Error('Failed to communicate with AI Analyst')
+    return await response.json()
+  } catch (error) {
+    console.error('Error sending message to AI analyst:', error)
+    return { text: `Communication error: ${(error as any).message}` }
+  }
+}
+
+
 

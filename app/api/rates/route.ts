@@ -1,6 +1,31 @@
 import { NextResponse } from "next/server"
 
+const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001').replace(/\/+$/, '')
+
 export async function GET() {
+  // Try to load stored rates from backend database
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/rates`, {
+      next: { revalidate: 60 } // cache for 1 minute
+    })
+    
+    if (response.ok) {
+      const data = await response.json()
+      if (data.success) {
+        return NextResponse.json({
+          success: true,
+          usRiskFreeRate: data.usRiskFreeRate,
+          indiaRiskFreeRate: data.indiaRiskFreeRate,
+          source: `Database (${data.source})`,
+          updatedAt: data.updatedAt
+        })
+      }
+    }
+  } catch (err) {
+    console.warn("Backend rates API unreachable, falling back to Yahoo Finance:", err)
+  }
+
+  // Fallback if Express backend is down or returns error
   try {
     const response = await fetch("https://query1.finance.yahoo.com/v8/finance/chart/^IRX?interval=1d&range=1d", {
       headers: {
@@ -19,12 +44,12 @@ export async function GET() {
           success: true,
           usRiskFreeRate: lastClose / 100,
           indiaRiskFreeRate: 0.065, // Standard India RBI repo rate benchmark
-          source: `Yahoo Finance (^IRX: ${lastClose.toFixed(2)}%)`
+          source: `Yahoo Finance (^IRX fallback: ${lastClose.toFixed(2)}%)`
         })
       }
     }
   } catch (err) {
-    console.error("Error fetching dynamic US risk-free rate:", err)
+    console.error("Error fetching dynamic US risk-free rate fallback:", err)
   }
   
   // Fallback if Yahoo Finance is unreachable

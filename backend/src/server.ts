@@ -25,10 +25,14 @@ import {
 import { getOptionsFlowData } from './services/optionsFlowService';
 import { getAvailableTickers } from './backtester/duckdbService';
 import { runBacktest } from './backtester/engine';
+import { getStoredRates, updateRates } from './services/ratesService';
+import { AIAnalystService } from './services/aiAnalystService';
 
 dotenv.config();
 
 const app = express();
+const aiAnalystService = new AIAnalystService();
+
 const PORT = process.env.PORT || 3001;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
@@ -128,6 +132,23 @@ app.get('/api/health', (req: Request, res: Response) => {
 });
 
 /**
+ * Get stored interest / risk-free rates (US & India)
+ */
+app.get('/api/rates', async (req: Request, res: Response) => {
+  try {
+    const rates = await getStoredRates();
+    res.json({
+      success: true,
+      ...rates,
+    });
+  } catch (error) {
+    console.error('Error in /api/rates:', error);
+    res.status(500).json({ error: 'Failed to fetch stored rates' });
+  }
+});
+
+
+/**
  * Get current (most recent) data for a ticker
  */
 app.get('/api/current-data', async (req: Request, res: Response) => {
@@ -170,24 +191,78 @@ app.get('/api/current-data', async (req: Request, res: Response) => {
  */
 app.get('/api/options/flow', async (req: Request, res: Response) => {
   try {
-    const { ticker } = req.query;
+    const { ticker, timeframe, startDate } = req.query;
 
     if (!ticker || typeof ticker !== 'string') {
       return res.status(400).json({ error: 'Ticker parameter is required' });
     }
 
-    const data = await getOptionsFlowData(ticker.toUpperCase());
+    let tf: 'Intraday' | 'Daily' | '5-Day' | 'Custom' = 'Intraday';
+    if (timeframe === 'Daily' || timeframe === '5-Day' || timeframe === 'Custom') {
+      tf = timeframe;
+    }
 
-    res.json({
-      success: true,
-      data,
-      timestamp: new Date().toISOString(),
-    });
+    const start = startDate ? String(startDate) : undefined;
+    const response = await getOptionsFlowData(ticker.toUpperCase(), tf, start);
+
+    res.json(response);
   } catch (error) {
     console.error('Error in /api/options/flow:', error);
     res.status(500).json({ error: 'Failed to fetch options flow data' });
   }
 });
+
+/**
+ * AI Analyst - Generate GEX and options flow market briefing
+ */
+app.get('/api/analyze', async (req: Request, res: Response) => {
+  try {
+    const { ticker, timeframe } = req.query;
+    if (!ticker || typeof ticker !== 'string') {
+      return res.status(400).json({ error: 'Ticker parameter is required' });
+    }
+
+    let tf: 'Intraday' | 'Daily' | '5-Day' = 'Intraday';
+    if (timeframe === 'Daily' || timeframe === '5-Day') {
+      tf = timeframe;
+    }
+
+    const briefing = await aiAnalystService.generateBriefing(ticker.toUpperCase(), tf);
+    res.json({
+      success: true,
+      analysis: briefing,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error in /api/analyze:', error);
+    res.status(500).json({ error: 'Failed to generate market briefing' });
+  }
+});
+
+/**
+ * AI Analyst - Chat with trade logging tool agent
+ */
+app.post('/api/analyst/chat', async (req: Request, res: Response) => {
+  try {
+    const { message, history, ticker, livePrice } = req.body;
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({ error: 'Message is required' });
+    }
+
+    const activeTicker = (typeof ticker === 'string' && ticker.trim()) ? ticker.trim().toUpperCase() : 'SPX';
+    const result = await aiAnalystService.processChat(message, history || [], activeTicker, typeof livePrice === 'number' ? livePrice : undefined);
+    res.json({
+      success: true,
+      ...result,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error in /api/analyst/chat:', error);
+    res.status(500).json({ error: 'Failed to process chat message' });
+  }
+});
+
+
 
 /**
  * Get intraday 0DTE GEX flow by strike for a given day
@@ -653,6 +728,22 @@ cron.schedule('0 2 * * *', async () => {
   console.log(`\n🧹 [${new Date().toISOString()}] Daily cleanup is INACTIVE (all snapshots are persisted permanently)`);
 });
 
+/**
+ * Schedule interest rates update at Start of Day and End of Day (UTC)
+ * 03:00 UTC (~8:30 AM IST / India SOD), 10:30 UTC (~4:00 PM IST / India EOD),
+ * 13:00 UTC (~9:00 AM EST / US SOD), 20:30 UTC (~4:30 PM EST / US EOD)
+ */
+cron.schedule('0 3,10,13,20 * * *', async () => {
+  console.log(`\n⏰ [${new Date().toISOString()}] Scheduled interest rates update triggered`);
+  try {
+    await updateRates();
+  } catch (error) {
+    console.error('❌ Scheduled interest rates update failed:', error);
+  }
+});
+
+console.log('⏰ Interest rate cron job scheduled: at SOD & EOD for US/India (3 AM, 10 AM, 1 PM, 8 PM UTC)');
+
 // ============= SERVER STARTUP =============
 
 async function startServer() {
@@ -662,9 +753,18 @@ async function startServer() {
     // Initialize database
     await initializeDatabase();
 
+    // Initial rates fetch / seed
+    console.log('📊 Fetching and seeding initial interest rates...');
+    try {
+      await getStoredRates();
+    } catch (e) {
+      console.error('⚠️ Failed to fetch initial rates:', e);
+    }
+
     // Initial data collection
     console.log('📊 Running initial data collection...');
     await collectMarketData();
+
 
     // Start Express server
     app.listen(PORT, () => {

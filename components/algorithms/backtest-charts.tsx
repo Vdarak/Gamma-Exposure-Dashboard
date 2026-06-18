@@ -35,8 +35,139 @@ export function BacktestCharts({ result }: BacktestChartsProps) {
   const isPnlPositive = result.finalCapital >= result.initialCapital;
   const mainColor = isPnlPositive ? '#00C805' : '#FF3B60';
 
+  // Build Price Traces (Candles or line + indicators + trade markers)
+  const priceTraces: any[] = [];
+  const hasOhlcv = result.ohlcv && result.ohlcv.timestamp && result.ohlcv.timestamp.length > 0;
+
+  if (hasOhlcv && result.ohlcv) {
+    // 1. Add Price Close Line
+    priceTraces.push({
+      x: result.ohlcv.timestamp,
+      y: result.ohlcv.close,
+      type: 'scatter',
+      mode: 'lines',
+      name: `${result.ticker} Close`,
+      line: { color: '#64748B', width: 1.5 },
+      hovertemplate: `${result.ticker}: $%{y:.2f}<extra></extra>`,
+    });
+
+    // 2. Add Indicator Overlays (SMA, EMA, BB bands)
+    if (result.indicatorSeries) {
+      Object.entries(result.indicatorSeries).forEach(([key, values]) => {
+        const isOverlay = key.startsWith('sma_') || key.startsWith('ema_') || key.startsWith('bb_');
+        if (isOverlay) {
+          let color = '#3B82F6'; // Blue for SMA
+          if (key.startsWith('ema_')) color = '#8B5CF6'; // Purple for EMA
+          else if (key.startsWith('bb_')) color = 'rgba(239, 68, 68, 0.35)'; // Reddish for Bollinger Bands
+          
+          priceTraces.push({
+            x: result.ohlcv?.timestamp,
+            y: values,
+            type: 'scatter',
+            mode: 'lines',
+            name: key.toUpperCase(),
+            line: { 
+              color, 
+              width: 1.2, 
+              dash: key.includes('bb_') ? 'dash' : 'solid'
+            },
+            hovertemplate: `${key.toUpperCase()}: %{y:.2f}<extra></extra>`,
+          });
+        }
+      });
+    }
+
+    // 3. Add Buy Markers (▲)
+    if (result.tradeMarkers) {
+      const buyMarkers = result.tradeMarkers.filter(m => m.type === 'buy');
+      if (buyMarkers.length > 0) {
+        priceTraces.push({
+          x: buyMarkers.map(m => m.timestamp),
+          y: buyMarkers.map(m => m.price),
+          type: 'scatter',
+          mode: 'markers',
+          name: 'Buy Entry',
+          marker: {
+            symbol: 'triangle-up',
+            color: '#10B981', // Terminal Green
+            size: 10,
+          },
+          text: buyMarkers.map(m => m.text),
+          hovertemplate: '%{text}<extra></extra>',
+        });
+      }
+
+      // 4. Add Sell Markers (▼)
+      const sellMarkers = result.tradeMarkers.filter(m => m.type === 'sell');
+      if (sellMarkers.length > 0) {
+        priceTraces.push({
+          x: sellMarkers.map(m => m.timestamp),
+          y: sellMarkers.map(m => m.price),
+          type: 'scatter',
+          mode: 'markers',
+          name: 'Sell Exit',
+          marker: {
+            symbol: 'triangle-down',
+            color: '#EF4444', // Terminal Red
+            size: 10,
+          },
+          text: sellMarkers.map(m => m.text),
+          hovertemplate: '%{text}<extra></extra>',
+        });
+      }
+    }
+  }
+
   return (
     <div className="space-y-4">
+      {/* ─── PRICE & TRADE MARKERS OVERLAYS (NEW) ─── */}
+      {hasOhlcv && (
+        <div className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-4 flex flex-col gap-2">
+          <div className="flex items-center justify-between border-b border-[#131316] pb-2">
+            <span className="text-xs font-bold text-[#F5F5F7] uppercase tracking-wider">Simulation Price & Trade History</span>
+            <div className="flex items-center gap-3 text-[10px] font-mono">
+              <span className="flex items-center gap-1"><span className="w-2.5 h-1 bg-[#64748B] inline-block" /> Price</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-1 bg-[#10B981] inline-block" /> Buy</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-1 bg-[#EF4444] inline-block" /> Sell</span>
+            </div>
+          </div>
+
+          <div className="w-full h-[260px] overflow-hidden">
+            <Plot
+              data={priceTraces}
+              layout={{
+                autosize: true,
+                height: 250,
+                margin: { l: 45, r: 20, t: 15, b: 35 },
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                showlegend: false,
+                xaxis: {
+                  gridcolor: '#15151A',
+                  zeroline: false,
+                  tickfont: { size: 9, color: '#555', family: 'monospace' },
+                  type: 'date'
+                },
+                yaxis: {
+                  gridcolor: '#15151A',
+                  zeroline: false,
+                  tickfont: { size: 9, color: '#555', family: 'monospace' },
+                  tickprefix: '$'
+                },
+                hovermode: 'x unified',
+                hoverlabel: {
+                  bgcolor: '#08080A',
+                  bordercolor: '#1A1A1E',
+                  font: { color: '#E5E5E5', size: 10, family: 'monospace' }
+                }
+              }}
+              config={{ responsive: true, displayModeBar: false }}
+              style={{ width: '100%', height: '100%' }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* ─── CHART 1: EQUITY CURVE VS BENCHMARK ─── */}
       <div className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-4 flex flex-col gap-2">
         <div className="flex items-center justify-between border-b border-[#131316] pb-2">

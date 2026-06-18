@@ -8,6 +8,8 @@ import { BacktestCharts } from './backtest-charts';
 import { BacktestTradeLog } from './backtest-trade-log';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from 'sonner';
+import { Maximize2 } from 'lucide-react';
+import { StrategyTerminalDrawer } from './strategy-terminal-drawer';
 
 export function BacktestDashboard() {
   const [availableTickers, setAvailableTickers] = useState<string[]>([]);
@@ -16,6 +18,8 @@ export function BacktestDashboard() {
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
+  const [isStrategyTerminalOpen, setIsStrategyTerminalOpen] = useState(false);
+
 
   // Form states
   const [ticker, setTicker] = useState('SPY');
@@ -127,9 +131,19 @@ export function BacktestDashboard() {
     <div className="flex-1 flex flex-col md:flex-row min-h-0 bg-[#020203] overflow-y-auto md:overflow-hidden select-none">
       {/* ─── LEFT PANEL: CONFIGURATION FORM ─── */}
       <aside className="w-full md:w-[350px] bg-[#08080A] border-r border-[#15151A] flex flex-col flex-shrink-0 md:h-full overflow-y-auto terminal-scrollbar">
-        <div className="p-4 border-b border-[#15151A] bg-[#0A0A0C]">
-          <h2 className="text-xs font-bold font-mono tracking-widest text-[#E5E5E5] uppercase">STRATEGY STUDIO</h2>
-          <p className="text-[10px] font-mono text-[#555] mt-1">Configure equity backtests & indicator triggers</p>
+        <div className="p-4 border-b border-[#15151A] bg-[#0A0A0C] flex justify-between items-center">
+          <div>
+            <h2 className="text-xs font-bold font-mono tracking-widest text-[#E5E5E5] uppercase">STRATEGY STUDIO</h2>
+            <p className="text-[10px] font-mono text-[#555] mt-1">Configure equity backtests & indicator triggers</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsStrategyTerminalOpen(true)}
+            className="p-1.5 hover:bg-[#1C202E]/60 border border-transparent hover:border-[#2B3045]/60 text-gray-400 hover:text-white rounded transition-colors"
+            title="Expand Strategy Workspace"
+          >
+            <Maximize2 className="w-3.5 h-3.5" />
+          </button>
         </div>
         
         <BacktestConfigForm
@@ -263,6 +277,45 @@ export function BacktestDashboard() {
           </div>
         )}
       </section>
+
+      {/* Expanded Strategy Terminal Workspace Drawer */}
+      <StrategyTerminalDrawer
+        isOpen={isStrategyTerminalOpen}
+        onClose={() => setIsStrategyTerminalOpen(false)}
+        availableTickers={availableTickers}
+        isLoadingTickers={isLoadingTickers}
+        ticker={ticker}
+        setTicker={setTicker}
+        startDate={startDate}
+        setStartDate={setStartDate}
+        endDate={endDate}
+        setEndDate={setEndDate}
+        initialCapital={initialCapital}
+        setInitialCapital={setInitialCapital}
+        timeframe={timeframe}
+        setTimeframe={setTimeframe}
+        commission={commission}
+        setCommission={setCommission}
+        slippagePercent={slippagePercent}
+        setSlippagePercent={setSlippagePercent}
+        indicators={indicators}
+        setIndicators={setIndicators}
+        entryRules={entryRules}
+        setEntryRules={setEntryRules}
+        exitRules={exitRules}
+        setExitRules={setExitRules}
+        stopLossPercent={stopLossPercent}
+        setStopLossPercent={setStopLossPercent}
+        trailingStopPercent={trailingStopPercent}
+        setTrailingStopPercent={setTrailingStopPercent}
+        takeProfitPercent={takeProfitPercent}
+        setTakeProfitPercent={setTakeProfitPercent}
+        timeBasedExitDays={timeBasedExitDays}
+        setTimeBasedExitDays={setTimeBasedExitDays}
+        onSubmit={handleRunBacktest}
+        isRunning={isRunning}
+      />
     </div>
   );
+
 }

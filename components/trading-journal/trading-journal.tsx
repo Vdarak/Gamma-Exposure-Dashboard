@@ -14,7 +14,8 @@ import {
   getJournalSetting,
   updateJournalSetting
 } from "@/lib/backend-api"
-import { Plus, RefreshCw, X, TrendingUp, ArrowDownRight, Percent, Zap, Calendar as CalendarIcon } from "lucide-react"
+import { Plus, RefreshCw, X, TrendingUp, ArrowDownRight, Percent, Zap, Calendar as CalendarIcon, Terminal } from "lucide-react"
+import { AIAnalystPanel } from "../AIAnalystPanel"
 
 function normalizeOption(opt: any) {
   if (!opt) return { strike: 0, type: null, expirationStr: null, price: 0 }
@@ -101,6 +102,7 @@ export function TradingJournal() {
   
   const [selectedTrade, setSelectedTrade] = useState<JournalTrade | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
+  const [isAIPanelOpen, setIsAIPanelOpen] = useState(false)
 
   // Inspect trades on a single day
   const [inspectedDate, setInspectedDate] = useState<string | null>(null)
@@ -591,7 +593,8 @@ export function TradingJournal() {
   }, [sortedTrades, startBalance])
 
   return (
-    <div className="flex-grow flex flex-col pt-2 md:pt-3 pb-20 px-4 md:px-6 bg-black text-[#E5E5E5] font-mono min-h-0 select-none overflow-y-auto gap-6">
+    <div className="flex-grow flex flex-row min-h-0 bg-black relative w-full h-full">
+      <div className="flex-1 flex flex-col pt-2 md:pt-3 pb-24 px-4 md:px-6 bg-black text-[#E5E5E5] font-mono min-h-0 overflow-y-auto gap-6">
       
       {/* 1. Header (TradeSync style) */}
       <header className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-[#15151C] pb-4 flex-shrink-0">
@@ -622,6 +625,17 @@ export function TradingJournal() {
               />
             </div>
           </div>
+          
+          <button
+            onClick={() => setIsAIPanelOpen(!isAIPanelOpen)}
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded text-[10px] font-bold uppercase border transition-all ${
+              isAIPanelOpen
+                ? 'bg-[#00E676]/15 text-[#00E676] border-[#00E676]/45 shadow-[0_0_8px_rgba(0,230,118,0.15)] font-bold'
+                : 'bg-[#0A0A0C] border-[#1A1A1E] text-gray-300 hover:text-white hover:bg-[#1C202E]'
+            }`}
+          >
+            <Terminal className="w-3.5 h-3.5 text-[#00E676]" /> AI ANALYST
+          </button>
           
           <button
             onClick={() => {
@@ -1065,6 +1079,16 @@ export function TradingJournal() {
           </div>
         </div>
       )}
+      </div>
+
+      <AIAnalystPanel
+        isOpen={isAIPanelOpen}
+        onClose={() => setIsAIPanelOpen(false)}
+        onTradeLogged={loadTrades}
+        showBriefingTab={false}
+        title="JOURNAL AGENT"
+        inputPlaceholder="Log a trade or ask about your performance..."
+      />
     </div>
   )
 }

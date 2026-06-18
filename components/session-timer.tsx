@@ -221,7 +221,7 @@ export function SessionTimer({
 
         <Badge
           onClick={toggleLive}
-          className={`cursor-pointer h-7 px-3 rounded-full text-xs font-bold transition-all border ${
+          className={`cursor-pointer h-7 px-3 rounded text-xs font-bold transition-all border ${
             isLive
               ? "bg-[#00C805]/10 border-[#00C805] text-[#00C805] hover:bg-[#00C805]/20"
               : "bg-transparent border-gray-700 text-gray-400 hover:border-gray-500 hover:text-white"

@@ -117,6 +117,9 @@ CREATE TABLE IF NOT EXISTS earnings_dates (
 -- Index to optimize 5-day delta queries
 CREATE INDEX IF NOT EXISTS idx_option_data_exp_strike_type ON option_data(expiration, strike, option_type);
 
+-- Drop view that depends on option_data columns before altering column types
+DROP VIEW IF EXISTS gex_by_strike;
+
 -- Migration to alter option_data column types to support larger precisions and avoid numeric field overflows (e.g. for SPX)
 ALTER TABLE option_data ALTER COLUMN implied_volatility TYPE DECIMAL(12, 6);
 ALTER TABLE option_data ALTER COLUMN delta TYPE DECIMAL(12, 6);
@@ -124,5 +127,58 @@ ALTER TABLE option_data ALTER COLUMN gamma TYPE DECIMAL(16, 8);
 ALTER TABLE option_data ALTER COLUMN theta TYPE DECIMAL(16, 8);
 ALTER TABLE option_data ALTER COLUMN vega TYPE DECIMAL(16, 8);
 ALTER TABLE option_data ALTER COLUMN rho TYPE DECIMAL(16, 8);
+
+-- Add tracking columns for flow updates (if they don't already exist)
+ALTER TABLE option_data ADD COLUMN IF NOT EXISTS change_in_oi INTEGER;
+ALTER TABLE option_data ADD COLUMN IF NOT EXISTS total_buy_qty INTEGER;
+ALTER TABLE option_data ADD COLUMN IF NOT EXISTS total_sell_qty INTEGER;
+
+-- Create spot price history table
+CREATE TABLE IF NOT EXISTS spot_price_history (
+  id SERIAL PRIMARY KEY,
+  ticker VARCHAR(10) NOT NULL,
+  timestamp TIMESTAMP NOT NULL,
+  spot_price DECIMAL(12, 4) NOT NULL,
+  UNIQUE(ticker, timestamp)
+);
+CREATE INDEX IF NOT EXISTS idx_spot_history ON spot_price_history(ticker, timestamp DESC);
+
+-- Create daily option summary table
+CREATE TABLE IF NOT EXISTS daily_option_summary (
+  id SERIAL PRIMARY KEY,
+  ticker VARCHAR(10) NOT NULL,
+  trade_date DATE NOT NULL,
+  total_call_oi BIGINT,
+  total_put_oi BIGINT,
+  total_call_volume BIGINT,
+  total_put_volume BIGINT,
+  put_call_ratio DECIMAL(8, 4),
+  total_gex DECIMAL(20, 4),
+  gamma_flip_strike DECIMAL(12, 4),
+  spot_open DECIMAL(12, 4),
+  spot_close DECIMAL(12, 4),
+  snapshot_count INTEGER,
+  UNIQUE(ticker, trade_date)
+);
+
+-- Create interest rates table to store risk-free rates
+CREATE TABLE IF NOT EXISTS interest_rates (
+  id SERIAL PRIMARY KEY,
+  rate_key VARCHAR(30) UNIQUE NOT NULL, -- e.g. 'US_RISK_FREE', 'INDIA_RISK_FREE'
+  rate DECIMAL(8, 6) NOT NULL,
+  source VARCHAR(100),
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create view for GEX by strike
+CREATE OR REPLACE VIEW gex_by_strike AS
+SELECT 
+  s.ticker, s.timestamp, s.spot_price,
+  o.snapshot_id, o.strike, o.option_type, o.expiration,
+  o.open_interest, o.gamma, o.volume, o.implied_volatility,
+  (CASE WHEN o.option_type = 'C' THEN 1 ELSE -1 END) 
+    * s.spot_price * s.spot_price * o.gamma * o.open_interest * 100 AS gex
+FROM option_snapshots s
+JOIN option_data o ON s.id = o.snapshot_id;
 
 

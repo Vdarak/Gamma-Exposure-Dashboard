@@ -25,6 +25,7 @@ import { ExpirySelector, type ExpiryMode, getOpexDte } from "./controls/expiry-s
 import { TradingJournal } from "./trading-journal/trading-journal"
 import { OptionFlowDashboard } from "./option-flow-dashboard"
 import { BacktestDashboard } from "./algorithms/backtest-dashboard"
+import { AIAnalystPanel } from "./AIAnalystPanel"
 
 // UI components
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -88,6 +89,9 @@ export function GammaExposureDashboard() {
   const [selectedRampExpiry, setSelectedRampExpiry] = useState<string>("")
   const [activeZoom, setActiveZoom] = useState<number | null>(1) // Zoom percentage around spot
   const [isUpdating, setIsUpdating] = useState(false)
+
+  // AI Analyst panel
+  const [isAIPanelOpen, setIsAIPanelOpen] = useState(false)
 
   // Expiry selector state
   const [expiryMode, setExpiryMode] = useState<ExpiryMode>('0dte')
@@ -639,6 +643,8 @@ export function GammaExposureDashboard() {
             totalGEX={activeTotalGEX}
             optionData={activeOptionData}
             gammaFlipLevel={gammaFlipLevel}
+            isAIPanelOpen={isAIPanelOpen}
+            onToggleAIPanel={() => setIsAIPanelOpen(v => !v)}
           />
         )}
 
@@ -709,7 +715,9 @@ export function GammaExposureDashboard() {
 
             {/* Trading Journal Workspace */}
             {activeSidebarTab === 'journal' && (
-              <TradingJournal />
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden h-full">
+                <TradingJournal />
+              </div>
             )}
 
             {/* Algorithms Backtesting Workspace */}
@@ -767,86 +775,158 @@ export function GammaExposureDashboard() {
                     </div>
                   )}
 
-                  {/* 1. GEX Levels Workspace (Synced Candlestick + GEX + Volume + Chain) */}
+                  {/* 1. GEX Levels Workspace — charts on left, watchlist/expiry panel on right */}
                   {activeTab === 'gex-levels' && (
-                    <div className="flex flex-col gap-4">
-                      {/* Session Range Slider */}
-                      <SessionTimer
-                        ticker={ticker}
-                        currentRange={currentRange}
-                        onCheckpointChange={handleCheckpointChange}
-                        isLive={isLive}
-                        onLiveChange={setIsLive}
-                        onTimestampsLoad={setAllTimestamps}
-                      />
+                    <div className="flex flex-row gap-4 min-h-0">
+                      {/* Main charts column */}
+                      <div className="flex-1 flex flex-col gap-4 min-w-0">
+                        {/* Session Range Slider */}
+                        <SessionTimer
+                          ticker={ticker}
+                          currentRange={currentRange}
+                          onCheckpointChange={handleCheckpointChange}
+                          isLive={isLive}
+                          onLiveChange={setIsLive}
+                          onTimestampsLoad={setAllTimestamps}
+                        />
 
-                      {/* Synced Workspace Chart Card */}
-                      <div className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-3">
-                        {/* Chart View */}
-                        <div className="h-[1200px]">
-                          <SyncedStrikeWorkspace
-                            startOptionData={activeStartOptionData}
-                            endOptionData={activeEndOptionData}
+                        {/* Synced Workspace Chart Card */}
+                        <div className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-3">
+                          <div className="h-[1200px]">
+                            <SyncedStrikeWorkspace
+                              startOptionData={activeStartOptionData}
+                              endOptionData={activeEndOptionData}
+                              ticker={ticker}
+                              startSpotPrice={startSpotPrice ?? spotPrice!}
+                              endSpotPrice={endSpotPrice ?? spotPrice!}
+                              market={market}
+                              pricingMethod={pricingMethod}
+                              expiryMode={expiryMode}
+                              isLive={isLive}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Option Chain Card below */}
+                        <ChartWrapper
+                          title="Option Chain Grid"
+                          subtitle="Detailed strike levels, Greeks, and open interest distribution"
+                          height="auto"
+                          controls={
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] text-[#949494] font-mono uppercase">Strikes</span>
+                                <Select value={strikesCount.toString()} onValueChange={(v) => setStrikesCount(v === "ALL" ? "ALL" : parseInt(v))}>
+                                  <SelectTrigger className="w-16 h-6 text-[10px] bg-black border-[#1A1A1E]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent className="bg-black border-[#1A1A1E]">
+                                    <SelectItem value="6">6</SelectItem>
+                                    <SelectItem value="10">10</SelectItem>
+                                    <SelectItem value="12">12</SelectItem>
+                                    <SelectItem value="16">16</SelectItem>
+                                    <SelectItem value="ALL">ALL</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] text-[#949494] font-mono uppercase">Expiry</span>
+                                <Select value={selectedRampExpiry} onValueChange={setSelectedRampExpiry}>
+                                  <SelectTrigger className="w-28 h-6 text-[10px] bg-black border-[#1A1A1E]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent className="bg-black border-[#1A1A1E]">
+                                    {futureExpiries.map((exp) => (
+                                      <SelectItem key={exp} value={exp}>{exp.slice(5)}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                          }
+                        >
+                          <OptionChain
+                            data={optionData}
                             ticker={ticker}
-                            startSpotPrice={startSpotPrice ?? spotPrice!}
-                            endSpotPrice={endSpotPrice ?? spotPrice!}
-                            market={market}
-                            pricingMethod={pricingMethod}
-                            expiryMode={expiryMode}
-                            isLive={isLive}
+                            spotPrice={spotPrice!}
+                            selectedExpiry={selectedRampExpiry}
+                            onExpiryChange={setSelectedRampExpiry}
+                            availableExpiries={futureExpiries}
+                            strikesCount={strikesCount}
+                            onStrikesCountChange={setStrikesCount}
+                          />
+                        </ChartWrapper>
+                      </div>
+
+                      {/* Right panel — Watchlist & Expiry Selector (GEX Levels only) */}
+                      <div className="w-[250px] flex-shrink-0 flex flex-col gap-3">
+                        {/* Watchlist */}
+                        <div className="border border-[#1A1A1E] bg-[#0A0A0C] rounded-lg p-3 flex flex-col gap-2.5">
+                          <div className="flex items-center justify-between border-b border-[#1A1A1E] pb-2">
+                            <span className="text-[11px] font-mono font-bold text-[#E5E5E5]">WATCHLIST</span>
+                            <form onSubmit={handleAddTickerSubmit} className="flex items-center gap-1.5">
+                              <input
+                                name="tickerSearch"
+                                type="text"
+                                placeholder="ADD..."
+                                className="w-12 h-5 text-[9px] font-mono bg-black border border-[#222] rounded px-1 text-white outline-none focus:border-terminal-green/40"
+                              />
+                              <button
+                                type="submit"
+                                className="w-5 h-5 flex items-center justify-center rounded border border-[#222] bg-black/40 text-[10px] text-[#949494] hover:text-[#888] hover:border-[#333]"
+                              >
+                                +
+                              </button>
+                            </form>
+                          </div>
+                          <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-0.5 terminal-scrollbar">
+                            {watchlistTickers.map(t => {
+                              const active = t === ticker
+                              const stats = getWatchlistItem(t)
+                              const isUp = stats.pct >= 0
+                              return (
+                                <div
+                                  key={t}
+                                  onClick={() => handleTickerSelect(t)}
+                                  className={`flex items-center justify-between px-2 py-1 rounded transition-colors cursor-pointer ${
+                                    active
+                                      ? 'bg-[#15151A] text-[#E5E5E5] border border-terminal-green/30'
+                                      : 'text-[#666] hover:bg-[#0E0E10] hover:text-[#888] border border-transparent'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-mono font-bold uppercase">{t}</span>
+                                    {customTickers.includes(t) && (
+                                      <button type="button" onClick={(e) => handleRemoveCustomTicker(t, e)} className="text-[9px] text-terminal-red/60 hover:text-terminal-red font-bold">×</button>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[10px] font-mono font-bold">{stats.price.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</span>
+                                    <span className={`text-[9px] font-mono px-1 rounded text-center min-w-[42px] font-bold ${ isUp ? 'bg-terminal-green/10 text-terminal-green' : 'bg-terminal-red/10 text-terminal-red' }`}>
+                                      {isUp ? '+' : ''}{stats.pct.toFixed(2)}%
+                                    </span>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Expiry Selector */}
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <span className="text-[11px] font-mono font-bold text-[#E5E5E5]">EXPIRATIONS</span>
+                          </div>
+                          <ExpirySelector
+                            availableExpiries={futureExpiries}
+                            mode={expiryMode}
+                            onModeChange={setExpiryMode}
+                            selectedExpiries={customSelectedExpiries}
+                            onSelectedExpiriesChange={setCustomSelectedExpiries}
+                            optionData={optionData}
                           />
                         </div>
                       </div>
-
-                      {/* Option Chain Card below */}
-                      <ChartWrapper
-                        title="Option Chain Grid"
-                        subtitle="Detailed strike levels, Greeks, and open interest distribution"
-                        height="auto"
-                        controls={
-                          <div className="flex items-center gap-3">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] text-[#949494] font-mono uppercase">Strikes</span>
-                              <Select value={strikesCount.toString()} onValueChange={(v) => setStrikesCount(v === "ALL" ? "ALL" : parseInt(v))}>
-                                <SelectTrigger className="w-16 h-6 text-[10px] bg-black border-[#1A1A1E]">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent className="bg-black border-[#1A1A1E]">
-                                  <SelectItem value="6">6</SelectItem>
-                                  <SelectItem value="10">10</SelectItem>
-                                  <SelectItem value="12">12</SelectItem>
-                                  <SelectItem value="16">16</SelectItem>
-                                  <SelectItem value="ALL">ALL</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] text-[#949494] font-mono uppercase">Expiry</span>
-                              <Select value={selectedRampExpiry} onValueChange={setSelectedRampExpiry}>
-                                <SelectTrigger className="w-28 h-6 text-[10px] bg-black border-[#1A1A1E]">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent className="bg-black border-[#1A1A1E]">
-                                  {futureExpiries.map((exp) => (
-                                    <SelectItem key={exp} value={exp}>{exp.slice(5)}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          </div>
-                        }
-                      >
-                        <OptionChain
-                          data={optionData}
-                          ticker={ticker}
-                          spotPrice={spotPrice!}
-                          selectedExpiry={selectedRampExpiry}
-                          onExpiryChange={setSelectedRampExpiry}
-                          availableExpiries={futureExpiries}
-                          strikesCount={strikesCount}
-                          onStrikesCountChange={setStrikesCount}
-                        />
-                      </ChartWrapper>
                     </div>
                   )}
 
@@ -934,100 +1014,22 @@ export function GammaExposureDashboard() {
             )}
           </div>
 
-          {/* ─── RIGHT SIDEBAR PANEL: WATCHLIST & EXPRIS SELECTOR ─── */}
-          {activeSidebarTab === 'gex' && hasData && !isLoading && (
-            <aside className="w-[270px] bg-[#08080A] border-l border-[#1A1A1E] flex flex-col gap-4 p-3 flex-shrink-0 select-none overflow-y-auto terminal-scrollbar h-full">
-              {/* Watchlist Section */}
-              <div className="border border-[#1A1A1E] bg-[#0A0A0C] rounded-lg p-3 flex flex-col gap-2.5">
-                <div className="flex items-center justify-between border-b border-[#1A1A1E] pb-2">
-                  <span className="text-[11px] font-mono font-bold text-[#E5E5E5]">WATCHLIST</span>
-                  {/* Add ticker form */}
-                  <form onSubmit={handleAddTickerSubmit} className="flex items-center gap-1.5">
-                    <input
-                      name="tickerSearch"
-                      type="text"
-                      placeholder="ADD..."
-                      className="w-12 h-5 text-[9px] font-mono bg-black border border-[#222] rounded px-1 text-white outline-none focus:border-terminal-green/40"
-                    />
-                    <button
-                      type="submit"
-                      className="w-5 h-5 flex items-center justify-center rounded border border-[#222] bg-black/40 text-[10px] text-[#949494] hover:text-[#888] hover:border-[#333]"
-                    >
-                      +
-                    </button>
-                  </form>
-                </div>
-
-                {/* Watchlist list */}
-                <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-0.5 terminal-scrollbar">
-                  {watchlistTickers.map(t => {
-                    const active = t === ticker
-                    const stats = getWatchlistItem(t)
-                    const isUp = stats.pct >= 0
-
-                    return (
-                      <div
-                        key={t}
-                        onClick={() => handleTickerSelect(t)}
-                        className={`flex items-center justify-between px-2 py-1 rounded transition-colors cursor-pointer ${
-                          active
-                            ? 'bg-[#15151A] text-[#E5E5E5] border border-terminal-green/30'
-                            : 'text-[#666] hover:bg-[#0E0E10] hover:text-[#888] border border-transparent'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-mono font-bold uppercase">
-                            {t}
-                          </span>
-                          {customTickers.includes(t) && (
-                            <button
-                              type="button"
-                              onClick={(e) => handleRemoveCustomTicker(t, e)}
-                              className="text-[9px] text-terminal-red/60 hover:text-terminal-red font-bold"
-                            >
-                              ×
-                            </button>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-mono font-bold">
-                            {stats.price.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
-                          </span>
-                          <span className={`text-[9px] font-mono px-1 rounded text-center min-w-[42px] font-bold ${
-                            isUp
-                              ? 'bg-terminal-green/10 text-terminal-green'
-                              : 'bg-terminal-red/10 text-terminal-red'
-                          }`}>
-                            {isUp ? '+' : ''}{stats.pct.toFixed(2)}%
-                          </span>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-
-              {/* Expiries Selector Card */}
-              <div className="flex-1 flex flex-col min-h-0">
-                <div className="flex-1 min-h-0 flex flex-col">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <span className="text-[11px] font-mono font-bold text-[#E5E5E5]">EXPIRATIONS</span>
-                  </div>
-                  <ExpirySelector
-                    availableExpiries={futureExpiries}
-                    mode={expiryMode}
-                    onModeChange={setExpiryMode}
-                    selectedExpiries={customSelectedExpiries}
-                    onSelectedExpiriesChange={setCustomSelectedExpiries}
-                    optionData={optionData}
-                  />
-                </div>
-              </div>
-            </aside>
+          {/* AI Analyst Panel — GEX mode with Briefing + Chat */}
+          {activeSidebarTab !== 'journal' && (
+            <AIAnalystPanel
+              isOpen={isAIPanelOpen}
+              onClose={() => setIsAIPanelOpen(false)}
+              ticker={ticker}
+              livePrice={spotPrice ?? undefined}
+              timeframe="Intraday"
+              showBriefingTab={true}
+              title="GEX AI ANALYST"
+              inputPlaceholder="Ask about GEX, gamma flip, options positioning..."
+            />
           )}
         </div>
       </main>
     </div>
   )
 }
+

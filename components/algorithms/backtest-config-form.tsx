@@ -5,6 +5,7 @@ import { IndicatorConfig, IndicatorCondition } from '../../backend/src/backteste
 import { Plus, Trash2, HelpCircle } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { StrategyConditionBlock } from './strategy-condition-block';
 
 interface BacktestConfigFormProps {
   availableTickers: string[];
@@ -147,7 +148,7 @@ export function BacktestConfigForm({
   const indicatorKeys = getIndicatorKeys();
 
   return (
-    <form onSubmit={onSubmit} className="flex-1 flex flex-col p-4 space-y-5 font-mono text-[#949494] text-xs">
+    <form onSubmit={onSubmit} className="flex-1 flex flex-col p-4 space-y-5 font-mono text-[#949494] text-xs select-none">
       {/* ─── SECTION 1: GLOBAL SIMULATION SETTINGS ─── */}
       <div className="space-y-3">
         <h3 className="text-[10px] font-bold text-terminal-green uppercase border-b border-[#1A1A1E] pb-1">GLOBAL PARAMETERS</h3>
@@ -260,7 +261,7 @@ export function BacktestConfigForm({
                 <button
                   type="button"
                   onClick={() => removeIndicator(idx)}
-                  className="text-red-500 hover:text-red-400 p-0.5"
+                  className="w-6 h-6 flex items-center justify-center text-red-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-all"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -311,7 +312,7 @@ export function BacktestConfigForm({
       {/* ─── SECTION 3: ENTRY RULES ─── */}
       <div className="space-y-3">
         <div className="flex items-center justify-between border-b border-[#1A1A1E] pb-1">
-          <h3 className="text-[10px] font-bold text-terminal-green uppercase">ENTRY RULES (AND)</h3>
+          <h3 className="text-[10px] font-bold text-[#10B981] uppercase">ENTRY CONDITIONS (AND)</h3>
           <button
             type="button"
             onClick={addEntryRule}
@@ -321,81 +322,32 @@ export function BacktestConfigForm({
           </button>
         </div>
 
-        <div className="space-y-2 max-h-[140px] overflow-y-auto pr-0.5 terminal-scrollbar">
-          {entryRules.map((rule, idx) => (
-            <div key={idx} className="flex flex-col gap-1.5 p-2 bg-[#0A0A0C] border border-[#15151A] rounded relative group">
-              <button
-                type="button"
-                onClick={() => removeEntryRule(idx)}
-                className="absolute top-1 right-1 text-red-500 hover:text-red-400 opacity-60 group-hover:opacity-100 transition-opacity"
-              >
-                <Trash2 className="w-3 h-3" />
-              </button>
-              
-              <div className="flex items-center gap-1.5">
-                {/* Left hand operand */}
-                <Select
-                  value={rule.indicator1}
-                  onValueChange={(val) => {
-                    const updated = [...entryRules];
-                    updated[idx].indicator1 = val;
-                    setEntryRules(updated);
-                  }}
-                >
-                  <SelectTrigger className="h-6 bg-black border-[#222] text-[#E5E5E5] text-[10px] w-[110px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-black border-[#222]">
-                    {indicatorKeys.map(k => (
-                      <SelectItem key={k} value={k} className="text-[10px]">{k}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                {/* Operator */}
-                <Select
-                  value={rule.operator}
-                  onValueChange={(val: any) => {
-                    const updated = [...entryRules];
-                    updated[idx].operator = val;
-                    setEntryRules(updated);
-                  }}
-                >
-                  <SelectTrigger className="h-6 bg-black border-[#222] text-[#E5E5E5] text-[10px] w-[90px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-black border-[#222]">
-                    <SelectItem value="greater_than" className="text-[10px]">&gt;</SelectItem>
-                    <SelectItem value="less_than" className="text-[10px]">&lt;</SelectItem>
-                    <SelectItem value="crosses_above" className="text-[10px]">Crosses Over</SelectItem>
-                    <SelectItem value="crosses_below" className="text-[10px]">Crosses Under</SelectItem>
-                    <SelectItem value="equals" className="text-[10px]">=</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                {/* Right hand operand: can select key or type custom number */}
-                <input
-                  type="text"
-                  value={rule.indicator2}
-                  onChange={(e) => {
-                    const updated = [...entryRules];
-                    const val = e.target.value;
-                    const num = parseFloat(val);
-                    updated[idx].indicator2 = isNaN(num) ? val : num;
-                    setEntryRules(updated);
-                  }}
-                  className="h-6 bg-black border border-[#222] rounded px-1.5 text-[#E5E5E5] outline-none focus:border-terminal-green/30 text-[10px] w-[90px]"
-                  placeholder="Indicator or #"
-                />
-              </div>
-            </div>
-          ))}
+        <div className="space-y-2 max-h-[200px] overflow-y-auto pr-0.5 terminal-scrollbar">
+          {entryRules.length === 0 ? (
+            <div className="text-[9px] text-[#444] italic p-2 border border-dashed border-[#222] rounded text-center">No entry rules defined</div>
+          ) : (
+            entryRules.map((rule, idx) => (
+              <StrategyConditionBlock
+                key={idx}
+                idx={idx}
+                rule={rule}
+                indicatorKeys={indicatorKeys}
+                type="entry"
+                onUpdate={(updated) => {
+                  const updatedRules = [...entryRules];
+                  updatedRules[idx] = updated;
+                  setEntryRules(updatedRules);
+                }}
+                onRemove={() => removeEntryRule(idx)}
+              />
+            ))
+          )}
         </div>
       </div>
 
       {/* ─── SECTION 4: RISK MANAGEMENT EXITS ─── */}
       <div className="space-y-3">
-        <h3 className="text-[10px] font-bold text-terminal-green uppercase border-b border-[#1A1A1E] pb-1">RISK MANAGEMENT EXITS</h3>
+        <h3 className="text-[10px] font-bold text-terminal-green uppercase border-b border-[#1A1A1E] pb-1">RISK EXITS</h3>
         
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1">
@@ -476,7 +428,7 @@ export function BacktestConfigForm({
       {/* ─── SECTION 5: EXIT RULE INDICATORS ─── */}
       <div className="space-y-3">
         <div className="flex items-center justify-between border-b border-[#1A1A1E] pb-1">
-          <h3 className="text-[10px] font-bold text-terminal-green uppercase">INDICATOR EXITS (AND)</h3>
+          <h3 className="text-[10px] font-bold text-[#EF4444] uppercase">EXIT CONDITIONS (AND)</h3>
           <button
             type="button"
             onClick={addExitRule}
@@ -486,72 +438,26 @@ export function BacktestConfigForm({
           </button>
         </div>
 
-        <div className="space-y-2 max-h-[140px] overflow-y-auto pr-0.5 terminal-scrollbar">
-          {exitRules.map((rule, idx) => (
-            <div key={idx} className="flex flex-col gap-1.5 p-2 bg-[#0A0A0C] border border-[#15151A] rounded relative group">
-              <button
-                type="button"
-                onClick={() => removeExitRule(idx)}
-                className="absolute top-1 right-1 text-red-500 hover:text-red-400 opacity-60 group-hover:opacity-100 transition-opacity"
-              >
-                <Trash2 className="w-3 h-3" />
-              </button>
-              
-              <div className="flex items-center gap-1.5">
-                <Select
-                  value={rule.indicator1}
-                  onValueChange={(val) => {
-                    const updated = [...exitRules];
-                    updated[idx].indicator1 = val;
-                    setExitRules(updated);
-                  }}
-                >
-                  <SelectTrigger className="h-6 bg-black border-[#222] text-[#E5E5E5] text-[10px] w-[110px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-black border-[#222]">
-                    {indicatorKeys.map(k => (
-                      <SelectItem key={k} value={k} className="text-[10px]">{k}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                <Select
-                  value={rule.operator}
-                  onValueChange={(val: any) => {
-                    const updated = [...exitRules];
-                    updated[idx].operator = val;
-                    setExitRules(updated);
-                  }}
-                >
-                  <SelectTrigger className="h-6 bg-black border-[#222] text-[#E5E5E5] text-[10px] w-[90px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-black border-[#222]">
-                    <SelectItem value="greater_than" className="text-[10px]">&gt;</SelectItem>
-                    <SelectItem value="less_than" className="text-[10px]">&lt;</SelectItem>
-                    <SelectItem value="crosses_above" className="text-[10px]">Crosses Over</SelectItem>
-                    <SelectItem value="crosses_below" className="text-[10px]">Crosses Under</SelectItem>
-                    <SelectItem value="equals" className="text-[10px]">=</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                <input
-                  type="text"
-                  value={rule.indicator2}
-                  onChange={(e) => {
-                    const updated = [...exitRules];
-                    const val = e.target.value;
-                    const num = parseFloat(val);
-                    updated[idx].indicator2 = isNaN(num) ? val : num;
-                    setExitRules(updated);
-                  }}
-                  className="h-6 bg-black border border-[#222] rounded px-1.5 text-[#E5E5E5] outline-none focus:border-terminal-green/30 text-[10px] w-[90px]"
-                  placeholder="Indicator or #"
-                />
-              </div>
-            </div>
-          ))}
+        <div className="space-y-2 max-h-[200px] overflow-y-auto pr-0.5 terminal-scrollbar">
+          {exitRules.length === 0 ? (
+            <div className="text-[9px] text-[#444] italic p-2 border border-dashed border-[#222] rounded text-center">No exit rules defined</div>
+          ) : (
+            exitRules.map((rule, idx) => (
+              <StrategyConditionBlock
+                key={idx}
+                idx={idx}
+                rule={rule}
+                indicatorKeys={indicatorKeys}
+                type="exit"
+                onUpdate={(updated) => {
+                  const updatedRules = [...exitRules];
+                  updatedRules[idx] = updated;
+                  setExitRules(updatedRules);
+                }}
+                onRemove={() => removeExitRule(idx)}
+              />
+            ))
+          )}
         </div>
       </div>
 
