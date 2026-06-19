@@ -108,7 +108,7 @@ export function CalendarView({ trades, onSelectTrade, onAddTradeForDate, onSelec
   const WEEKDAYS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
 
   return (
-    <div className="flex flex-col gap-4 font-mono text-xs text-[#E5E5E5] select-none h-full">
+    <div className="flex flex-col gap-4 font-mono text-xs text-[#E5E5E5] select-none h-auto">
       {/* Calendar Navigation Header (TradeSync style with + NEW TRADE) */}
       <div className="flex items-center justify-between bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg px-4 py-3 flex-shrink-0">
         <div className="flex items-center gap-2">
@@ -160,7 +160,7 @@ export function CalendarView({ trades, onSelectTrade, onAddTradeForDate, onSelec
       </div>
 
       {/* Days Grid */}
-      <div className="grid grid-cols-8 gap-2.5 flex-1 overflow-y-auto pr-0.5 terminal-scrollbar min-h-0">
+      <div className="grid grid-cols-8 gap-2.5 pr-0.5">
         {weeks.map((week, wIdx) => {
           // Calculate weekly P&L sums
           let weeklyPnl = 0

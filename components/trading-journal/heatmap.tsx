@@ -217,107 +217,109 @@ export function Heatmap({ trades, onSelectDate }: HeatmapProps) {
         </div>
       </div>
 
-      {/* Grid Container */}
-      <div className="w-full flex flex-col gap-1 relative z-20">
-        {/* Month Labels */}
-        <div 
-          className="grid gap-[3px] w-full"
-          style={{ gridTemplateColumns: `repeat(${totalCols}, minmax(0, 1fr))` }}
-        >
-          <div /> {/* column 0 weekday header spacer */}
-          {renderedColumns.map((week, wIdx) => {
-            if (week === null) {
-              return <div key={`month-spacer-${wIdx}`} />
-            }
-            
-            const monthHeader = monthHeaders.find(h => h.colIndex === wIdx)
-            return (
-              <div key={`month-header-${wIdx}`} className="text-[#949494] font-bold text-[8px] whitespace-nowrap overflow-visible text-left">
-                {monthHeader ? monthHeader.label : ""}
-              </div>
-            )
-          })}
-        </div>
-
-        {/* Grid Cells Columns */}
-        <div 
-          className="grid gap-[3px] w-full"
-          style={{ gridTemplateColumns: `repeat(${totalCols}, minmax(0, 1fr))` }}
-        >
-          {/* Column 0: Weekday labels aligned perfectly using aspect-square */}
-          <div className="flex flex-col gap-[3px] text-[#444] font-bold text-[8px] text-center pr-1.5 w-full justify-between">
-            <div className="w-full aspect-square flex items-center justify-end">SUN</div>
-            <div className="w-full aspect-square" />
-            <div className="w-full aspect-square flex items-center justify-end">TUE</div>
-            <div className="w-full aspect-square" />
-            <div className="w-full aspect-square flex items-center justify-end">THU</div>
-            <div className="w-full aspect-square" />
-            <div className="w-full aspect-square flex items-center justify-end">SAT</div>
+      {/* Grid Container wrapped in horizontal scroll to prevent squishing and misalignment */}
+      <div className="w-full overflow-x-auto terminal-scrollbar pb-1.5">
+        <div className="min-w-[900px] lg:min-w-full flex flex-col gap-1 relative z-20">
+          {/* Month Labels */}
+          <div 
+            className="grid gap-[3px] w-full"
+            style={{ gridTemplateColumns: `repeat(${totalCols}, minmax(0, 1fr))` }}
+          >
+            <div /> {/* column 0 weekday header spacer */}
+            {renderedColumns.map((week, wIdx) => {
+              if (week === null) {
+                return <div key={`month-spacer-${wIdx}`} />
+              }
+              
+              const monthHeader = monthHeaders.find(h => h.colIndex === wIdx)
+              return (
+                <div key={`month-header-${wIdx}`} className="text-[#949494] font-bold text-[8px] whitespace-nowrap overflow-visible text-left">
+                  {monthHeader ? monthHeader.label : ""}
+                </div>
+              )
+            })}
           </div>
 
-          {/* Other columns */}
-          {renderedColumns.map((week, wIdx) => {
-            if (week === null) {
-              // Spacer column - empty space between months
+          {/* Grid Cells Columns */}
+          <div 
+            className="grid gap-[3px] w-full"
+            style={{ gridTemplateColumns: `repeat(${totalCols}, minmax(0, 1fr))` }}
+          >
+            {/* Column 0: Weekday labels aligned perfectly using aspect-square */}
+            <div className="flex flex-col gap-[3px] text-[#444] font-bold text-[8px] text-right pr-1.5 w-full">
+              <div className="w-full aspect-square flex items-center justify-end">SUN</div>
+              <div className="w-full aspect-square" />
+              <div className="w-full aspect-square flex items-center justify-end">TUE</div>
+              <div className="w-full aspect-square" />
+              <div className="w-full aspect-square flex items-center justify-end">THU</div>
+              <div className="w-full aspect-square" />
+              <div className="w-full aspect-square flex items-center justify-end">SAT</div>
+            </div>
+
+            {/* Other columns */}
+            {renderedColumns.map((week, wIdx) => {
+              if (week === null) {
+                // Spacer column - empty space between months
+                return (
+                  <div key={`spacer-${wIdx}`} className="flex flex-col gap-[3px] w-full" />
+                )
+              }
+              
               return (
-                <div key={`spacer-${wIdx}`} className="flex flex-col gap-[3px] w-full" />
-              )
-            }
-            
-            return (
-              <div key={`week-${wIdx}`} className="flex flex-col gap-[3px] w-full">
-                {week.map((day) => {
-                  const dateStr = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`
-                  const stat = dailyStats[dateStr]
-                  const pnl = stat?.pnl
-                  const count = stat?.count || 0
-                  
-                  const holidayOrWeekend = getHolidayOrWeekendName(day)
-                  const isDisabled = holidayOrWeekend !== null && (pnl === undefined || pnl === 0)
-                  
-                  // Visible solid disabled color: dark charcoal background with a solid slate border
-                  const cellColorClass = isDisabled
-                    ? "bg-[#0D0D12] border-[#1A1A22] cursor-not-allowed"
-                    : getCellClasses(dateStr, pnl)
+                <div key={`week-${wIdx}`} className="flex flex-col gap-[3px] w-full">
+                  {week.map((day) => {
+                    const dateStr = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`
+                    const stat = dailyStats[dateStr]
+                    const pnl = stat?.pnl
+                    const count = stat?.count || 0
                     
-                  const formattedDate = day.toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric"
-                  })
-                  
-                  const tooltipText = pnl !== undefined
-                    ? `${formattedDate}: ${pnl >= 0 ? "+" : ""}$${pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${count} trade${count > 1 ? "s" : ""})`
-                    : holidayOrWeekend
-                    ? `${formattedDate}: ${holidayOrWeekend}`
-                    : `${formattedDate}: No trades logged`
+                    const holidayOrWeekend = getHolidayOrWeekendName(day)
+                    const isDisabled = holidayOrWeekend !== null && (pnl === undefined || pnl === 0)
+                    
+                    // Visible solid disabled color: dark charcoal background with a solid slate border
+                    const cellColorClass = isDisabled
+                      ? "bg-[#0D0D12] border-[#1A1A22] cursor-not-allowed"
+                      : getCellClasses(dateStr, pnl)
+                      
+                    const formattedDate = day.toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric"
+                    })
+                    
+                    const tooltipText = pnl !== undefined
+                      ? `${formattedDate}: ${pnl >= 0 ? "+" : ""}$${pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${count} trade${count > 1 ? "s" : ""})`
+                      : holidayOrWeekend
+                      ? `${formattedDate}: ${holidayOrWeekend}`
+                      : `${formattedDate}: No trades logged`
 
-                  // Prevent edge tooltips from getting cut off dynamically
-                  let tooltipAlignClass = "left-1/2 -translate-x-1/2"
-                  if (wIdx < 12) {
-                    tooltipAlignClass = "left-0 translate-x-0"
-                  } else if (wIdx > renderedColumns.length - 15) {
-                    tooltipAlignClass = "right-0 translate-x-0"
-                  }
+                    // Prevent edge tooltips from getting cut off dynamically
+                    let tooltipAlignClass = "left-1/2 -translate-x-1/2"
+                    if (wIdx < 12) {
+                      tooltipAlignClass = "left-0 translate-x-0"
+                    } else if (wIdx > renderedColumns.length - 15) {
+                      tooltipAlignClass = "right-0 translate-x-0"
+                    }
 
-                  return (
-                    <div
-                      key={dateStr}
-                      onClick={() => pnl !== undefined && onSelectDate?.(dateStr)}
-                      className={`w-full aspect-square rounded-[1.5px] border cursor-pointer transition-all relative group flex-shrink-0 ${cellColorClass}`}
-                    >
-                      {/* Hover Tooltip Card - Fixed clipping with z-50 and dynamic alignment */}
-                      <div className={`absolute bottom-full mb-2 hidden group-hover:block z-50 bg-[#0A0A0C] border border-[#1A1A1E] text-white px-2 py-1 rounded shadow-xl text-[9px] font-mono whitespace-nowrap pointer-events-none ${tooltipAlignClass}`}>
-                        <span className={pnl === undefined ? "text-[#949494]" : pnl > 0 ? "text-terminal-green" : "text-terminal-red"}>
-                          {tooltipText}
-                        </span>
+                    return (
+                      <div
+                        key={dateStr}
+                        onClick={() => pnl !== undefined && onSelectDate?.(dateStr)}
+                        className={`w-full aspect-square rounded-[1.5px] border cursor-pointer transition-all relative group flex-shrink-0 ${cellColorClass}`}
+                      >
+                        {/* Hover Tooltip Card - Fixed clipping with z-50 and dynamic alignment */}
+                        <div className={`absolute bottom-full mb-2 hidden group-hover:block z-50 bg-[#0A0A0C] border border-[#1A1A1E] text-white px-2 py-1 rounded shadow-xl text-[9px] font-mono whitespace-nowrap pointer-events-none ${tooltipAlignClass}`}>
+                          <span className={pnl === undefined ? "text-[#949494]" : pnl > 0 ? "text-terminal-green" : "text-terminal-red"}>
+                            {tooltipText}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )
-          })}
+                    )
+                  })}
+                </div>
+              )
+            })}
+          </div>
         </div>
       </div>
     </div>

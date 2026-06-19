@@ -955,14 +955,14 @@ export function TradingJournal() {
       <hr className="border-[#1A1A1E] my-1 flex-shrink-0" />
 
       {/* 5. Bottom Section: Heatmap and Calendar View (Full Width) */}
-      <div className="flex-grow min-h-0 flex flex-col gap-4 bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg pt-2 pb-4 px-4 md:pb-5 md:px-5">
+      <div className="flex-shrink-0 flex flex-col gap-4 bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg pt-2 pb-4 px-4 md:pb-5 md:px-5">
         <div className="flex-shrink-0">
           <Heatmap
             trades={trades}
             onSelectDate={(date) => setInspectedDate(date)}
           />
         </div>
-        <div className="flex-1 min-h-0">
+        <div className="flex-shrink-0">
           <CalendarView
             trades={trades}
             onSelectTrade={(trade) => {
