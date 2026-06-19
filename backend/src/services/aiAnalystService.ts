@@ -650,6 +650,18 @@ The output MUST be a JSON object with this exact typescript structure:
 
 Indicator key generation rules:
 Every indicator you use in 'entryRules' or 'exitRules' (other than raw 'close', 'open', 'high', 'low' or numerical constants) MUST be defined in the 'indicators' list.
+
+CRITICAL STRUCTURAL ENFORCEMENT RULES (MANDATORY):
+1. ALL INDICATOR NAMES AND KEYS MUST BE STRICTLY LOWERCASE.
+   - For example: use "close", NOT "Close" or "Price".
+   - Use "rsi_14", NOT "RSI_14" or "RSI".
+   - Use "ema_50", NOT "EMA_50" or "EMA50".
+   - Use "sma_200", NOT "SMA_200" or "sma200".
+2. DO NOT USE THE WORD "price" IN RULES. If a user describes "price", "market price", or "last price", translate it to the lowercase indicator "close".
+3. THE OPERATOR FIELD MUST BE STRICTLY ONE OF THESE LOWERCASE STRINGS: "greater_than", "less_than", "equals", "crosses_above", "crosses_below".
+   - DO NOT USE mathematical symbols like ">", "<", "==", ">=", or "<=".
+   - DO NOT USE capitalized or camelCase operators like "greaterThan", "GREATER_THAN", or "crossesAbove".
+
 The indicator names in 'indicator1' and 'indicator2' must use these exact patterns based on the indicator definitions:
 - Simple Moving Average: "sma_P" where P is period1. E.g. "sma_20", "sma_200".
 - Exponential Moving Average: "ema_P" where P is period1. E.g. "ema_9", "ema_50".
@@ -717,18 +729,65 @@ Return ONLY raw JSON, with no markdown code fence blocks, starting with '{' and 
 
       const parsed = JSON.parse(text);
       
-      // Basic schema verification and cleaning
+      // Clean and normalize indicators list
+      const rawIndicators = Array.isArray(parsed.indicators) ? parsed.indicators : [];
+      const cleanIndicators = rawIndicators.map((ind: any) => {
+        if (!ind || typeof ind !== 'object') return ind;
+        return {
+          ...ind,
+          type: typeof ind.type === 'string' ? ind.type.toLowerCase().trim() : ind.type,
+          period1: typeof ind.period1 === 'number' ? ind.period1 : Number(ind.period1) || 14
+        };
+      });
+
+      // Normalize rule condition
+      const cleanRule = (rule: any) => {
+        if (!rule || typeof rule !== 'object') return rule;
+        
+        let indicator1 = typeof rule.indicator1 === 'string' ? rule.indicator1.toLowerCase().trim() : String(rule.indicator1 || '');
+        if (indicator1 === 'price') indicator1 = 'close';
+        
+        let indicator2 = rule.indicator2;
+        if (typeof indicator2 === 'string') {
+          indicator2 = indicator2.toLowerCase().trim();
+          if (indicator2 === 'price') indicator2 = 'close';
+          const num = Number(indicator2);
+          if (!isNaN(num)) {
+            indicator2 = num;
+          }
+        }
+        
+        let operator = typeof rule.operator === 'string' ? rule.operator.toLowerCase().trim() : '';
+        if (operator === '>' || operator === '>=' || operator === 'greaterthan' || operator === 'greater_than') operator = 'greater_than';
+        if (operator === '<' || operator === '<=' || operator === 'lessthan' || operator === 'less_than') operator = 'less_than';
+        if (operator === '=' || operator === '==' || operator === '===' || operator === 'equals') operator = 'equals';
+        if (operator === 'crossesabove' || operator === 'crosses_above') operator = 'crosses_above';
+        if (operator === 'crossesbelow' || operator === 'crosses_below') operator = 'crosses_below';
+
+        return {
+          indicator1,
+          operator,
+          indicator2
+        };
+      };
+
+      const rawEntryRules = parsed.entryRules && Array.isArray(parsed.entryRules.indicators) ? parsed.entryRules.indicators : [];
+      const cleanEntryRules = rawEntryRules.map(cleanRule);
+
+      const rawExitRules = parsed.exitRules && Array.isArray(parsed.exitRules.indicators) ? parsed.exitRules.indicators : [];
+      const cleanExitRules = rawExitRules.map(cleanRule);
+      
       return {
-        indicators: Array.isArray(parsed.indicators) ? parsed.indicators : [],
+        indicators: cleanIndicators,
         entryRules: {
-          indicators: Array.isArray(parsed.entryRules?.indicators) ? parsed.entryRules.indicators : []
+          indicators: cleanEntryRules
         },
         exitRules: {
           stopLossPercent: typeof parsed.exitRules?.stopLossPercent === 'number' ? parsed.exitRules.stopLossPercent : undefined,
           trailingStopPercent: typeof parsed.exitRules?.trailingStopPercent === 'number' ? parsed.exitRules.trailingStopPercent : undefined,
           takeProfitPercent: typeof parsed.exitRules?.takeProfitPercent === 'number' ? parsed.exitRules.takeProfitPercent : undefined,
           timeBasedExitDays: typeof parsed.exitRules?.timeBasedExitDays === 'number' ? parsed.exitRules.timeBasedExitDays : undefined,
-          indicators: Array.isArray(parsed.exitRules?.indicators) ? parsed.exitRules.indicators : []
+          indicators: cleanExitRules
         },
         shouldExecute: !!parsed.shouldExecute
       };

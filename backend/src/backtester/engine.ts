@@ -4,12 +4,25 @@ import { precomputeIndicators } from './indicators';
 
 function parseValue(val: string | number, precomputed: Record<string, number[]>, idx: number): number {
   if (typeof val === 'number') return val;
-  const num = parseFloat(val);
+  const num = parseFloat(val as string);
   if (!isNaN(num)) return num;
   
-  if (precomputed[val] && !isNaN(precomputed[val][idx])) {
-    return precomputed[val][idx];
+  if (typeof val === 'string') {
+    let valLower = val.toLowerCase().trim();
+    if (valLower === 'price') valLower = 'close';
+    
+    // Try exact lower-case match first
+    if (precomputed[valLower] && !isNaN(precomputed[valLower][idx])) {
+      return precomputed[valLower][idx];
+    }
+    
+    // Fallback to case-insensitive lookup
+    const foundKey = Object.keys(precomputed).find(k => k.toLowerCase() === valLower);
+    if (foundKey && precomputed[foundKey] && !isNaN(precomputed[foundKey][idx])) {
+      return precomputed[foundKey][idx];
+    }
   }
+  
   return NaN;
 }
 
@@ -26,7 +39,14 @@ function evaluateCondition(
 
   if (isNaN(val1) || isNaN(val2)) return false;
 
-  switch (cond.operator) {
+  let op = typeof cond.operator === 'string' ? cond.operator.toLowerCase().trim() : '';
+  if (op === '>' || op === '>=' || op === 'greaterthan' || op === 'greater_than') op = 'greater_than';
+  if (op === '<' || op === '<=' || op === 'lessthan' || op === 'less_than') op = 'less_than';
+  if (op === '=' || op === '==' || op === '===' || op === 'equals') op = 'equals';
+  if (op === 'crossesabove' || op === 'crosses_above') op = 'crosses_above';
+  if (op === 'crossesbelow' || op === 'crosses_below') op = 'crosses_below';
+
+  switch (op) {
     case 'greater_than':
       return val1 > val2;
     case 'less_than':
