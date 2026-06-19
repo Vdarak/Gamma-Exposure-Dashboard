@@ -271,7 +271,7 @@ export function TerminalHeader({
               </div>
             </div>
 
-            <div className="w-px h-6 bg-[#1A1A1E] self-center" />
+            <div className="hidden sm:block w-px h-6 bg-[#1A1A1E] self-center" />
 
             {/* Total GEX */}
             <div className="flex flex-col justify-center">
@@ -281,7 +281,7 @@ export function TerminalHeader({
               </span>
             </div>
 
-            <div className="w-px h-6 bg-[#1A1A1E] self-center" />
+            <div className="hidden sm:block w-px h-6 bg-[#1A1A1E] self-center" />
 
             {/* Total Gamma */}
             <div className="flex flex-col justify-center">
@@ -291,7 +291,7 @@ export function TerminalHeader({
               </span>
             </div>
 
-            <div className="w-px h-6 bg-[#1A1A1E] self-center" />
+            <div className="hidden sm:block w-px h-6 bg-[#1A1A1E] self-center" />
 
             {/* Net Gamma */}
             <div className="flex flex-col justify-center">
@@ -301,7 +301,7 @@ export function TerminalHeader({
               </span>
             </div>
 
-            <div className="w-px h-6 bg-[#1A1A1E] self-center" />
+            <div className="hidden sm:block w-px h-6 bg-[#1A1A1E] self-center" />
 
             {/* Gamma Flip */}
             <div className="flex flex-col justify-center">

@@ -11,6 +11,7 @@ interface AIAnalystPanelProps {
   isOpen: boolean
   onClose: () => void
   onTradeLogged?: (trade: JournalTrade) => void
+  showBriefingTab?: boolean
 
   /** Optional panel title override */
   title?: string

@@ -596,4 +596,142 @@ If you call a tool, confirm what you did concisely. For GEX/market questions, us
       return { text: `⚠️ **Error:** ${err.message}` };
     }
   }
+
+  /**
+   * Parse a natural language strategy description into a structured strategy config
+   */
+  public async parseStrategy(description: string): Promise<{
+    indicators: any[];
+    entryRules: { indicators: any[] };
+    exitRules: {
+      stopLossPercent?: number;
+      trailingStopPercent?: number;
+      takeProfitPercent?: number;
+      timeBasedExitDays?: number;
+      indicators: any[];
+    };
+  }> {
+    if (!this.isEnabled()) {
+      throw new Error("AI Analyst is not configured. Please add GEMINI_API_KEY to your environment variables.");
+    }
+
+    const systemPrompt = `You are a professional algorithmic trading system developer. Your task is to convert a user's trading strategy described in natural language into a highly structured JSON configuration.
+
+The output MUST be a JSON object with this exact typescript structure:
+{
+  "indicators": Array<{
+    "type": "sma" | "ema" | "rsi" | "macd" | "bb" | "atr",
+    "period1": number,
+    "period2"?: number, // Required for macd (slow period, default 26)
+    "signalPeriod"?: number, // Required for macd (signal period, default 9)
+    "stdDev"?: number // Required for bb (std dev multiplier, default 2)
+  }>,
+  "entryRules": {
+    "indicators": Array<{
+      "indicator1": string, // E.g. "close", "sma_200", "rsi_14"
+      "operator": "greater_than" | "less_than" | "crosses_above" | "crosses_below" | "equals",
+      "indicator2": string | number // E.g. "sma_50", 30, 70
+    }>
+  },
+  "exitRules": {
+    "stopLossPercent": number | null, // percentage e.g. 2 for 2%
+    "trailingStopPercent": number | null, // percentage e.g. 1.5 for 1.5%
+    "takeProfitPercent": number | null, // percentage e.g. 5 for 5%
+    "timeBasedExitDays": number | null, // integer number of days/bars
+    "indicators": Array<{
+      "indicator1": string,
+      "operator": "greater_than" | "less_than" | "crosses_above" | "crosses_below" | "equals",
+      "indicator2": string | number
+    }>
+  }
+}
+
+Indicator key generation rules:
+Every indicator you use in 'entryRules' or 'exitRules' (other than raw 'close', 'open', 'high', 'low' or numerical constants) MUST be defined in the 'indicators' list.
+The indicator names in 'indicator1' and 'indicator2' must use these exact patterns based on the indicator definitions:
+- Simple Moving Average: "sma_P" where P is period1. E.g. "sma_20", "sma_200".
+- Exponential Moving Average: "ema_P" where P is period1. E.g. "ema_9", "ema_50".
+- Relative Strength Index: "rsi_P" where P is period1. E.g. "rsi_14".
+- MACD:
+  - Line: "macd_line_F_S_Sig" where F is fast, S is slow, Sig is signal period. E.g. "macd_line_12_26_9".
+  - Signal: "macd_signal_F_S_Sig". E.g. "macd_signal_12_26_9".
+  - Histogram: "macd_hist_F_S_Sig". E.g. "macd_hist_12_26_9".
+- Bollinger Bands:
+  - Upper: "bb_upper_P_M" where P is period1 and M is stdDev multiplier. E.g. "bb_upper_20_2".
+  - Middle: "bb_middle_P_M". E.g. "bb_middle_20_2".
+  - Lower: "bb_lower_P_M". E.g. "bb_lower_20_2".
+- Average True Range: "atr_P" where P is period1. E.g. "atr_14".
+
+Example input:
+"Buy when RSI 14 crosses below 30 and close is above EMA 50. Exit when price crosses below SMA 20 or after 5 days. Set 2% stop loss and 5% take profit."
+
+Example output:
+{
+  "indicators": [
+    { "type": "rsi", "period1": 14 },
+    { "type": "ema", "period1": 50 },
+    { "type": "sma", "period1": 20 }
+  ],
+  "entryRules": {
+    "indicators": [
+      { "indicator1": "rsi_14", "operator": "crosses_below", "indicator2": 30 },
+      { "indicator1": "close", "operator": "greater_than", "indicator2": "ema_50" }
+    ]
+  },
+  "exitRules": {
+    "stopLossPercent": 2,
+    "trailingStopPercent": null,
+    "takeProfitPercent": 5,
+    "timeBasedExitDays": 5,
+    "indicators": [
+      { "indicator1": "close", "operator": "crosses_below", "indicator2": "sma_20" }
+    ]
+  }
+}
+
+Return ONLY raw JSON, with no markdown code fence blocks, starting with '{' and ending with '}'. Ensure all fields are filled, and if some risk parameters are not mentioned, return null for them.`;
+
+    try {
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${this.getApiKey()}`;
+      const response = await axios.post(
+        geminiUrl,
+        {
+          contents: [{ parts: [{ text: `Strategy description to parse:\n\n"${description}"` }] }],
+          systemInstruction: { parts: [{ text: systemPrompt }] }
+        },
+        { headers: { 'Content-Type': 'application/json' }, timeout: 35000 }
+      );
+
+      let text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) {
+        throw new Error("Empty response received from Gemini.");
+      }
+
+      // Clean up markdown code blocks if the AI returned them
+      text = text.trim();
+      if (text.startsWith("```")) {
+        text = text.replace(/^```(json)?/, "").replace(/```$/, "").trim();
+      }
+
+      const parsed = JSON.parse(text);
+      
+      // Basic schema verification and cleaning
+      return {
+        indicators: Array.isArray(parsed.indicators) ? parsed.indicators : [],
+        entryRules: {
+          indicators: Array.isArray(parsed.entryRules?.indicators) ? parsed.entryRules.indicators : []
+        },
+        exitRules: {
+          stopLossPercent: typeof parsed.exitRules?.stopLossPercent === 'number' ? parsed.exitRules.stopLossPercent : undefined,
+          trailingStopPercent: typeof parsed.exitRules?.trailingStopPercent === 'number' ? parsed.exitRules.trailingStopPercent : undefined,
+          takeProfitPercent: typeof parsed.exitRules?.takeProfitPercent === 'number' ? parsed.exitRules.takeProfitPercent : undefined,
+          timeBasedExitDays: typeof parsed.exitRules?.timeBasedExitDays === 'number' ? parsed.exitRules.timeBasedExitDays : undefined,
+          indicators: Array.isArray(parsed.exitRules?.indicators) ? parsed.exitRules.indicators : []
+        }
+      };
+    } catch (err: any) {
+      console.error("[AI Analyst] Error parsing strategy:", err.message);
+      throw new Error(`Failed to parse strategy description: ${err.message}`);
+    }
+  }
 }

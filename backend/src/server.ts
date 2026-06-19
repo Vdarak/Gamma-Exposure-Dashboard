@@ -2,6 +2,10 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import cron from 'node-cron';
 import dotenv from 'dotenv';
+import dns from 'dns';
+
+dns.setDefaultResultOrder('ipv4first');
+
 import { initializeDatabase, cleanOldData } from './db/init';
 import { fetchAndStoreMultipleTickers, fetchAndStoreOptionData } from './services/dataCollector';
 import {
@@ -23,7 +27,7 @@ import {
   updateSetting,
 } from './services/journalService';
 import { getOptionsFlowData } from './services/optionsFlowService';
-import { getAvailableTickers } from './backtester/duckdbService';
+import { getAvailableTickers, getTickerDateRange } from './backtester/duckdbService';
 import { runBacktest } from './backtester/engine';
 import { getStoredRates, updateRates } from './services/ratesService';
 import { AIAnalystService } from './services/aiAnalystService';
@@ -463,6 +467,46 @@ app.get('/api/backtest/tickers', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error in /api/backtest/tickers:', error);
     res.status(500).json({ error: 'Failed to fetch backtest tickers' });
+  }
+});
+
+/**
+ * Get ticker date range metadata
+ */
+app.get('/api/backtest/ticker-info', async (req: Request, res: Response) => {
+  try {
+    const { ticker } = req.query;
+    if (!ticker || typeof ticker !== 'string') {
+      return res.status(400).json({ error: 'Ticker query parameter is required' });
+    }
+    const range = await getTickerDateRange(ticker);
+    res.json({
+      success: true,
+      data: range,
+    });
+  } catch (error: any) {
+    console.error(`Error in /api/backtest/ticker-info for ${req.query.ticker}:`, error);
+    res.status(500).json({ error: error.message || 'Failed to fetch ticker date info' });
+  }
+});
+
+/**
+ * Parse plain English strategy description into structured parameters using Gemini
+ */
+app.post('/api/backtest/parse-strategy', async (req: Request, res: Response) => {
+  try {
+    const { description } = req.body;
+    if (!description || typeof description !== 'string') {
+      return res.status(400).json({ error: 'Strategy description is required' });
+    }
+    const parsed = await aiAnalystService.parseStrategy(description);
+    res.json({
+      success: true,
+      data: parsed,
+    });
+  } catch (error: any) {
+    console.error('Error in /api/backtest/parse-strategy:', error);
+    res.status(500).json({ error: error.message || 'Failed to parse strategy description' });
   }
 });
 

@@ -214,10 +214,10 @@ export function OptionFlowDashboard({ ticker, onTickerSelect, availableTickers, 
   }
 
   return (
-    <div className="flex flex-row h-full bg-[#050608] text-[#D1D4DC] font-sans antialiased border border-[#14161C] rounded-lg overflow-hidden select-none">
+    <div className="flex flex-col lg:flex-row lg:h-full h-auto bg-[#050608] text-[#D1D4DC] font-sans antialiased border border-[#14161C] rounded-lg overflow-y-auto lg:overflow-hidden select-none">
       
       {/* LEFT COLUMN: Main Options Flow Terminal */}
-      <div className="flex-1 flex flex-col min-w-0 h-full border-r border-[#14161C]">
+      <div className="flex-1 flex flex-col min-w-0 lg:h-full border-b lg:border-b-0 lg:border-r border-[#14161C]">
         
         {/* HEADER CONTROLS */}
         <div className="flex flex-row items-center justify-between px-5 py-3 border-b border-[#13161C] bg-[#0A0C10] gap-4">
@@ -682,7 +682,7 @@ export function OptionFlowDashboard({ ticker, onTickerSelect, availableTickers, 
       </div>
 
       {/* RIGHT COLUMN SIDEBAR: Top 5 Notional Leaderboard */}
-      <div className="w-[300px] border-l border-[#13161C] bg-[#07090C] flex flex-col p-4 overflow-y-auto select-none shrink-0 gap-4">
+      <div className="w-full lg:w-[300px] border-t lg:border-t-0 lg:border-l border-[#13161C] bg-[#07090C] flex flex-col p-4 overflow-y-auto select-none shrink-0 lg:shrink-0 gap-4">
         <h2 className="text-[10px] font-bold font-mono text-gray-400 uppercase tracking-wider flex items-center gap-1.5 border-b border-[#13161C] pb-2">
           <TrendingUp className="w-3.5 h-3.5 text-[#00E676]" />
           <span>Top 5 OI Strike Shifts</span>

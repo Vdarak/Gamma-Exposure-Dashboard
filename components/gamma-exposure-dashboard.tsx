@@ -777,7 +777,7 @@ export function GammaExposureDashboard() {
 
                   {/* 1. GEX Levels Workspace — charts on left, watchlist/expiry panel on right */}
                   {activeTab === 'gex-levels' && (
-                    <div className="flex flex-row gap-4 min-h-0">
+                    <div className="flex flex-col lg:flex-row gap-4 min-h-0">
                       {/* Main charts column */}
                       <div className="flex-1 flex flex-col gap-4 min-w-0">
                         {/* Session Range Slider */}
@@ -859,7 +859,7 @@ export function GammaExposureDashboard() {
                       </div>
 
                       {/* Right panel — Watchlist & Expiry Selector (GEX Levels only) */}
-                      <div className="w-[250px] flex-shrink-0 flex flex-col gap-3">
+                      <div className="w-full lg:w-[250px] lg:flex-shrink-0 flex flex-col gap-3">
                         {/* Watchlist */}
                         <div className="border border-[#1A1A1E] bg-[#0A0A0C] rounded-lg p-3 flex flex-col gap-2.5">
                           <div className="flex items-center justify-between border-b border-[#1A1A1E] pb-2">
