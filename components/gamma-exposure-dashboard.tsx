@@ -629,7 +629,7 @@ export function GammaExposureDashboard() {
       </nav>
 
       {/* ─── MAIN WORKSPACE AND CONTENT GRID ─── */}
-      <main className="flex-1 flex flex-col min-w-0 pb-16 md:pb-0">
+      <main className="flex-1 flex flex-col min-w-0 pb-16 md:pb-0 overflow-hidden">
         {/* Terminal Header (Hidden inside Journal and Flow tabs) */}
         {activeSidebarTab !== 'journal' && activeSidebarTab !== 'flow' && (
           <TerminalHeader
