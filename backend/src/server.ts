@@ -795,7 +795,11 @@ async function startServer() {
     console.log('🚀 Starting Gamma Exposure Backend Server...\n');
 
     // Initialize database
-    await initializeDatabase();
+    try {
+      await initializeDatabase();
+    } catch (e) {
+      console.error('⚠️ Failed to initialize database (Postgres might be offline):', e);
+    }
 
     // Initial rates fetch / seed
     console.log('📊 Fetching and seeding initial interest rates...');
@@ -807,7 +811,11 @@ async function startServer() {
 
     // Initial data collection
     console.log('📊 Running initial data collection...');
-    await collectMarketData();
+    try {
+      await collectMarketData();
+    } catch (e) {
+      console.error('⚠️ Failed to run initial data collection (Postgres might be offline):', e);
+    }
 
 
     // Start Express server

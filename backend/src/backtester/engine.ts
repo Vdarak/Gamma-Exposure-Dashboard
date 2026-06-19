@@ -79,15 +79,19 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
 
   let position = {
     active: false,
+    type: 'long' as 'long' | 'short',
     entryPrice: 0,
     entryDate: '',
     quantity: 0,
     highestPrice: 0,
+    lowestPrice: 0,
     stopLossPrice: 0,
     trailingStopPrice: 0,
     takeProfitPrice: 0,
     barsHeld: 0
   };
+
+  const strategyType = config.strategyType || 'both';
 
   // Push initial equity point
   equityCurve.push({
@@ -102,7 +106,14 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
     
     // Evaluate current portfolio value
     const currentPrice = bar.close;
-    const unrealizedValue = position.active ? position.quantity * currentPrice : 0;
+    let unrealizedValue = 0;
+    if (position.active) {
+      if (position.type === 'long') {
+        unrealizedValue = position.quantity * currentPrice;
+      } else {
+        unrealizedValue = position.quantity * (position.entryPrice - currentPrice);
+      }
+    }
     const portfolioValue = cash + unrealizedValue;
     
     equityCurve.push({
@@ -113,87 +124,166 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
 
     if (position.active) {
       position.barsHeld++;
-      position.highestPrice = Math.max(position.highestPrice, bar.high);
-
-      // Update trailing stop trigger price if price moves up
-      if (config.exitRules.trailingStopPercent && position.highestPrice > position.entryPrice) {
-        const trailPrice = position.highestPrice * (1 - config.exitRules.trailingStopPercent / 100);
-        position.trailingStopPrice = Math.max(position.trailingStopPrice, trailPrice);
-      }
-
+      
       let shouldExit = false;
       let exitPrice = bar.close;
       let exitReason: TradeLog['exitReason'] = 'indicator';
 
-      // Check exits:
-      // 1. Standard Stop Loss
-      if (position.stopLossPrice > 0 && bar.low <= position.stopLossPrice) {
-        shouldExit = true;
-        exitPrice = position.stopLossPrice;
-        exitReason = 'stop_loss';
-      }
-      // 2. Trailing Stop Loss
-      else if (position.trailingStopPrice > 0 && bar.low <= position.trailingStopPrice) {
-        shouldExit = true;
-        exitPrice = position.trailingStopPrice;
-        exitReason = 'trailing_stop';
-      }
-      // 3. Take Profit
-      else if (position.takeProfitPrice > 0 && bar.high >= position.takeProfitPrice) {
-        shouldExit = true;
-        exitPrice = position.takeProfitPrice;
-        exitReason = 'take_profit';
-      }
-      // 4. Time-based Exit
-      else if (config.exitRules.timeBasedExitDays && position.barsHeld >= config.exitRules.timeBasedExitDays) {
-        shouldExit = true;
-        exitPrice = bar.close;
-        exitReason = 'time_based';
-      }
-      // 5. Technical Indicator Exits
-      else if (evaluateRules(config.exitRules.indicators, precomputed, i)) {
-        shouldExit = true;
-        exitPrice = bar.close;
-        exitReason = 'indicator';
-      }
+      if (position.type === 'long') {
+        position.highestPrice = Math.max(position.highestPrice, bar.high);
 
-      if (shouldExit) {
-        // Adjust exit price for slippage
-        const exitSlippage = exitPrice * (slippagePercent / 100);
-        const exitPriceFinal = exitPrice - exitSlippage;
-        
-        const grossPnl = (exitPriceFinal - position.entryPrice) * position.quantity;
-        const netPnl = grossPnl - commission;
-        cash += (position.quantity * exitPriceFinal) - commission;
-        
-        trades.push({
-          id: `T-${trades.length + 1}`,
-          type: 'long',
-          entryDate: position.entryDate,
-          entryPrice: position.entryPrice,
-          exitDate: bar.timestamp,
-          exitPrice: exitPriceFinal,
-          quantity: position.quantity,
-          pnl: netPnl,
-          pnlPercent: (netPnl / (position.entryPrice * position.quantity)) * 100,
-          exitReason
-        });
+        // Update trailing stop trigger price if price moves up
+        if (config.exitRules.trailingStopPercent && position.highestPrice > position.entryPrice) {
+          const trailPrice = position.highestPrice * (1 - config.exitRules.trailingStopPercent / 100);
+          position.trailingStopPrice = Math.max(position.trailingStopPrice, trailPrice);
+        }
 
-        // Record sell marker
-        tradeMarkers.push({
-          timestamp: bar.timestamp,
-          type: 'sell',
-          price: exitPriceFinal,
-          text: `SELL Exit (${exitReason}): $${exitPriceFinal.toFixed(2)} (${netPnl >= 0 ? '+' : ''}${netPnl.toFixed(2)} PnL)`
-        });
+        // Check exits:
+        // 1. Standard Stop Loss
+        if (position.stopLossPrice > 0 && bar.low <= position.stopLossPrice) {
+          shouldExit = true;
+          exitPrice = position.stopLossPrice;
+          exitReason = 'stop_loss';
+        }
+        // 2. Trailing Stop Loss
+        else if (position.trailingStopPrice > 0 && bar.low <= position.trailingStopPrice) {
+          shouldExit = true;
+          exitPrice = position.trailingStopPrice;
+          exitReason = 'trailing_stop';
+        }
+        // 3. Take Profit
+        else if (position.takeProfitPrice > 0 && bar.high >= position.takeProfitPrice) {
+          shouldExit = true;
+          exitPrice = position.takeProfitPrice;
+          exitReason = 'take_profit';
+        }
+        // 4. Time-based Exit
+        else if (config.exitRules.timeBasedExitDays && position.barsHeld >= config.exitRules.timeBasedExitDays) {
+          shouldExit = true;
+          exitPrice = bar.close;
+          exitReason = 'time_based';
+        }
+        // 5. Technical Indicator Exits
+        else if (evaluateRules(config.exitRules.indicators, precomputed, i)) {
+          shouldExit = true;
+          exitPrice = bar.close;
+          exitReason = 'indicator';
+        }
 
-        // Reset position
-        position.active = false;
+        if (shouldExit) {
+          // Adjust exit price for slippage (selling)
+          const exitSlippage = exitPrice * (slippagePercent / 100);
+          const exitPriceFinal = exitPrice - exitSlippage;
+          
+          const grossPnl = (exitPriceFinal - position.entryPrice) * position.quantity;
+          const netPnl = grossPnl - commission;
+          cash += (position.quantity * exitPriceFinal) - commission;
+          
+          trades.push({
+            id: `T-${trades.length + 1}`,
+            type: 'long',
+            entryDate: position.entryDate,
+            entryPrice: position.entryPrice,
+            exitDate: bar.timestamp,
+            exitPrice: exitPriceFinal,
+            quantity: position.quantity,
+            pnl: netPnl,
+            pnlPercent: (netPnl / (position.entryPrice * position.quantity)) * 100,
+            exitReason
+          });
+
+          tradeMarkers.push({
+            timestamp: bar.timestamp,
+            type: 'sell',
+            price: exitPriceFinal,
+            text: `SELL Exit (${exitReason}): $${exitPriceFinal.toFixed(2)} (${netPnl >= 0 ? '+' : ''}${netPnl.toFixed(2)} PnL)`
+          });
+
+          position.active = false;
+        }
+      } else {
+        // Short Position
+        position.lowestPrice = Math.min(position.lowestPrice, bar.low);
+
+        // Update trailing stop trigger price if price moves down (for short, we tighten when price drops)
+        if (config.exitRules.trailingStopPercent && position.lowestPrice < position.entryPrice) {
+          const trailPrice = position.lowestPrice * (1 + config.exitRules.trailingStopPercent / 100);
+          position.trailingStopPrice = position.trailingStopPrice === 0 
+            ? trailPrice 
+            : Math.min(position.trailingStopPrice, trailPrice);
+        }
+
+        // Check exits for SHORT:
+        // 1. Standard Stop Loss (triggers when price rises)
+        if (position.stopLossPrice > 0 && bar.high >= position.stopLossPrice) {
+          shouldExit = true;
+          exitPrice = position.stopLossPrice;
+          exitReason = 'stop_loss';
+        }
+        // 2. Trailing Stop Loss (triggers when price rises)
+        else if (position.trailingStopPrice > 0 && bar.high >= position.trailingStopPrice) {
+          shouldExit = true;
+          exitPrice = position.trailingStopPrice;
+          exitReason = 'trailing_stop';
+        }
+        // 3. Take Profit (triggers when price falls)
+        else if (position.takeProfitPrice > 0 && bar.low <= position.takeProfitPrice) {
+          shouldExit = true;
+          exitPrice = position.takeProfitPrice;
+          exitReason = 'take_profit';
+        }
+        // 4. Time-based Exit
+        else if (config.exitRules.timeBasedExitDays && position.barsHeld >= config.exitRules.timeBasedExitDays) {
+          shouldExit = true;
+          exitPrice = bar.close;
+          exitReason = 'time_based';
+        }
+        // 5. Technical Indicator Exits (for short, entryRules indicators trigger the short exit)
+        else if (evaluateRules(config.entryRules.indicators, precomputed, i)) {
+          shouldExit = true;
+          exitPrice = bar.close;
+          exitReason = 'indicator';
+        }
+
+        if (shouldExit) {
+          // Adjust exit price for slippage (buying back shares costs more)
+          const exitSlippage = exitPrice * (slippagePercent / 100);
+          const exitPriceFinal = exitPrice + exitSlippage;
+          
+          const grossPnl = (position.entryPrice - exitPriceFinal) * position.quantity;
+          const netPnl = grossPnl - commission;
+          cash -= (position.quantity * exitPriceFinal) + commission; // cover the short
+          
+          trades.push({
+            id: `T-${trades.length + 1}`,
+            type: 'short',
+            entryDate: position.entryDate,
+            entryPrice: position.entryPrice,
+            exitDate: bar.timestamp,
+            exitPrice: exitPriceFinal,
+            quantity: position.quantity,
+            pnl: netPnl,
+            pnlPercent: (netPnl / (position.entryPrice * position.quantity)) * 100,
+            exitReason
+          });
+
+          tradeMarkers.push({
+            timestamp: bar.timestamp,
+            type: 'buy', // buy back shares to close short
+            price: exitPriceFinal,
+            text: `BUY Cover (${exitReason}): $${exitPriceFinal.toFixed(2)} (${netPnl >= 0 ? '+' : ''}${netPnl.toFixed(2)} PnL)`
+          });
+
+          position.active = false;
+        }
       }
     } else {
-      // Evaluate entry criteria
-      if (evaluateRules(config.entryRules.indicators, precomputed, i)) {
-        // Calculate maximum shares we can afford
+      // Evaluate entry criteria when flat
+      const isLongEntry = strategyType !== 'short' && evaluateRules(config.entryRules.indicators, precomputed, i);
+      const isShortEntry = strategyType !== 'long' && evaluateRules(config.exitRules.indicators, precomputed, i);
+
+      if (isLongEntry) {
+        // Enter LONG
         const entryPrice = bar.close;
         const entrySlippage = entryPrice * (slippagePercent / 100);
         const entryPriceFinal = entryPrice + entrySlippage;
@@ -206,10 +296,12 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
           
           position = {
             active: true,
+            type: 'long',
             entryPrice: entryPriceFinal,
             entryDate: bar.timestamp,
             quantity: maxShares,
             highestPrice: bar.high,
+            lowestPrice: bar.low,
             stopLossPrice: config.exitRules.stopLossPercent 
               ? entryPriceFinal * (1 - config.exitRules.stopLossPercent / 100) 
               : 0,
@@ -222,12 +314,50 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
             barsHeld: 0
           };
 
-          // Record buy marker
           tradeMarkers.push({
             timestamp: bar.timestamp,
             type: 'buy',
             price: entryPriceFinal,
-            text: `BUY Entry: ${maxShares} shares at $${entryPriceFinal.toFixed(2)}`
+            text: `BUY Entry (Long): ${maxShares} shares at $${entryPriceFinal.toFixed(2)}`
+          });
+        }
+      } else if (isShortEntry) {
+        // Enter SHORT
+        const entryPrice = bar.close;
+        const entrySlippage = entryPrice * (slippagePercent / 100);
+        const entryPriceFinal = entryPrice - entrySlippage; // Sell proceeds reduced by slippage
+
+        const maxShares = Math.floor((cash - commission) / entryPriceFinal);
+        
+        if (maxShares > 0) {
+          const proceeds = maxShares * entryPriceFinal - commission;
+          cash += proceeds; // proceeds credited to cash
+          
+          position = {
+            active: true,
+            type: 'short',
+            entryPrice: entryPriceFinal,
+            entryDate: bar.timestamp,
+            quantity: maxShares,
+            highestPrice: bar.high,
+            lowestPrice: bar.low,
+            stopLossPrice: config.exitRules.stopLossPercent 
+              ? entryPriceFinal * (1 + config.exitRules.stopLossPercent / 100) 
+              : 0,
+            trailingStopPrice: config.exitRules.trailingStopPercent
+              ? entryPriceFinal * (1 + config.exitRules.trailingStopPercent / 100)
+              : 0,
+            takeProfitPrice: config.exitRules.takeProfitPercent
+              ? entryPriceFinal * (1 - config.exitRules.takeProfitPercent / 100)
+              : 0,
+            barsHeld: 0
+          };
+
+          tradeMarkers.push({
+            timestamp: bar.timestamp,
+            type: 'sell',
+            price: entryPriceFinal,
+            text: `SELL Entry (Short): ${maxShares} shares at $${entryPriceFinal.toFixed(2)}`
           });
         }
       }
@@ -238,32 +368,62 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
   if (position.active) {
     const lastBar = bars[bars.length - 1];
     const exitPrice = lastBar.close;
-    const exitSlippage = exitPrice * (slippagePercent / 100);
-    const exitPriceFinal = exitPrice - exitSlippage;
     
-    const grossPnl = (exitPriceFinal - position.entryPrice) * position.quantity;
-    const netPnl = grossPnl - commission;
-    cash += (position.quantity * exitPriceFinal) - commission;
-    
-    trades.push({
-      id: `T-${trades.length + 1}`,
-      type: 'long',
-      entryDate: position.entryDate,
-      entryPrice: position.entryPrice,
-      exitDate: lastBar.timestamp,
-      exitPrice: exitPriceFinal,
-      quantity: position.quantity,
-      pnl: netPnl,
-      pnlPercent: (netPnl / (position.entryPrice * position.quantity)) * 100,
-      exitReason: 'end_of_data'
-    });
+    if (position.type === 'long') {
+      const exitSlippage = exitPrice * (slippagePercent / 100);
+      const exitPriceFinal = exitPrice - exitSlippage;
+      
+      const grossPnl = (exitPriceFinal - position.entryPrice) * position.quantity;
+      const netPnl = grossPnl - commission;
+      cash += (position.quantity * exitPriceFinal) - commission;
+      
+      trades.push({
+        id: `T-${trades.length + 1}`,
+        type: 'long',
+        entryDate: position.entryDate,
+        entryPrice: position.entryPrice,
+        exitDate: lastBar.timestamp,
+        exitPrice: exitPriceFinal,
+        quantity: position.quantity,
+        pnl: netPnl,
+        pnlPercent: (netPnl / (position.entryPrice * position.quantity)) * 100,
+        exitReason: 'end_of_data'
+      });
 
-    tradeMarkers.push({
-      timestamp: lastBar.timestamp,
-      type: 'sell',
-      price: exitPriceFinal,
-      text: `SELL Force Close (EOD): $${exitPriceFinal.toFixed(2)}`
-    });
+      tradeMarkers.push({
+        timestamp: lastBar.timestamp,
+        type: 'sell',
+        price: exitPriceFinal,
+        text: `SELL Force Close (EOD): $${exitPriceFinal.toFixed(2)}`
+      });
+    } else {
+      const exitSlippage = exitPrice * (slippagePercent / 100);
+      const exitPriceFinal = exitPrice + exitSlippage;
+      
+      const grossPnl = (position.entryPrice - exitPriceFinal) * position.quantity;
+      const netPnl = grossPnl - commission;
+      cash -= (position.quantity * exitPriceFinal) + commission;
+      
+      trades.push({
+        id: `T-${trades.length + 1}`,
+        type: 'short',
+        entryDate: position.entryDate,
+        entryPrice: position.entryPrice,
+        exitDate: lastBar.timestamp,
+        exitPrice: exitPriceFinal,
+        quantity: position.quantity,
+        pnl: netPnl,
+        pnlPercent: (netPnl / (position.entryPrice * position.quantity)) * 100,
+        exitReason: 'end_of_data'
+      });
+
+      tradeMarkers.push({
+        timestamp: lastBar.timestamp,
+        type: 'buy',
+        price: exitPriceFinal,
+        text: `BUY Force Close (EOD): $${exitPriceFinal.toFixed(2)}`
+      });
+    }
   }
 
   // Calculate backtest stats

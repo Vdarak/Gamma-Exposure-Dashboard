@@ -62,6 +62,22 @@ function hasCsvFiles(dir: string): boolean {
 }
 
 /**
+ * Helper to get all valid data files in a directory, excluding hidden metadata files starting with '.' (like AppleDouble '._*' files)
+ */
+function getValidDataFiles(dir: string, ext: string): string[] {
+  if (!fs.existsSync(dir)) return [];
+  try {
+    const files = fs.readdirSync(dir);
+    return files
+      .filter(file => file.endsWith(ext) && !file.startsWith('.'))
+      .map(file => path.join(dir, file));
+  } catch (err) {
+    console.error(`Error reading directory ${dir}:`, err);
+    return [];
+  }
+}
+
+/**
  * Get available tickers in raw or parquet data folders
  */
 export async function getAvailableTickers(): Promise<string[]> {
@@ -125,30 +141,33 @@ export async function getTickerDateRange(ticker: string): Promise<{ minDate: str
   const parquetPath = path.join(PARQUET_DIR, `equities/daily_adjusted/${tickerUpper}.parquet`);
   const csvPath = path.join(RAW_DIR, `equities/daily_adjusted/${tickerUpper}.csv`);
   
-  let sourcePath = '';
+  let sourceArg = '';
   let readFunc = '';
   
   if (fs.existsSync(parquetPath) && !path.basename(parquetPath).startsWith('._')) {
-    sourcePath = parquetPath;
+    sourceArg = `'${parquetPath.replace(/'/g, "''")}'`;
     readFunc = 'read_parquet';
   } else if (fs.existsSync(csvPath) && !path.basename(csvPath).startsWith('._')) {
-    sourcePath = csvPath;
+    sourceArg = `'${csvPath.replace(/'/g, "''")}'`;
     readFunc = 'read_csv_auto';
   } else {
     // If daily doesn't exist, check intraday 1min files
     const parquetDir = path.join(PARQUET_DIR, `equities/intraday/${tickerUpper}/1min`);
     const csvDir = path.join(RAW_DIR, `equities/intraday/${tickerUpper}/1min`);
     
-    if (hasParquetFiles(parquetDir)) {
-      sourcePath = path.join(parquetDir, '*.parquet');
+    const parquetFiles = getValidDataFiles(parquetDir, '.parquet');
+    const csvFiles = getValidDataFiles(csvDir, '.csv');
+    
+    if (parquetFiles.length > 0) {
+      sourceArg = "[" + parquetFiles.map(f => `'${f.replace(/'/g, "''")}'`).join(', ') + "]";
       readFunc = 'read_parquet';
-    } else if (hasCsvFiles(csvDir)) {
-      sourcePath = path.join(csvDir, '*.csv');
+    } else if (csvFiles.length > 0) {
+      sourceArg = "[" + csvFiles.map(f => `'${f.replace(/'/g, "''")}'`).join(', ') + "]";
       readFunc = 'read_csv_auto';
     }
   }
 
-  if (!sourcePath) {
+  if (!sourceArg) {
     throw new Error(`No historical data found for ticker ${tickerUpper}. Checked daily adjusted and intraday paths.`);
   }
 
@@ -156,7 +175,7 @@ export async function getTickerDateRange(ticker: string): Promise<{ minDate: str
     SELECT 
       MIN(timestamp)::VARCHAR as min_date,
       MAX(timestamp)::VARCHAR as max_date
-    FROM ${readFunc}('${sourcePath}')
+    FROM ${readFunc}(${sourceArg})
   `;
   
   try {
@@ -201,14 +220,14 @@ export async function loadHistoricalData(
     const parquetPath = path.join(PARQUET_DIR, `equities/daily_adjusted/${tickerUpper}.parquet`);
     const csvPath = path.join(RAW_DIR, `equities/daily_adjusted/${tickerUpper}.csv`);
     
-    let sourcePath = '';
+    let sourceArg = '';
     let readFunc = '';
     
     if (fs.existsSync(parquetPath) && !path.basename(parquetPath).startsWith('._')) {
-      sourcePath = parquetPath;
+      sourceArg = `'${parquetPath.replace(/'/g, "''")}'`;
       readFunc = 'read_parquet';
     } else if (fs.existsSync(csvPath) && !path.basename(csvPath).startsWith('._')) {
-      sourcePath = csvPath;
+      sourceArg = `'${csvPath.replace(/'/g, "''")}'`;
       readFunc = 'read_csv_auto';
     } else {
       throw new Error(`No daily historical data found for ticker ${tickerUpper}. Checked Parquet and CSV paths.`);
@@ -223,7 +242,7 @@ export async function loadHistoricalData(
         low::DOUBLE as low,
         adjusted_close::DOUBLE as close,
         volume::DOUBLE as volume
-      FROM ${readFunc}('${sourcePath}')
+      FROM ${readFunc}(${sourceArg})
       WHERE timestamp >= '${startDate}' AND timestamp <= '${endDate}'
       ORDER BY timestamp ASC
     `;
@@ -247,14 +266,17 @@ export async function loadHistoricalData(
     const parquetDir = path.join(PARQUET_DIR, `equities/intraday/${tickerUpper}/1min`);
     const csvDir = path.join(RAW_DIR, `equities/intraday/${tickerUpper}/1min`);
     
-    let sourceGlob = '';
+    const parquetFiles = getValidDataFiles(parquetDir, '.parquet');
+    const csvFiles = getValidDataFiles(csvDir, '.csv');
+    
+    let sourceArg = '';
     let readFunc = '';
     
-    if (hasParquetFiles(parquetDir)) {
-      sourceGlob = path.join(parquetDir, '*.parquet');
+    if (parquetFiles.length > 0) {
+      sourceArg = "[" + parquetFiles.map(f => `'${f.replace(/'/g, "''")}'`).join(', ') + "]";
       readFunc = 'read_parquet';
-    } else if (hasCsvFiles(csvDir)) {
-      sourceGlob = path.join(csvDir, '*.csv');
+    } else if (csvFiles.length > 0) {
+      sourceArg = "[" + csvFiles.map(f => `'${f.replace(/'/g, "''")}'`).join(', ') + "]";
       readFunc = 'read_csv_auto';
     } else {
       throw new Error(`No 1-minute intraday data found for ticker ${tickerUpper}. Checked Parquet and CSV paths. Intraday testing is not supported for this ticker, please use Daily (1d).`);
@@ -278,7 +300,7 @@ export async function loadHistoricalData(
           low::DOUBLE as low,
           close::DOUBLE as close,
           volume::DOUBLE as volume
-        FROM ${readFunc}('${sourceGlob}')
+        FROM ${readFunc}(${sourceArg})
         WHERE timestamp >= '${startDate} 00:00:00' AND timestamp <= '${endDate} 23:59:59'
         ORDER BY timestamp ASC
       `;
@@ -295,7 +317,7 @@ export async function loadHistoricalData(
             low,
             close,
             volume
-          FROM ${readFunc}('${sourceGlob}')
+          FROM ${readFunc}(${sourceArg})
           WHERE timestamp >= '${startDate} 00:00:00' AND timestamp <= '${endDate} 23:59:59'
         ),
         ranked_bars AS (

@@ -1,6 +1,6 @@
 "use client"
 
-import React from 'react';
+import React, { useState } from 'react';
 import dynamic from 'next/dynamic';
 import { BacktestResult } from '../../backend/src/backtester/types';
 
@@ -12,7 +12,9 @@ interface BacktestChartsProps {
 }
 
 export function BacktestCharts({ result }: BacktestChartsProps) {
-  if (result.equityCurve.length === 0) return null;
+  const [chartType, setChartType] = useState<'line' | 'candlestick'>('line');
+
+  if (!result || !result.equityCurve || result.equityCurve.length === 0) return null;
 
   const dates = result.equityCurve.map(pt => pt.timestamp);
   const portfolioValues = result.equityCurve.map(pt => pt.portfolioValue);
@@ -40,16 +42,32 @@ export function BacktestCharts({ result }: BacktestChartsProps) {
   const hasOhlcv = result.ohlcv && result.ohlcv.timestamp && result.ohlcv.timestamp.length > 0;
 
   if (hasOhlcv && result.ohlcv) {
-    // 1. Add Price Close Line
-    priceTraces.push({
-      x: result.ohlcv.timestamp,
-      y: result.ohlcv.close,
-      type: 'scatter',
-      mode: 'lines',
-      name: `${result.ticker} Close`,
-      line: { color: '#64748B', width: 1.5 },
-      hovertemplate: `${result.ticker}: $%{y:.2f}<extra></extra>`,
-    });
+    if (chartType === 'candlestick') {
+      // Candlestick Chart Trace
+      priceTraces.push({
+        x: result.ohlcv.timestamp,
+        open: result.ohlcv.open,
+        high: result.ohlcv.high,
+        low: result.ohlcv.low,
+        close: result.ohlcv.close,
+        type: 'candlestick',
+        name: `${result.ticker} Price`,
+        increasing: { line: { color: '#00C805', width: 1.5 } },
+        decreasing: { line: { color: '#FF3B60', width: 1.5 } },
+        hovertemplate: `Open: $%{open:.2f}<br>High: $%{high:.2f}<br>Low: $%{low:.2f}<br>Close: $%{close:.2f}<extra></extra>`,
+      });
+    } else {
+      // 1. Add Price Close Line
+      priceTraces.push({
+        x: result.ohlcv.timestamp,
+        y: result.ohlcv.close,
+        type: 'scatter',
+        mode: 'lines',
+        name: `${result.ticker} Close`,
+        line: { color: '#64748B', width: 1.5 },
+        hovertemplate: `${result.ticker}: $%{y:.2f}<extra></extra>`,
+      });
+    }
 
     // 2. Add Indicator Overlays (SMA, EMA, BB bands)
     if (result.indicatorSeries) {
@@ -122,13 +140,37 @@ export function BacktestCharts({ result }: BacktestChartsProps) {
     <div className="space-y-4">
       {/* ─── PRICE & TRADE MARKERS OVERLAYS (NEW) ─── */}
       {hasOhlcv && (
-        <div className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-4 flex flex-col gap-2">
+        <div className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-4 flex flex-col gap-2 font-mono">
           <div className="flex items-center justify-between border-b border-[#131316] pb-2">
             <span className="text-xs font-bold text-[#F5F5F7] uppercase tracking-wider">Simulation Price & Trade History</span>
-            <div className="flex items-center gap-3 text-[10px] font-mono">
-              <span className="flex items-center gap-1"><span className="w-2.5 h-1 bg-[#64748B] inline-block" /> Price</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-1 bg-[#10B981] inline-block" /> Buy</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-1 bg-[#EF4444] inline-block" /> Sell</span>
+            <div className="flex items-center gap-3">
+              {/* Line vs Candle Switch Toggle */}
+              <div className="flex bg-[#111] border border-[#222] rounded p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setChartType('line')}
+                  className={`px-2 py-0.5 text-[9px] font-bold rounded uppercase transition-all ${
+                    chartType === 'line' ? 'bg-terminal-green text-black' : 'text-[#888] hover:text-[#FFF]'
+                  }`}
+                >
+                  Line
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChartType('candlestick')}
+                  className={`px-2 py-0.5 text-[9px] font-bold rounded uppercase transition-all ${
+                    chartType === 'candlestick' ? 'bg-terminal-green text-black' : 'text-[#888] hover:text-[#FFF]'
+                  }`}
+                >
+                  Candles
+                </button>
+              </div>
+
+              <div className="hidden sm:flex items-center gap-3 text-[10px] text-[#555]">
+                <span className="flex items-center gap-1"><span className="w-2.5 h-1 bg-[#64748B] inline-block" /> Price</span>
+                <span className="flex items-center gap-1"><span className="w-2.5 h-1 bg-[#10B981] inline-block" /> Buy</span>
+                <span className="flex items-center gap-1"><span className="w-2.5 h-1 bg-[#EF4444] inline-block" /> Sell</span>
+              </div>
             </div>
           </div>
 
@@ -146,7 +188,8 @@ export function BacktestCharts({ result }: BacktestChartsProps) {
                   gridcolor: '#15151A',
                   zeroline: false,
                   tickfont: { size: 9, color: '#555', family: 'monospace' },
-                  type: 'date'
+                  type: 'date',
+                  rangeslider: { visible: false } // Disable default plotly rangeslider to save vertical space
                 },
                 yaxis: {
                   gridcolor: '#15151A',
@@ -161,7 +204,12 @@ export function BacktestCharts({ result }: BacktestChartsProps) {
                   font: { color: '#E5E5E5', size: 10, family: 'monospace' }
                 }
               }}
-              config={{ responsive: true, displayModeBar: false }}
+              config={{ 
+                responsive: true, 
+                scrollZoom: true, // Allow zoom on scroll / trackpad pinch
+                displayModeBar: true, // Display Plotly toolbar for scaling/pan axes
+                displaylogo: false
+              }}
               style={{ width: '100%', height: '100%' }}
             />
           </div>
@@ -169,10 +217,10 @@ export function BacktestCharts({ result }: BacktestChartsProps) {
       )}
 
       {/* ─── CHART 1: EQUITY CURVE VS BENCHMARK ─── */}
-      <div className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-4 flex flex-col gap-2">
+      <div className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-4 flex flex-col gap-2 font-mono">
         <div className="flex items-center justify-between border-b border-[#131316] pb-2">
           <span className="text-xs font-bold text-[#F5F5F7] uppercase tracking-wider">Equity Curve Performance</span>
-          <div className="flex items-center gap-3 text-[10px] font-mono">
+          <div className="flex items-center gap-3 text-[10px]">
             <span className="flex items-center gap-1"><span className="w-2.5 h-1 bg-[#00C805] inline-block" /> Portfolio</span>
             <span className="flex items-center gap-1"><span className="w-2.5 h-1 bg-[#444] inline-block" /> Buy & Hold</span>
           </div>
@@ -228,14 +276,19 @@ export function BacktestCharts({ result }: BacktestChartsProps) {
                 font: { color: '#E5E5E5', size: 10, family: 'monospace' }
               }
             }}
-            config={{ responsive: true, displayModeBar: false }}
+            config={{ 
+              responsive: true, 
+              scrollZoom: true, 
+              displayModeBar: true, 
+              displaylogo: false 
+            }}
             style={{ width: '100%', height: '100%' }}
           />
         </div>
       </div>
 
       {/* ─── CHART 2: DRAWDOWN % ─── */}
-      <div className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-4 flex flex-col gap-2">
+      <div className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-4 flex flex-col gap-2 font-mono">
         <div className="flex items-center justify-between border-b border-[#131316] pb-2">
           <span className="text-xs font-bold text-[#F5F5F7] uppercase tracking-wider">Portfolio Drawdown</span>
         </div>
@@ -281,7 +334,12 @@ export function BacktestCharts({ result }: BacktestChartsProps) {
                 font: { color: '#E5E5E5', size: 10, family: 'monospace' }
               }
             }}
-            config={{ responsive: true, displayModeBar: false }}
+            config={{ 
+              responsive: true, 
+              scrollZoom: true, 
+              displayModeBar: true, 
+              displaylogo: false 
+            }}
             style={{ width: '100%', height: '100%' }}
           />
         </div>

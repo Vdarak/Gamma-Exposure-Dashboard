@@ -19,6 +19,7 @@ export interface BacktestConfig {
   endDate: string;
   initialCapital: number;
   timeframe: '1m' | '5m' | '15m' | '30m' | '1h' | '1d';
+  strategyType?: 'long' | 'short' | 'both';
   commission?: number; // flat fee per trade or share
   slippagePercent?: number; // e.g. 0.05%
   

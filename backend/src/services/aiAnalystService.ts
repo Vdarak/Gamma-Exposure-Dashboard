@@ -610,6 +610,7 @@ If you call a tool, confirm what you did concisely. For GEX/market questions, us
       timeBasedExitDays?: number;
       indicators: any[];
     };
+    shouldExecute: boolean;
   }> {
     if (!this.isEnabled()) {
       throw new Error("AI Analyst is not configured. Please add GEMINI_API_KEY to your environment variables.");
@@ -643,7 +644,8 @@ The output MUST be a JSON object with this exact typescript structure:
       "operator": "greater_than" | "less_than" | "crosses_above" | "crosses_below" | "equals",
       "indicator2": string | number
     }>
-  }
+  },
+  "shouldExecute": boolean // Set to true if the user explicitly requests to run, execute, simulate, test, or backtest the strategy. Set to false if they are only describing, configuring, asking, or tweaking parameters.
 }
 
 Indicator key generation rules:
@@ -727,7 +729,8 @@ Return ONLY raw JSON, with no markdown code fence blocks, starting with '{' and 
           takeProfitPercent: typeof parsed.exitRules?.takeProfitPercent === 'number' ? parsed.exitRules.takeProfitPercent : undefined,
           timeBasedExitDays: typeof parsed.exitRules?.timeBasedExitDays === 'number' ? parsed.exitRules.timeBasedExitDays : undefined,
           indicators: Array.isArray(parsed.exitRules?.indicators) ? parsed.exitRules.indicators : []
-        }
+        },
+        shouldExecute: !!parsed.shouldExecute
       };
     } catch (err: any) {
       console.error("[AI Analyst] Error parsing strategy:", err.message);

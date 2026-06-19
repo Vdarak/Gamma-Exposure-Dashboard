@@ -26,6 +26,8 @@ interface BacktestConfigFormProps {
   setCommission: (val: number) => void;
   slippagePercent: number;
   setSlippagePercent: (val: number) => void;
+  strategyType: 'long' | 'short' | 'both';
+  setStrategyType: (val: 'long' | 'short' | 'both') => void;
   indicators: IndicatorConfig[];
   setIndicators: React.Dispatch<React.SetStateAction<IndicatorConfig[]>>;
   entryRules: IndicatorCondition[];
@@ -64,6 +66,8 @@ export function BacktestConfigForm({
   setCommission,
   slippagePercent,
   setSlippagePercent,
+  strategyType,
+  setStrategyType,
   indicators,
   setIndicators,
   entryRules,
@@ -333,6 +337,20 @@ export function BacktestConfigForm({
                 />
               </div>
             </div>
+
+            <div className="flex flex-col gap-1 mt-3">
+              <label className="text-[9px] text-[#555] uppercase">Strategy Direction</label>
+              <Select value={strategyType} onValueChange={(v) => setStrategyType(v as any)}>
+                <SelectTrigger className="h-7 bg-black border-[#222] text-[#E5E5E5] text-xs">
+                  <SelectValue placeholder="DIRECTION" />
+                </SelectTrigger>
+                <SelectContent className="bg-black border-[#222]">
+                  <SelectItem value="both" className="text-xs">Both (Long & Short)</SelectItem>
+                  <SelectItem value="long" className="text-xs">Long Only</SelectItem>
+                  <SelectItem value="short" className="text-xs">Short Only</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           
           {/* Column 2: Risk Parameters */}
@@ -493,7 +511,7 @@ export function BacktestConfigForm({
 
       {/* Tab 3: Rules & Triggers */}
       {activeTab === 'triggers' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 gap-6">
           {/* Entry Rules Column */}
           <div className="space-y-3">
             <div className="flex items-center justify-between border-b border-[#1A1A1E] pb-1.5">
