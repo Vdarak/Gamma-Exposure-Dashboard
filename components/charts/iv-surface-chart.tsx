@@ -7,7 +7,7 @@ import { colors, chartTheme, typography } from "@/lib/design-tokens"
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false })
 
-interface GEXSurfaceChartProps {
+interface IVSurfaceChartProps {
   data: OptionData[]
   ticker: string
   spotPrice: number
@@ -17,7 +17,7 @@ interface GEXSurfaceChartProps {
   availableExpiries?: string[]
 }
 
-export function GEXSurfaceChart({
+export function IVSurfaceChart({
   data,
   ticker,
   spotPrice,
@@ -25,14 +25,13 @@ export function GEXSurfaceChart({
   onModeChange,
   onSelectedExpiriesChange,
   availableExpiries,
-}: GEXSurfaceChartProps) {
+}: IVSurfaceChartProps) {
   const [plotLoaded, setPlotLoaded] = useState(false)
 
   const { x, y, z, zRange } = useMemo(() => {
     // Filter by user-selected expiries and standard strike range (±15%)
     let filtered: OptionData[]
     if (selectedExpiries.length === 0) {
-      // If nothing selected, show all data within 1 year and ±15%
       const oneYear = new Date()
       oneYear.setFullYear(oneYear.getFullYear() + 1)
       filtered = data.filter(
@@ -50,37 +49,100 @@ export function GEXSurfaceChart({
     const expirations = Array.from(new Set(filtered.map((o) => o.expiration.toISOString().split("T")[0]))).sort()
     const strikes = Array.from(new Set(filtered.map((o) => o.strike))).sort((a, b) => a - b)
 
-    // No artificial caps — render the full grid as selected by the user.
-    // Use O(1) hash map lookup for fast aggregation.
-    const gexLookup = new Map<string, number>()
+    // Build a lookup mapping expiration_strike to the list of option contracts at that node
+    const optionsLookup = new Map<string, OptionData[]>()
     filtered.forEach((o) => {
       const expKey = o.expiration.toISOString().split("T")[0]
       const key = `${expKey}_${o.strike}`
-
-      let gexValue = o.GEX
-      if (typeof gexValue !== 'number') {
-        const CONTRACT_SIZE = 100
-        gexValue = spotPrice * o.gamma * o.open_interest * CONTRACT_SIZE * spotPrice * 0.01
-        if (o.type === "P") gexValue = -gexValue
-      }
-
-      const current = gexLookup.get(key) || 0
-      gexLookup.set(key, current + gexValue)
+      const existing = optionsLookup.get(key) || []
+      existing.push(o)
+      optionsLookup.set(key, existing)
     })
 
-    const z: number[][] = expirations.map((exp) =>
-      strikes.map((strike) => {
-        const val = gexLookup.get(`${exp}_${strike}`) || 0
-        return val / 1e6
-      }),
-    )
+    const z: number[][] = expirations.map((exp) => {
+      // 1. Get raw IV values for all strikes at this expiry (using Out-of-the-Money selection for skew)
+      const rawIvs = strikes.map((strike) => {
+        const key = `${exp}_${strike}`
+        const opts = optionsLookup.get(key) || []
+        const callOpt = opts.find((o) => o.type === "C")
+        const putOpt = opts.find((o) => o.type === "P")
+
+        const callIv = callOpt?.iv || 0
+        const putIv = putOpt?.iv || 0
+
+        let selectedIv = 0
+        if (strike < spotPrice) {
+          // Put is OTM
+          selectedIv = putIv > 0 ? putIv : callIv
+        } else if (strike > spotPrice) {
+          // Call is OTM
+          selectedIv = callIv > 0 ? callIv : putIv
+        } else {
+          // ATM
+          if (callIv > 0 && putIv > 0) {
+            selectedIv = (callIv + putIv) / 2
+          } else {
+            selectedIv = callIv > 0 ? callIv : putIv
+          }
+        }
+
+        return selectedIv > 0 ? selectedIv : null
+      })
+
+      // 2. Interpolate missing/null IV values across strikes (1D linear interpolation)
+      const validIndices: number[] = []
+      for (let i = 0; i < rawIvs.length; i++) {
+        if (rawIvs[i] !== null && rawIvs[i]! > 0) {
+          validIndices.push(i)
+        }
+      }
+
+      if (validIndices.length === 0) {
+        return strikes.map(() => 20) // Default fallback if no valid IV at all for this expiry
+      }
+
+      return strikes.map((strike, i) => {
+        if (rawIvs[i] !== null && rawIvs[i]! > 0) {
+          return rawIvs[i]!
+        }
+
+        // Find closest lower valid index
+        let lowerIdx = -1
+        for (let j = validIndices.length - 1; j >= 0; j--) {
+          if (validIndices[j] < i) {
+            lowerIdx = validIndices[j]
+            break
+          }
+        }
+
+        // Find closest upper valid index
+        let upperIdx = -1
+        for (let j = 0; j < validIndices.length; j++) {
+          if (validIndices[j] > i) {
+            upperIdx = validIndices[j]
+            break
+          }
+        }
+
+        if (lowerIdx !== -1 && upperIdx !== -1) {
+          const x0 = strikes[lowerIdx]
+          const x1 = strikes[upperIdx]
+          const y0 = rawIvs[lowerIdx]!
+          const y1 = rawIvs[upperIdx]!
+          return y0 + ((y1 - y0) * (strike - x0)) / (x1 - x0)
+        } else if (lowerIdx !== -1) {
+          return rawIvs[lowerIdx]!
+        } else if (upperIdx !== -1) {
+          return rawIvs[upperIdx]!
+        }
+        return 20 // Default fallback
+      })
+    })
 
     const allZValues = z.flat()
-    const zMin = allZValues.length > 0 ? Math.min(...allZValues) : -1
-    const zMax = allZValues.length > 0 ? Math.max(...allZValues) : 1
-    const maxAbsValue = Math.max(Math.abs(zMin), Math.abs(zMax), 0.1)
-    const padding = maxAbsValue * 0.15
-    const zRange: [number, number] = [-(maxAbsValue + padding), (maxAbsValue + padding)]
+    const zMin = allZValues.length > 0 ? Math.min(...allZValues) : 10
+    const zMax = allZValues.length > 0 ? Math.max(...allZValues) : 40
+    const zRange: [number, number] = [Math.max(0, zMin - 2), zMax + 2]
 
     return { x: strikes, y: expirations, z, zRange }
   }, [data, spotPrice, selectedExpiries])
@@ -136,10 +198,10 @@ export function GEXSurfaceChart({
           {
             type: "surface",
             x, y, z,
-            colorscale: chartTheme.surface.colorscale,
+            colorscale: "Viridis", // A beautiful quantitative color scheme for volatility
             reversescale: false,
             colorbar: {
-              title: "Gamma (M$ / %)",
+              title: "IV (%)",
               titleside: "right",
               titlefont: { color: colors.text.secondary, size: 11, family: typography.fontSans },
               tickfont: { color: colors.text.muted, size: 10, family: typography.fontMono },
@@ -147,24 +209,12 @@ export function GEXSurfaceChart({
             showscale: false,
             cmin: zRange[0],
             cmax: zRange[1],
-            cmid: 0,
-            name: "GEX Surface"
-          },
-          {
-            type: "surface",
-            x: [Math.min(...x), Math.max(...x)],
-            y: [y[0], y[y.length - 1]],
-            z: [[0, 0], [0, 0]],
-            opacity: 0.2,
-            colorscale: [[0, "rgba(255,255,255,0.1)"], [1, "rgba(255,255,255,0.1)"]],
-            showscale: false,
-            name: "Zero Reference",
-            hoverinfo: "skip"
+            name: "IV Surface"
           }
         ]}
         layout={{
           title: {
-            text: `${ticker} GEX Surface (3D) — ${y.length} Expiries × ${x.length} Strikes`,
+            text: `${ticker} IV Surface (3D) — ${y.length} Expiries × ${x.length} Strikes`,
             font: { color: colors.text.primary, family: typography.fontSans, size: 14 },
           },
           autosize: true,
@@ -180,13 +230,12 @@ export function GEXSurfaceChart({
               zerolinecolor: chartTheme.zeroLine,
             },
             zaxis: {
-              title: { text: "Gamma (M$ / %)", font: { color: colors.text.secondary, size: 11 } },
+              title: { text: "Implied Volatility (%)", font: { color: colors.text.secondary, size: 11 } },
               range: zRange,
               zeroline: true,
               zerolinecolor: "rgba(255,255,255,0.4)",
               zerolinewidth: 2,
               gridcolor: chartTheme.grid,
-              ticksuffix: "M",
             },
             bgcolor: chartTheme.surface.bg,
             camera: { eye: { x: 1.5, y: 1.5, z: 1.2 } },

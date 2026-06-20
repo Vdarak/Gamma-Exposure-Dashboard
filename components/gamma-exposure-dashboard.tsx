@@ -14,6 +14,7 @@ import { GEXByStrikeChart } from "./charts/gex-by-strike-chart"
 import { GradientChartsWorkspace } from "./charts/gradient-charts-workspace"
 import { GEXByExpirationChart } from "./charts/gex-by-expiration-chart"
 import { GEXSurfaceChart } from "./charts/gex-surface-chart"
+import { IVSurfaceChart } from "./charts/iv-surface-chart"
 import { CallPutWallsChart } from "./charts/call-put-walls-chart"
 import { ExpectedMoveChart } from "./charts/expected-move-chart"
 import { OptionChain } from "./charts/option-chain"
@@ -948,21 +949,58 @@ export function GammaExposureDashboard() {
 
                   {/* 4. 3D Surface Model Workspace */}
                   {activeTab === 'surface' && (
-                    <ChartWrapper
-                      title="3D Gamma Exposure Surface"
-                      subtitle="Interactive 3D visualization mapping strike price and expiration date curves"
-                      height="1000px"
-                    >
-                      <GEXSurfaceChart
-                        data={optionData}
-                        ticker={ticker}
-                        spotPrice={spotPrice!}
-                        selectedExpiries={activeExpiries}
-                        onModeChange={setExpiryMode}
-                        onSelectedExpiriesChange={setCustomSelectedExpiries}
-                        availableExpiries={futureExpiries}
-                      />
-                    </ChartWrapper>
+                    <div className="flex flex-col lg:flex-row gap-4 min-h-0">
+                      {/* Left side: Charts */}
+                      <div className="flex-1 grid grid-cols-1 xl:grid-cols-2 gap-4 min-w-0">
+                        <ChartWrapper
+                          title="3D Gamma Exposure Surface"
+                          subtitle="Interactive 3D GEX mapping strike price and expiration date curves"
+                          height="550px"
+                        >
+                          <GEXSurfaceChart
+                            data={optionData}
+                            ticker={ticker}
+                            spotPrice={spotPrice!}
+                            selectedExpiries={activeExpiries}
+                            onModeChange={setExpiryMode}
+                            onSelectedExpiriesChange={setCustomSelectedExpiries}
+                            availableExpiries={futureExpiries}
+                          />
+                        </ChartWrapper>
+                        <ChartWrapper
+                          title="3D Implied Volatility Surface"
+                          subtitle="Interactive 3D IV mapping strike price and expiration date curves"
+                          height="550px"
+                        >
+                          <IVSurfaceChart
+                            data={optionData}
+                            ticker={ticker}
+                            spotPrice={spotPrice!}
+                            selectedExpiries={activeExpiries}
+                            onModeChange={setExpiryMode}
+                            onSelectedExpiriesChange={setCustomSelectedExpiries}
+                            availableExpiries={futureExpiries}
+                          />
+                        </ChartWrapper>
+                      </div>
+
+                      {/* Right side: Expiry Selector panel */}
+                      <div className="w-full lg:w-[250px] lg:flex-shrink-0 flex flex-col gap-3">
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <span className="text-[11px] font-mono font-bold text-[#E5E5E5]">EXPIRATIONS</span>
+                          </div>
+                          <ExpirySelector
+                            availableExpiries={futureExpiries}
+                            mode={expiryMode}
+                            onModeChange={setExpiryMode}
+                            selectedExpiries={customSelectedExpiries}
+                            onSelectedExpiriesChange={setCustomSelectedExpiries}
+                            optionData={optionData}
+                          />
+                        </div>
+                      </div>
+                    </div>
                   )}
 
                   {/* 5. Expected Move Workspace */}
