@@ -25,7 +25,7 @@ export function getOpexDte(): number {
   const compareOpex = Date.UTC(thisMonthOpex.getUTCFullYear(), thisMonthOpex.getUTCMonth(), thisMonthOpex.getUTCDate())
   
   let targetOpex = thisMonthOpex
-  if (compareToday > compareOpex) {
+  if (compareToday >= compareOpex) {
     const nextMonth = (month + 1) % 12
     const nextYear = month === 11 ? year + 1 : year
     targetOpex = getThirdFriday(nextYear, nextMonth)

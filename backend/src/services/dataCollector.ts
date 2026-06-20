@@ -128,7 +128,8 @@ async function fetchOptionChainFromCBOE(ticker: string): Promise<CBOEResponse | 
 
       // Add request ID to make each request unique (helps bypass caching)
       const requestId = Math.random().toString(36).substr(2, 9);
-      const url = `https://cdn.cboe.com/api/global/delayed_quotes/options/_${ticker}.json?_=${requestId}`;
+      // Primary URL is now the one without underscore prefix (since it works consistently)
+      const url = `https://cdn.cboe.com/api/global/delayed_quotes/options/${ticker}.json?_=${requestId}`;
 
       console.log(`   [CBOE ${ticker}] Requesting: ${url}`);
       console.log(`   [CBOE ${ticker}] User-Agent: ${headers['User-Agent'].substring(0, 50)}...`);
@@ -144,8 +145,8 @@ async function fetchOptionChainFromCBOE(ticker: string): Promise<CBOEResponse | 
       if (response.status === 403) {
         console.error(`   [CBOE ${ticker}] ❌ CloudFront 403 - Trying fallback URL...`);
         
-        // Try without underscore prefix as fallback
-        const fallbackUrl = `https://cdn.cboe.com/api/global/delayed_quotes/options/${ticker}.json?_=${requestId}`;
+        // Try with underscore prefix as fallback
+        const fallbackUrl = `https://cdn.cboe.com/api/global/delayed_quotes/options/_${ticker}.json?_=${requestId}`;
         console.log(`   [CBOE ${ticker}] Fallback: ${fallbackUrl}`);
         
         const fallbackResponse = await axios.get(fallbackUrl, {
