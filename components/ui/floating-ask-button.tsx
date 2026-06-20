@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import { Bot } from "lucide-react"
 
 interface FloatingAskButtonProps {
@@ -11,52 +11,103 @@ export function FloatingAskButton({ onTriggerAI }: FloatingAskButtonProps) {
   const [coords, setCoords] = useState({ x: 0, y: 0 })
   const [activeContext, setActiveContext] = useState<any | null>(null)
   const [showButton, setShowButton] = useState(false)
+  
+  const currentElementRef = useRef<HTMLElement | null>(null)
+  const timerRef = useRef<NodeJS.Timeout | null>(null)
+  const buttonRef = useRef<HTMLButtonElement | null>(null)
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      // Find if cursor is over an element with data-ai-context
       const target = e.target as HTMLElement
+      
+      // If hover is over the button itself, do not clear the timer or hide
+      if (buttonRef.current && (target === buttonRef.current || buttonRef.current.contains(target))) {
+        return
+      }
+
+      // Find if cursor is over an element with data-ai-context
       const contextEl = target.closest("[data-ai-context]") as HTMLElement
 
       if (contextEl) {
+        // If we are already hovering over the same element, let the timer continue
+        if (currentElementRef.current === contextEl) {
+          return
+        }
+
+        // We transitioned to a new element - reset timer and state
+        if (timerRef.current) {
+          clearTimeout(timerRef.current)
+        }
+        currentElementRef.current = contextEl
+        setShowButton(false)
+
         const rawContext = contextEl.getAttribute("data-ai-context")
         if (rawContext) {
           try {
             const parsed = JSON.parse(rawContext)
-            setActiveContext(parsed)
             
-            // Constrain coords to keep the button inside the viewport
-            const btnWidth = 140
-            const btnHeight = 30
-            let targetX = e.clientX + 15
-            let targetY = e.clientY + 15
-            
-            if (targetX + btnWidth > window.innerWidth) {
-              targetX = e.clientX - btnWidth - 10
-            }
-            if (targetY + btnHeight > window.innerHeight) {
-              targetY = e.clientY - btnHeight - 10
-            }
-            
-            setCoords({ x: targetX, y: targetY })
-            setShowButton(true)
-            return
+            // Start a 4.5 second hover timer on the element
+            timerRef.current = setTimeout(() => {
+              const rect = contextEl.getBoundingClientRect()
+              const btnWidth = 86 // Approximate button width
+              
+              // Position at the top-right corner of the element, inset by 12px
+              let targetX = rect.right - btnWidth - 12
+              let targetY = rect.top + 12
+              
+              // Constrain boundaries relative to viewport
+              if (targetX < 12) targetX = 12
+              if (targetY < 12) targetY = 12
+              
+              setCoords({ x: targetX, y: targetY })
+              setActiveContext(parsed)
+              setShowButton(true)
+            }, 4500)
           } catch (err) {
             console.error("Error parsing AI context attribute:", err)
           }
         }
+      } else {
+        // Mouse moved outside any data-ai-context container
+        if (timerRef.current) {
+          clearTimeout(timerRef.current)
+          timerRef.current = null
+        }
+        currentElementRef.current = null
+        setShowButton(false)
+        setActiveContext(null)
       }
+    }
+
+    // Hide the button on scroll or window resize to prevent floating mismatch
+    const handleScrollOrResize = () => {
       setShowButton(false)
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+      currentElementRef.current = null
     }
 
     window.addEventListener("mousemove", handleMouseMove)
-    return () => window.removeEventListener("mousemove", handleMouseMove)
+    window.addEventListener("scroll", handleScrollOrResize, true)
+    window.addEventListener("resize", handleScrollOrResize)
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove)
+      window.removeEventListener("scroll", handleScrollOrResize, true)
+      window.removeEventListener("resize", handleScrollOrResize)
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+      }
+    }
   }, [])
 
   if (!showButton || !activeContext) return null
 
   return (
     <button
+      ref={buttonRef}
       style={{
         position: "fixed",
         left: coords.x,
@@ -67,10 +118,11 @@ export function FloatingAskButton({ onTriggerAI }: FloatingAskButtonProps) {
       onClick={(e) => {
         e.stopPropagation()
         onTriggerAI(activeContext)
+        setShowButton(false)
       }}
     >
       <Bot className="w-3.5 h-3.5" />
-      ASK AI ABOUT THIS
+      Ask AI
     </button>
   )
 }
