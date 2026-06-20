@@ -459,20 +459,119 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
   const totalLosses = Math.abs(trades.filter(t => t.pnl < 0).reduce((acc, t) => acc + t.pnl, 0));
   const profitFactor = totalLosses > 0 ? totalProfits / totalLosses : totalTrades > 0 && totalLosses === 0 ? 999.0 : 0;
 
-  // Max Drawdown Calculation
-  let peak = config.initialCapital;
-  let maxDrawdown = 0;
-  for (const point of equityCurve) {
-    if (point.portfolioValue > peak) {
-      peak = point.portfolioValue;
+  // 2. Total P&L
+  const totalPnl = finalCapital - config.initialCapital;
+
+  // 5. Avg P&L
+  const avgPnl = totalTrades > 0 ? totalPnl / totalTrades : 0;
+  const avgPnlPercent = totalTrades > 0 
+    ? trades.reduce((acc, t) => acc + t.pnlPercent, 0) / totalTrades 
+    : 0;
+
+  // 6. Median P&L
+  let medianPnl = 0;
+  if (totalTrades > 0) {
+    const sortedPnls = trades.map(t => t.pnl).sort((a, b) => a - b);
+    const half = Math.floor(sortedPnls.length / 2);
+    medianPnl = sortedPnls.length % 2 !== 0 
+      ? sortedPnls[half] 
+      : (sortedPnls[half - 1] + sortedPnls[half]) / 2;
+  }
+
+  // 7. Avg Win
+  const avgWin = winningTrades > 0 ? totalProfits / winningTrades : 0;
+
+  // 8. Avg Loss
+  const avgLoss = losingTrades > 0 ? totalLosses / losingTrades : 0;
+
+  // 9. Max DD, DD Start, DD Valley (End), DD Recovery & Durations
+  let peakIndex = 0;
+  let maxDrawdownPercent = 0;
+  let maxDrawdownPeakIdx = 0;
+  let maxDrawdownValleyIdx = 0;
+
+  for (let i = 0; i < equityCurve.length; i++) {
+    const point = equityCurve[i];
+    if (point.portfolioValue > equityCurve[peakIndex].portfolioValue) {
+      peakIndex = i;
     }
-    const drawdown = ((peak - point.portfolioValue) / peak) * 100;
-    if (drawdown > maxDrawdown) {
-      maxDrawdown = drawdown;
+    const peakVal = equityCurve[peakIndex].portfolioValue;
+    const drawdownPct = ((peakVal - point.portfolioValue) / peakVal) * 100;
+    if (drawdownPct > maxDrawdownPercent) {
+      maxDrawdownPercent = drawdownPct;
+      maxDrawdownPeakIdx = peakIndex;
+      maxDrawdownValleyIdx = i;
     }
   }
 
-  // Sharpe Ratio Calculation (Simplified Trade-Based Sharpe)
+  const ddStart = equityCurve.length > 0 ? equityCurve[maxDrawdownPeakIdx].timestamp : config.startDate;
+  const ddEnd = equityCurve.length > 0 ? equityCurve[maxDrawdownValleyIdx].timestamp : config.endDate;
+  
+  let ddRecovery = 'Unrecovered';
+  let ddRecoveryIdx = -1;
+  if (equityCurve.length > 0 && maxDrawdownPercent > 0) {
+    const peakVal = equityCurve[maxDrawdownPeakIdx].portfolioValue;
+    for (let i = maxDrawdownValleyIdx + 1; i < equityCurve.length; i++) {
+      if (equityCurve[i].portfolioValue >= peakVal) {
+        ddRecovery = equityCurve[i].timestamp;
+        ddRecoveryIdx = i;
+        break;
+      }
+    }
+  }
+
+  // Durations
+  const ddDurationBars = ddRecoveryIdx !== -1 
+    ? ddRecoveryIdx - maxDrawdownPeakIdx 
+    : (equityCurve.length > 0 ? (equityCurve.length - 1) - maxDrawdownPeakIdx : 0);
+
+  let ddDurationDays = 0;
+  if (equityCurve.length > 0) {
+    const startDt = new Date(ddStart);
+    const endDt = new Date(ddRecoveryIdx !== -1 ? ddRecovery : equityCurve[equityCurve.length - 1].timestamp);
+    ddDurationDays = Math.round(Math.abs(endDt.getTime() - startDt.getTime()) / (1000 * 60 * 60 * 24));
+  }
+
+  // 13. Return-to-DD (Calmar Ratio)
+  const returnToDrawdown = maxDrawdownPercent > 0 ? totalReturnPercent / maxDrawdownPercent : 0;
+
+  // 14. Largest Win
+  const largestWin = totalTrades > 0 ? Math.max(...trades.map(t => t.pnl), 0) : 0;
+
+  // 15. Largest Loss
+  const largestLoss = totalTrades > 0 ? Math.min(...trades.map(t => t.pnl), 0) : 0;
+
+  // 16. Expectancy
+  const expectancy = totalTrades > 0 
+    ? (winRate / 100) * avgWin - (losingTrades / totalTrades) * avgLoss 
+    : 0;
+
+  // 17 & 18. Streaks
+  let tempWin = 0;
+  let tempLoss = 0;
+  let winningStreak = 0;
+  let losingStreak = 0;
+
+  for (const trade of trades) {
+    if (trade.pnl > 0) {
+      tempWin++;
+      losingStreak = Math.max(losingStreak, tempLoss);
+      tempLoss = 0;
+    } else if (trade.pnl < 0) {
+      tempLoss++;
+      winningStreak = Math.max(winningStreak, tempWin);
+      tempWin = 0;
+    } else {
+      winningStreak = Math.max(winningStreak, tempWin);
+      losingStreak = Math.max(losingStreak, tempLoss);
+      tempWin = 0;
+      tempLoss = 0;
+    }
+  }
+  winningStreak = Math.max(winningStreak, tempWin);
+  losingStreak = Math.max(losingStreak, tempLoss);
+
+  // 19. Sharpe Ratio Calculation (Simplified Trade-Based Sharpe)
   let sharpeRatio = 0;
   if (totalTrades > 1) {
     const tradeReturns = trades.map(t => t.pnlPercent);
@@ -495,7 +594,7 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
     losingTrades,
     winRate,
     profitFactor,
-    maxDrawdownPercent: maxDrawdown,
+    maxDrawdownPercent,
     sharpeRatio,
     trades,
     equityCurve,
@@ -508,7 +607,26 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
       close: bars.map(b => b.close),
       volume: bars.map(b => b.volume)
     },
-    tradeMarkers
+    tradeMarkers,
+    
+    // Rich performance & risk metrics
+    totalPnl,
+    avgPnl,
+    avgPnlPercent,
+    medianPnl,
+    avgWin,
+    avgLoss,
+    ddStart,
+    ddEnd,
+    ddRecovery,
+    ddDurationBars,
+    ddDurationDays,
+    returnToDrawdown,
+    largestWin,
+    largestLoss,
+    expectancy,
+    winningStreak,
+    losingStreak
   };
 }
 

@@ -91,5 +91,24 @@ export interface BacktestResult {
   indicatorSeries?: Record<string, number[]>;
   ohlcv?: OHLCVSeries;
   tradeMarkers?: TradeMarker[];
+  
+  // Rich performance & risk metrics
+  totalPnl: number;
+  avgPnl: number;
+  avgPnlPercent: number;
+  medianPnl: number;
+  avgWin: number;
+  avgLoss: number;
+  ddStart: string;
+  ddEnd: string;
+  ddRecovery: string;
+  ddDurationBars: number;
+  ddDurationDays: number;
+  returnToDrawdown: number;
+  largestWin: number;
+  largestLoss: number;
+  expectancy: number;
+  winningStreak: number;
+  losingStreak: number;
 }
 
