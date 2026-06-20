@@ -6,10 +6,12 @@ import { TrendingUp, ArrowDownRight, Award, Zap, Percent, DollarSign, Activity }
 
 interface AnalyticsProps {
   trades: JournalTrade[]
+  startBalance: number
+  setStartBalance: (value: number) => void
+  onSaveBalance?: (value: number) => void
 }
 
-export function Analytics({ trades }: AnalyticsProps) {
-  const [startBalance, setStartBalance] = useState(2566.19) // Default starting balance
+export function Analytics({ trades, startBalance, setStartBalance, onSaveBalance }: AnalyticsProps) {
   const [activeTab, setActiveTab] = useState<'performance' | 'trades' | 'drawdown'>('performance')
 
   // 1. Chronological sort of trades
@@ -399,7 +401,14 @@ export function Analytics({ trades }: AnalyticsProps) {
     valueColor: string;
     bottomSection?: React.ReactNode;
   }, idx: number) => {
-    const isLongValue = stat.value.length > 8;
+    const isDate = stat.label.toLowerCase().includes('date') || 
+                   stat.label.toLowerCase().includes('start') || 
+                   stat.label.toLowerCase().includes('valley') || 
+                   stat.label.toLowerCase().includes('recovery') || 
+                   stat.label.toLowerCase().includes('period');
+    const isAvgWinLoss = stat.label.toLowerCase().includes('win / loss') || stat.label.toLowerCase().includes('win/loss');
+    const parts = isAvgWinLoss ? stat.value.split(' / ') : [];
+
     return (
       <div 
         key={idx} 
@@ -409,9 +418,17 @@ export function Analytics({ trades }: AnalyticsProps) {
           {stat.label}
         </span>
         <div className="flex flex-col flex-1 justify-center mt-1">
-          <div className={`font-bold font-data leading-none ${stat.valueColor} ${isLongValue ? 'text-[11px] font-mono truncate' : 'text-2xl'}`} title={stat.value}>
-            {stat.value}
-          </div>
+          {isAvgWinLoss && parts.length === 2 ? (
+            <div className="flex justify-between items-center flex-grow mt-1">
+              <span className="text-xl font-bold text-[#00C805] font-data">{parts[0]}</span>
+              <span className="text-xs text-[#555] font-mono font-bold mx-1">/</span>
+              <span className="text-xl font-bold text-[#FF3B60] font-data">{parts[1]}</span>
+            </div>
+          ) : (
+            <div className={`font-bold leading-none ${stat.valueColor} ${isDate ? 'text-xs md:text-sm font-mono truncate' : 'text-2xl font-data'}`} title={stat.value}>
+              {stat.value}
+            </div>
+          )}
         </div>
         {stat.bottomSection}
       </div>
@@ -761,6 +778,13 @@ export function Analytics({ trades }: AnalyticsProps) {
               type="number"
               value={startBalance}
               onChange={(e) => setStartBalance(Math.max(100, parseFloat(e.target.value) || 0))}
+              onBlur={() => onSaveBalance?.(startBalance)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  onSaveBalance?.(startBalance)
+                  e.currentTarget.blur()
+                }
+              }}
               className="bg-black border border-[#1A1A1E] text-white pl-4 pr-1.5 py-0.5 rounded text-[11px] font-mono w-28 focus:border-terminal-purple/45 outline-none"
             />
           </div>

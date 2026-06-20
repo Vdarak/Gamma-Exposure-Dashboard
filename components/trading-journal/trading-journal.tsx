@@ -361,7 +361,8 @@ export function TradingJournal() {
         avgWin: 0,
         avgLoss: 0,
         wins: 0,
-        losses: 0
+        losses: 0,
+        expectancy: 0
       }
     }
 
@@ -456,6 +457,10 @@ export function TradingJournal() {
       }
     })
 
+    const expectancy = totalTrades > 0
+      ? (wins / totalTrades) * avgWin - (losses / totalTrades) * avgLoss
+      : 0
+
     return {
       netPnl,
       winRate,
@@ -471,7 +476,8 @@ export function TradingJournal() {
       avgWin,
       avgLoss,
       wins,
-      losses
+      losses,
+      expectancy
     }
   }, [trades, sortedTrades, startBalance])
 
@@ -698,11 +704,11 @@ export function TradingJournal() {
         </div>
       </div>
 
-      {/* 3. Five key metrics cards row */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5 flex-shrink-0 text-xs font-mono">
+      {/* 3. Six key metrics cards row */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3.5 flex-shrink-0 text-xs font-mono">
         {/* Win Rate */}
         <div className="bg-[#050507] border border-[#1A1A1E] rounded-lg pt-2 pb-3 px-4 flex flex-col justify-between h-[94px] hover:border-[#25252E] transition-all">
-          <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider">Win Rate</span>
+          <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider font-mono">Win Rate</span>
           <div className="text-2xl font-bold text-white font-data leading-none mt-1">
             {metrics.winRate.toFixed(1)}%
           </div>
@@ -720,15 +726,34 @@ export function TradingJournal() {
 
         {/* Avg Win/Loss */}
         <div className="bg-[#050507] border border-[#1A1A1E] rounded-lg pt-2 pb-3 px-4 flex flex-col justify-between h-[94px] hover:border-[#25252E] transition-all">
-          <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider">Avg Win/Loss</span>
-          <div className="text-2xl font-bold text-white font-data leading-none mt-1">
-            ${(metrics.netPnl / (trades.length || 1)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+          <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider font-mono">Avg Win/Loss</span>
+          <div className="flex justify-between items-center mt-1 flex-grow">
+            <span className="text-xl font-bold text-[#00C805] font-data">+${Math.round(avgWin)}</span>
+            <span className="text-xs text-[#555] font-mono font-bold">/</span>
+            <span className="text-xl font-bold text-[#FF3B60] font-data">-${Math.round(avgLoss)}</span>
           </div>
           <div className="flex flex-col gap-1 w-full mt-1">
             <div className="flex justify-between text-[8px] text-[#A3A3A3] font-bold">
-              <span className="text-[#00C805]">+${Math.round(avgWin)}</span>
-              <span className="text-[#FF3B60]">-${Math.round(avgLoss)}</span>
+              <span>W AVG</span>
+              <span>L AVG</span>
             </div>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden flex">
+              <div style={{ width: `${avgWin / (avgWin + avgLoss || 1) * 100}%` }} className="bg-[#00C805] h-full" />
+              <div style={{ width: `${avgLoss / (avgWin + avgLoss || 1) * 100}%` }} className="bg-[#FF3B60] h-full" />
+            </div>
+          </div>
+        </div>
+
+        {/* Expectancy */}
+        <div className="bg-[#050507] border border-[#1A1A1E] rounded-lg pt-2 pb-3 px-4 flex flex-col justify-between h-[94px] hover:border-[#25252E] transition-all">
+          <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider font-mono">Expectancy</span>
+          <div className={`text-2xl font-bold font-data leading-none mt-1 ${metrics.expectancy >= 0 ? "text-[#00C805]" : "text-[#FF3B60]"}`}>
+            {metrics.expectancy >= 0 ? "+" : ""}${metrics.expectancy.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+          <div className="flex flex-col gap-1 w-full mt-1">
+            <span className="text-[8px] text-[#A3A3A3] font-bold uppercase truncate font-mono">
+              Expected Outcome / Trade
+            </span>
             <div className="h-1 w-full bg-black rounded-full overflow-hidden flex">
               <div style={{ width: `${avgWin / (avgWin + avgLoss || 1) * 100}%` }} className="bg-[#00C805] h-full" />
               <div style={{ width: `${avgLoss / (avgWin + avgLoss || 1) * 100}%` }} className="bg-[#FF3B60] h-full" />
@@ -738,7 +763,7 @@ export function TradingJournal() {
 
         {/* Sharpe Ratio */}
         <div className="bg-[#050507] border border-[#1A1A1E] rounded-lg pt-2 pb-3 px-4 flex flex-col justify-between h-[94px] hover:border-[#25252E] transition-all">
-          <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider">Sharpe Ratio</span>
+          <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider font-mono">Sharpe Ratio</span>
           <div className="text-2xl font-bold text-white font-data leading-none mt-1">
             {metrics.sharpeRatio.toFixed(2)}
           </div>
@@ -754,14 +779,14 @@ export function TradingJournal() {
 
         {/* Kelly Sizing / Long vs Short */}
         <div className="bg-[#050507] border border-[#1A1A1E] rounded-lg pt-2 pb-3 px-4 flex flex-col justify-between h-[94px] hover:border-[#25252E] transition-all">
-          <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider">Kelly Sizing</span>
+          <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider font-mono">Kelly Sizing</span>
           <div className={`text-2xl font-bold font-data leading-none mt-1 ${metrics.kellyPercent > 0 ? "text-[#00D4FF]" : "text-[#FF3B60]"}`}>
             {metrics.kellyPercent.toFixed(1)}%
           </div>
           <div className="flex flex-col gap-1 w-full mt-1">
             <div className="flex justify-between text-[8px] text-[#A3A3A3] font-bold">
-              <span className="text-[#00C805]">L: +${Math.round(longPnl)}</span>
-              <span className="text-[#FF3B60]">S: {shortPnl >= 0 ? "+" : ""}${Math.round(shortPnl)}</span>
+              <span>L: +${Math.round(longPnl)}</span>
+              <span>S: {shortPnl >= 0 ? "+" : ""}${Math.round(shortPnl)}</span>
             </div>
             <div className="h-1 w-full bg-black rounded-full overflow-hidden flex">
               <div style={{ width: `${Math.max(10, Math.min(90, (Math.abs(longPnl) / (Math.abs(longPnl) + Math.abs(shortPnl) || 1)) * 100))}%` }} className="bg-[#00C805] h-full" />
@@ -772,7 +797,7 @@ export function TradingJournal() {
 
         {/* Active Streak */}
         <div className="bg-[#050507] border border-[#1A1A1E] rounded-lg pt-2 pb-3 px-4 flex flex-col justify-between h-[94px] hover:border-[#25252E] transition-all">
-          <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider">Active Streak</span>
+          <span className="text-[#949494] uppercase font-bold text-[9px] tracking-wider font-mono">Active Streak</span>
           <div className={`text-2xl font-bold font-data leading-none mt-1 ${isWinStreak ? "text-[#00C805]" : "text-[#FF3B60]"}`}>
             {metrics.currentStreak.count} {isWinStreak ? "W" : "L"}
           </div>
@@ -991,7 +1016,12 @@ export function TradingJournal() {
       </div>
         </>
       ) : currentJournalTab === 'analysis' ? (
-        <Analytics trades={trades} />
+        <Analytics
+          trades={trades}
+          startBalance={startBalance}
+          setStartBalance={setStartBalance}
+          onSaveBalance={handleSaveBalance}
+        />
       ) : null}
 
       {/* Slide-over Form Overlay */}
