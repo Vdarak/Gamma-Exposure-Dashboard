@@ -8,7 +8,7 @@ import { BacktestCharts } from './backtest-charts';
 import { BacktestTradeLog } from './backtest-trade-log';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from 'sonner';
-import { Maximize2, MessageSquare, Send, Sparkles, ChevronDown, ChevronUp, Sliders, Settings, X, Play } from 'lucide-react';
+import { Maximize2, MessageSquare, Send, Sparkles, ChevronDown, ChevronUp, Sliders, Settings, X, Play, ChevronLeft, ChevronRight } from 'lucide-react';
 
 // Helper to format bold and lists in chat messages
 const formatMessageContent = (text: string) => {
@@ -66,6 +66,7 @@ export function BacktestDashboard() {
   const [slippagePercent, setSlippagePercent] = useState(0.05);
   const [strategyType, setStrategyType] = useState<'long' | 'short' | 'both'>('both');
   const [leftSidebarTab, setLeftSidebarTab] = useState<'settings' | 'chat'>('settings');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // Indicators list
   const [indicators, setIndicators] = useState<IndicatorConfig[]>([
@@ -384,35 +385,48 @@ export function BacktestDashboard() {
             <div className="flex flex-col lg:flex-row h-full w-full min-h-0 divide-y lg:divide-y-0 lg:divide-x divide-[#15151A]">
               
               {/* Left Panel: Sidebar (40% width) */}
-              <div className="w-full lg:w-[40%] h-full bg-[#08080A] p-4 flex flex-col min-h-0">
-                {/* Sidebar Tabs Header */}
-                <div className="flex items-center justify-between border-b border-[#15151A] pb-2 mb-4 flex-shrink-0">
-                  <div className="flex bg-[#111] border border-[#222] rounded p-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setLeftSidebarTab('settings')}
-                      className={`px-3 py-1 text-[10px] font-mono font-bold rounded uppercase transition-all flex items-center gap-1.5 ${
-                        leftSidebarTab === 'settings' ? 'bg-terminal-green text-black' : 'text-[#888] hover:text-[#FFF]'
-                      }`}
-                    >
-                      <Settings className="w-3 h-3" /> Settings
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setLeftSidebarTab('chat')}
-                      className={`px-3 py-1 text-[10px] font-mono font-bold rounded uppercase transition-all flex items-center gap-1.5 ${
-                        leftSidebarTab === 'chat' ? 'bg-terminal-green text-black' : 'text-[#888] hover:text-[#FFF]'
-                      }`}
-                    >
-                      <MessageSquare className="w-3 h-3" /> AI Chat
-                    </button>
+              {!isSidebarCollapsed && (
+                <div className="w-full lg:w-[40%] h-full bg-[#08080A] p-4 flex flex-col min-h-0">
+                  {/* Sidebar Tabs Header */}
+                  <div className="flex items-center justify-between border-b border-[#15151A] pb-2 mb-4 flex-shrink-0">
+                    <div className="flex bg-[#111] border border-[#222] rounded p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setLeftSidebarTab('settings')}
+                        className={`px-3 py-1 text-[10px] font-mono font-bold rounded uppercase transition-all flex items-center gap-1.5 ${
+                          leftSidebarTab === 'settings' ? 'bg-terminal-green text-black' : 'text-[#888] hover:text-[#FFF]'
+                        }`}
+                      >
+                        <Settings className="w-3 h-3" /> Settings
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLeftSidebarTab('chat')}
+                        className={`px-3 py-1 text-[10px] font-mono font-bold rounded uppercase transition-all flex items-center gap-1.5 ${
+                          leftSidebarTab === 'chat' ? 'bg-terminal-green text-black' : 'text-[#888] hover:text-[#FFF]'
+                        }`}
+                      >
+                        <MessageSquare className="w-3 h-3" /> AI Chat
+                      </button>
+                    </div>
+                    
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2 font-mono text-[9px] text-[#666]">
+                        <span className="w-2 h-2 rounded-full bg-terminal-green animate-pulse" />
+                        <span className="font-bold text-[#E5E5E5]">{ticker} &bull; {timeframe}</span>
+                      </div>
+                      
+                      <button
+                        type="button"
+                        onClick={() => setIsSidebarCollapsed(true)}
+                        className="p-1 hover:bg-[#1A1A1E] text-gray-400 hover:text-white rounded border border-[#222] transition-colors"
+                        title="Collapse Sidebar"
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
-                  
-                  <div className="flex items-center gap-2 font-mono text-[9px] text-[#666]">
-                    <span className="w-2 h-2 rounded-full bg-terminal-green animate-pulse" />
-                    <span className="font-bold text-[#E5E5E5]">{ticker} &bull; {timeframe}</span>
-                  </div>
-                </div>
+
 
                 {/* Sidebar Tab Content */}
                 <div className="flex-1 min-h-0 overflow-y-auto terminal-scrollbar mb-4">
@@ -541,12 +555,23 @@ export function BacktestDashboard() {
                   </div>
                 </div>
               </div>
+            )}
 
-              {/* Right Panel: Results (60% width) */}
-              <div className="w-full lg:w-[60%] flex flex-col h-full bg-[#020203] min-h-0 overflow-y-auto lg:overflow-hidden">
+              {/* Right Panel: Results (60% width or 100% if collapsed) */}
+              <div className={`w-full ${isSidebarCollapsed ? 'lg:w-full' : 'lg:w-[60%]'} flex flex-col h-full bg-[#020203] min-h-0 overflow-y-auto lg:overflow-hidden`}>
                 {/* Results Header */}
                 <div className="border-b border-[#15151A] bg-[#08080A] flex items-center px-4 py-2 justify-between flex-shrink-0 font-mono">
                   <div className="flex items-center gap-1.5">
+                    {isSidebarCollapsed && (
+                      <button
+                        type="button"
+                        onClick={() => setIsSidebarCollapsed(false)}
+                        className="px-2.5 py-1 bg-[#111] hover:bg-[#1A1A24] text-[#E5E5E5] border border-[#222] hover:border-terminal-green rounded text-[10px] font-bold font-mono transition-all uppercase tracking-wider flex items-center gap-1.5 mr-2"
+                        title="Expand Sidebar"
+                      >
+                        <ChevronRight className="w-3.5 h-3.5 text-terminal-green" /> Sidebar
+                      </button>
+                    )}
                     <button
                       onClick={() => setActiveTab('overview')}
                       className={`px-3 py-1.5 text-xs font-bold rounded transition-all border ${
@@ -580,7 +605,10 @@ export function BacktestDashboard() {
                     </button>
 
                     <button
-                      onClick={() => setResult(null)}
+                      onClick={() => {
+                        setResult(null);
+                        setIsSidebarCollapsed(false);
+                      }}
                       className="p-1 hover:bg-[#1A1A1E] text-gray-400 hover:text-white rounded border border-[#222] transition-colors"
                       title="Close Simulation Results"
                     >

@@ -6,6 +6,7 @@ import { Heatmap } from "./heatmap"
 import { CalendarView } from "./calendar-view"
 import { TradeForm } from "./trade-form"
 import { TradeDetail } from "./trade-detail"
+import { Analytics } from "./analytics"
 import {
   getJournalTrades,
   createJournalTrade,
@@ -95,6 +96,7 @@ export function TradingJournal() {
 
   // Starting balance input
   const [startBalance, setStartBalance] = useState(2566.19)
+  const [currentJournalTab, setCurrentJournalTab] = useState<'journal' | 'comparison' | 'analysis'>('journal')
 
   // Modals & Panels State
   const [isFormOpen, setIsFormOpen] = useState(false)
@@ -651,7 +653,14 @@ export function TradingJournal() {
 
       {/* 1.2 Inner Tab Bar */}
       <div className="flex items-center border-b border-[#15151C] pb-2 flex-shrink-0 gap-1.5">
-        <button className="px-3 py-1.5 text-xs font-mono font-bold rounded bg-[#121215] text-[#00C805] border border-[#25252E] shadow-sm">
+        <button
+          onClick={() => setCurrentJournalTab('journal')}
+          className={`px-3 py-1.5 text-xs font-mono font-bold rounded transition-all border ${
+            currentJournalTab === 'journal'
+              ? 'bg-[#121215] text-[#00C805] border-[#25252E] shadow-sm'
+              : 'bg-transparent text-[#949494] border-transparent hover:text-white'
+          }`}
+        >
           Journal
         </button>
         <button 
@@ -661,15 +670,21 @@ export function TradingJournal() {
           Comparison
         </button>
         <button 
-          onClick={() => alert("Detailed stats curves pending historical database population.")}
-          className="px-3 py-1.5 text-xs font-mono font-bold rounded bg-transparent text-[#949494] border border-transparent hover:text-white"
+          onClick={() => setCurrentJournalTab('analysis')}
+          className={`px-3 py-1.5 text-xs font-mono font-bold rounded transition-all border ${
+            currentJournalTab === 'analysis'
+              ? 'bg-[#121215] text-[#00C805] border-[#25252E] shadow-sm'
+              : 'bg-transparent text-[#949494] border-transparent hover:text-white'
+          }`}
         >
           Analysis
         </button>
       </div>
 
-      {/* 2. Portfolio Balance & Change Indicator */}
-      <div className="flex flex-col gap-1 flex-shrink-0">
+      {currentJournalTab === 'journal' ? (
+        <>
+          {/* 2. Portfolio Balance & Change Indicator */}
+          <div className="flex flex-col gap-1 flex-shrink-0">
         <div className="text-5xl font-bold font-data text-white leading-none tracking-tight">
           ${portfolioValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </div>
@@ -974,6 +989,10 @@ export function TradingJournal() {
           />
         </div>
       </div>
+        </>
+      ) : currentJournalTab === 'analysis' ? (
+        <Analytics trades={trades} />
+      ) : null}
 
       {/* Slide-over Form Overlay */}
       <TradeForm

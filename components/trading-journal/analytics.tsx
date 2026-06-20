@@ -393,66 +393,132 @@ export function Analytics({ trades }: AnalyticsProps) {
   const isPnlPositive = metrics.totalPnl >= 0
   const isWinStreak = metrics.currentStreak.type === "Win"
 
+  const renderCard = (stat: {
+    label: string;
+    value: string;
+    valueColor: string;
+    bottomSection?: React.ReactNode;
+  }, idx: number) => {
+    const isLongValue = stat.value.length > 8;
+    return (
+      <div 
+        key={idx} 
+        className="bg-[#050507] border border-[#1A1A1E] rounded-lg pt-2 pb-3 px-4 flex flex-col justify-between h-[94px] hover:border-[#25252E] transition-all"
+      >
+        <span className="text-[9px] font-bold text-[#949494] uppercase tracking-wider font-mono">
+          {stat.label}
+        </span>
+        <div className="flex flex-col flex-1 justify-center mt-1">
+          <div className={`font-bold font-data leading-none ${stat.valueColor} ${isLongValue ? 'text-[11px] font-mono truncate' : 'text-2xl'}`} title={stat.value}>
+            {stat.value}
+          </div>
+        </div>
+        {stat.bottomSection}
+      </div>
+    );
+  };
+
   const renderPerformanceTab = () => {
     const stats = [
       {
         label: 'Net Profit',
         value: `${isPnlPositive ? '+' : ''}$${metrics.totalPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        subText: `${isPnlPositive ? '+' : ''}${(metrics.totalPnl / startBalance * 100).toFixed(2)}% Return`,
         valueColor: isPnlPositive ? 'text-[#00C805]' : 'text-[#FF3B60]',
+        bottomSection: (
+          <div className="flex flex-col gap-1 w-full font-mono mt-1">
+            <span className="text-[8px] text-[#A3A3A3] font-bold uppercase truncate">
+              {isPnlPositive ? `+${(metrics.totalPnl / startBalance * 100).toFixed(2)}% Return` : `${(metrics.totalPnl / startBalance * 100).toFixed(2)}% Return`}
+            </span>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden">
+              <div style={{ width: `${Math.min(100, Math.max(0, Math.abs(metrics.totalPnl / startBalance * 100)))}%` }} className={`h-full ${isPnlPositive ? 'bg-[#00C805]' : 'bg-[#FF3B60]'}`} />
+            </div>
+          </div>
+        )
       },
       {
         label: 'Win Rate',
         value: `${metrics.winRate.toFixed(1)}%`,
-        subText: `${metrics.wins} Wins / ${metrics.losses} Losses`,
         valueColor: 'text-white',
+        bottomSection: (
+          <div className="flex flex-col gap-1 w-full font-mono mt-1">
+            <div className="flex justify-between text-[8px] text-[#A3A3A3] font-bold">
+              <span>{metrics.wins} WINS</span>
+              <span>{metrics.losses} LOSSES</span>
+            </div>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden flex">
+              <div style={{ width: `${metrics.winRate}%` }} className="bg-[#00C805] h-full" />
+              <div style={{ width: `${100 - metrics.winRate}%` }} className="bg-[#FF3B60] h-full" />
+            </div>
+          </div>
+        )
       },
       {
         label: 'Sharpe Ratio',
         value: metrics.sharpeRatio.toFixed(2),
-        subText: 'Annualized Risk-Adjusted',
         valueColor: 'text-terminal-cyan',
+        bottomSection: (
+          <div className="flex flex-col gap-1 w-full font-mono mt-1">
+            <span className="text-[8px] text-[#A3A3A3] font-bold uppercase truncate">
+              {metrics.sharpeRatio > 2 ? 'Excellent' : metrics.sharpeRatio > 1 ? 'Good' : 'Suboptimal'} Edge
+            </span>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden">
+              <div style={{ width: `${Math.min(100, Math.max(0, (metrics.sharpeRatio / 3) * 100))}%` }} className="bg-[#00D4FF] h-full" />
+            </div>
+          </div>
+        )
       },
       {
         label: 'Profit Factor',
         value: `${metrics.profitFactor.toFixed(2)}x`,
-        subText: 'Gross Profit / Gross Loss',
         valueColor: 'text-white',
+        bottomSection: (
+          <div className="flex flex-col gap-1 w-full font-mono mt-1">
+            <span className="text-[8px] text-[#A3A3A3] font-bold uppercase truncate">
+              PF: Gross Win vs Loss
+            </span>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden">
+              <div style={{ width: `${Math.min(100, Math.max(0, (metrics.profitFactor / 3) * 100))}%` }} className="bg-[#00C805] h-full" />
+            </div>
+          </div>
+        )
       },
       {
         label: 'Calmar Ratio (Return/DD)',
         value: `${metrics.returnToDrawdown.toFixed(2)}x`,
-        subText: 'Ratio of Return to Max DD',
         valueColor: 'text-terminal-amber',
+        bottomSection: (
+          <div className="flex flex-col gap-1 w-full font-mono mt-1">
+            <span className="text-[8px] text-[#A3A3A3] font-bold uppercase truncate">
+              Calmar: Return / Max DD
+            </span>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden">
+              <div style={{ width: `${Math.min(100, Math.max(0, (metrics.returnToDrawdown / 5) * 100))}%` }} className="bg-terminal-amber h-full" />
+            </div>
+          </div>
+        )
       },
       {
         label: 'Expectancy',
         value: `${metrics.expectancy >= 0 ? '+' : ''}$${metrics.expectancy.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        subText: 'Expected outcome per trade',
         valueColor: metrics.expectancy >= 0 ? 'text-[#00C805]' : 'text-[#FF3B60]',
+        bottomSection: (
+          <div className="flex flex-col gap-1 w-full font-mono mt-1">
+            <div className="flex justify-between text-[8px] text-[#A3A3A3] font-bold">
+              <span>W Avg</span>
+              <span>L Avg</span>
+            </div>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden flex">
+              <div style={{ width: `${metrics.avgWin / (metrics.avgWin + metrics.avgLoss || 1) * 100}%` }} className="bg-[#00C805] h-full" />
+              <div style={{ width: `${metrics.avgLoss / (metrics.avgWin + metrics.avgLoss || 1) * 100}%` }} className="bg-[#FF3B60] h-full" />
+            </div>
+          </div>
+        )
       }
     ]
 
     return (
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3.5 flex-shrink-0">
-        {stats.map((stat, idx) => (
-          <div 
-            key={idx} 
-            className="bg-[#050507] border border-[#1A1A1E] rounded-lg pt-2.5 pb-3 px-4 flex flex-col justify-between h-20 hover:border-[#25252E] transition-all"
-          >
-            <span className="text-[9px] font-bold text-[#A3A3A3] uppercase tracking-wider">
-              {stat.label}
-            </span>
-            <div className="flex flex-col">
-              <div className={`text-lg font-bold font-data leading-none ${stat.valueColor}`}>
-                {stat.value}
-              </div>
-              <span className="text-[9px] text-[#555] font-mono mt-1">
-                {stat.subText}
-              </span>
-            </div>
-          </div>
-        ))}
+        {stats.map((stat, idx) => renderCard(stat, idx))}
       </div>
     )
   }
@@ -462,61 +528,100 @@ export function Analytics({ trades }: AnalyticsProps) {
       {
         label: 'Total Trades',
         value: metrics.totalTrades.toString(),
-        subText: 'Closed positions count',
         valueColor: 'text-white',
+        bottomSection: (
+          <div className="flex flex-col gap-1 w-full font-mono mt-1">
+            <span className="text-[8px] text-[#A3A3A3] font-bold uppercase truncate">
+              Positions Closed Count
+            </span>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden">
+              <div style={{ width: '100%' }} className="bg-white/20 h-full" />
+            </div>
+          </div>
+        )
       },
       {
         label: 'Avg P&L',
         value: `${metrics.avgPnl >= 0 ? '+' : ''}$${metrics.avgPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        subText: `${metrics.avgPnlPercent >= 0 ? '+' : ''}${metrics.avgPnlPercent.toFixed(2)}% Avg Trade`,
         valueColor: metrics.avgPnl >= 0 ? 'text-[#00C805]' : 'text-[#FF3B60]',
+        bottomSection: (
+          <div className="flex flex-col gap-1 w-full font-mono mt-1">
+            <span className="text-[8px] text-[#A3A3A3] font-bold uppercase truncate">
+              {metrics.avgPnlPercent >= 0 ? '+' : ''}{metrics.avgPnlPercent.toFixed(2)}% Avg Trade
+            </span>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden">
+              <div style={{ width: `${Math.min(100, Math.max(0, Math.abs(metrics.avgPnlPercent) * 20))}%` }} className={`h-full ${metrics.avgPnl >= 0 ? 'bg-[#00C805]' : 'bg-[#FF3B60]'}`} />
+            </div>
+          </div>
+        )
       },
       {
         label: 'Median P&L',
         value: `${metrics.medianPnl >= 0 ? '+' : ''}$${metrics.medianPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        subText: 'Middle trade performance',
         valueColor: metrics.medianPnl >= 0 ? 'text-[#00C805]' : 'text-[#FF3B60]',
+        bottomSection: (
+          <div className="flex flex-col gap-1 w-full font-mono mt-1">
+            <span className="text-[8px] text-[#A3A3A3] font-bold uppercase truncate">
+              Middle Trade Performance
+            </span>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden">
+              <div style={{ width: `${Math.min(100, Math.max(0, Math.abs(metrics.medianPnl / (metrics.avgPnl || 1)) * 50))}%` }} className={`h-full ${metrics.medianPnl >= 0 ? 'bg-[#00C805]' : 'bg-[#FF3B60]'}`} />
+            </div>
+          </div>
+        )
       },
       {
         label: 'Avg Win / Loss',
         value: `+$${metrics.avgWin.toLocaleString(undefined, { maximumFractionDigits: 0 })} / -$${metrics.avgLoss.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
-        subText: `Wins Avg vs Losses Avg`,
         valueColor: 'text-white',
+        bottomSection: (
+          <div className="flex flex-col gap-1 w-full font-mono mt-1">
+            <div className="flex justify-between text-[8px] text-[#A3A3A3] font-bold">
+              <span>W Avg</span>
+              <span>L Avg</span>
+            </div>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden flex">
+              <div style={{ width: `${metrics.avgWin / (metrics.avgWin + metrics.avgLoss || 1) * 100}%` }} className="bg-[#00C805] h-full" />
+              <div style={{ width: `${metrics.avgLoss / (metrics.avgWin + metrics.avgLoss || 1) * 100}%` }} className="bg-[#FF3B60] h-full" />
+            </div>
+          </div>
+        )
       },
       {
         label: 'Largest Win',
         value: `+$${metrics.largestWin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        subText: 'Best single trade result',
         valueColor: 'text-[#00C805]',
+        bottomSection: (
+          <div className="flex flex-col gap-1 w-full font-mono mt-1">
+            <span className="text-[8px] text-[#A3A3A3] font-bold uppercase truncate">
+              Best Single Position P&L
+            </span>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden">
+              <div style={{ width: '100%' }} className="bg-[#00C805] h-full" />
+            </div>
+          </div>
+        )
       },
       {
         label: 'Largest Loss',
         value: `-$${Math.abs(metrics.largestLoss).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        subText: 'Worst single trade result',
         valueColor: 'text-[#FF3B60]',
+        bottomSection: (
+          <div className="flex flex-col gap-1 w-full font-mono mt-1">
+            <span className="text-[8px] text-[#A3A3A3] font-bold uppercase truncate">
+              Worst Single Position P&L
+            </span>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden">
+              <div style={{ width: '100%' }} className="bg-[#FF3B60] h-full" />
+            </div>
+          </div>
+        )
       }
     ]
 
     return (
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3.5 flex-shrink-0">
-        {stats.map((stat, idx) => (
-          <div 
-            key={idx} 
-            className="bg-[#050507] border border-[#1A1A1E] rounded-lg pt-2.5 pb-3 px-4 flex flex-col justify-between h-20 hover:border-[#25252E] transition-all"
-          >
-            <span className="text-[9px] font-bold text-[#A3A3A3] uppercase tracking-wider">
-              {stat.label}
-            </span>
-            <div className="flex flex-col">
-              <div className={`text-lg font-bold font-data leading-none ${stat.valueColor}`}>
-                {stat.value}
-              </div>
-              <span className="text-[9px] text-[#555] font-mono mt-1">
-                {stat.subText}
-              </span>
-            </div>
-          </div>
-        ))}
+        {stats.map((stat, idx) => renderCard(stat, idx))}
       </div>
     )
   }
@@ -528,61 +633,100 @@ export function Analytics({ trades }: AnalyticsProps) {
       {
         label: 'Max Drawdown',
         value: `-${metrics.maxDrawdownPercent.toFixed(2)}%`,
-        subText: `Peak-to-Valley ($${Math.round(metrics.maxDrawdown).toLocaleString()})`,
         valueColor: 'text-[#FF3B60]',
+        bottomSection: (
+          <div className="flex flex-col gap-1 w-full font-mono mt-1">
+            <span className="text-[8px] text-[#A3A3A3] font-bold uppercase truncate">
+              Peak-to-Valley ($${Math.round(metrics.maxDrawdown).toLocaleString()})
+            </span>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden">
+              <div style={{ width: `${Math.min(100, metrics.maxDrawdownPercent)}%` }} className="bg-[#FF3B60] h-full" />
+            </div>
+          </div>
+        )
       },
       {
         label: 'Drawdown Start',
         value: metrics.ddStart || 'N/A',
-        subText: 'Date of preceding peak',
         valueColor: 'text-white',
+        bottomSection: (
+          <div className="flex flex-col gap-1 w-full font-mono mt-1">
+            <span className="text-[8px] text-[#A3A3A3] font-bold uppercase truncate">
+              Date of preceding peak
+            </span>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden">
+              <div style={{ width: '100%' }} className="bg-white/20 h-full" />
+            </div>
+          </div>
+        )
       },
       {
         label: 'Drawdown Valley',
         value: metrics.ddEnd || 'N/A',
-        subText: 'Date of lowest equity trough',
         valueColor: 'text-white',
+        bottomSection: (
+          <div className="flex flex-col gap-1 w-full font-mono mt-1">
+            <span className="text-[8px] text-[#A3A3A3] font-bold uppercase truncate">
+              Lowest Equity Valley Trough
+            </span>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden">
+              <div style={{ width: '100%' }} className="bg-[#FF3B60]/40 h-full" />
+            </div>
+          </div>
+        )
       },
       {
         label: 'Drawdown Recovery',
         value: recoveryStr,
-        subText: 'Date back to peak level',
         valueColor: metrics.ddRecovery === 'Unrecovered' ? 'text-terminal-amber' : 'text-[#00C805]',
+        bottomSection: (
+          <div className="flex flex-col gap-1 w-full font-mono mt-1">
+            <span className="text-[8px] text-[#A3A3A3] font-bold uppercase truncate">
+              {metrics.ddRecovery === 'Unrecovered' ? 'In Drawdown' : 'Fully Recovered'}
+            </span>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden">
+              <div style={{ width: '100%' }} className={`h-full ${metrics.ddRecovery === 'Unrecovered' ? 'bg-terminal-amber' : 'bg-[#00C805]'}`} />
+            </div>
+          </div>
+        )
       },
       {
         label: 'Drawdown Duration',
         value: `${metrics.ddDurationDays} Days`,
-        subText: `${metrics.ddDurationBars} trades in drawdown`,
         valueColor: 'text-white',
+        bottomSection: (
+          <div className="flex flex-col gap-1 w-full font-mono mt-1">
+            <span className="text-[8px] text-[#A3A3A3] font-bold uppercase truncate">
+              {metrics.ddDurationBars} trades in drawdown
+            </span>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden">
+              <div style={{ width: `${Math.min(100, metrics.ddDurationBars)}%` }} className="bg-white/20 h-full" />
+            </div>
+          </div>
+        )
       },
       {
         label: 'Streaks (Win / Loss)',
         value: `${metrics.maxWinStreak} W / ${metrics.maxLossStreak} L`,
-        subText: 'Max consecutive trades',
         valueColor: 'text-white',
+        bottomSection: (
+          <div className="flex flex-col gap-1 w-full font-mono mt-1">
+            <div className="flex justify-between text-[8px] text-[#A3A3A3] font-bold">
+              <span>MAX W: {metrics.maxWinStreak}</span>
+              <span>MAX L: {metrics.maxLossStreak}</span>
+            </div>
+            <div className="h-1 w-full bg-black rounded-full overflow-hidden flex">
+              <div style={{ width: `${metrics.maxWinStreak / (metrics.maxWinStreak + metrics.maxLossStreak || 1) * 100}%` }} className="bg-[#00C805] h-full" />
+              <div style={{ width: `${metrics.maxLossStreak / (metrics.maxWinStreak + metrics.maxLossStreak || 1) * 100}%` }} className="bg-[#FF3B60] h-full" />
+            </div>
+          </div>
+        )
       }
     ]
 
     return (
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3.5 flex-shrink-0">
-        {stats.map((stat, idx) => (
-          <div 
-            key={idx} 
-            className="bg-[#050507] border border-[#1A1A1E] rounded-lg pt-2.5 pb-3 px-4 flex flex-col justify-between h-20 hover:border-[#25252E] transition-all"
-          >
-            <span className="text-[9px] font-bold text-[#A3A3A3] uppercase tracking-wider">
-              {stat.label}
-            </span>
-            <div className="flex flex-col">
-              <div className={`text-[10px] font-bold font-mono truncate leading-none ${stat.valueColor}`}>
-                {stat.value}
-              </div>
-              <span className="text-[9px] text-[#555] font-mono mt-1">
-                {stat.subText}
-              </span>
-            </div>
-          </div>
-        ))}
+        {stats.map((stat, idx) => renderCard(stat, idx))}
       </div>
     )
   }
