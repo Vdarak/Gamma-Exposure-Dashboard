@@ -27,6 +27,7 @@ import { TradingJournal } from "./trading-journal/trading-journal"
 import { OptionFlowDashboard } from "./option-flow-dashboard"
 import { BacktestDashboard } from "./algorithms/backtest-dashboard"
 import { AIAnalystPanel } from "./AIAnalystPanel"
+import { FloatingAskButton } from "./ui/floating-ask-button"
 
 // UI components
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -94,9 +95,18 @@ export function GammaExposureDashboard() {
   // AI Analyst panel
   const [isAIPanelOpen, setIsAIPanelOpen] = useState(false)
 
+  // Context & 0DTE mode states
+  const [is0DteMode, setIs0DteMode] = useState<boolean>(false)
+  const [uiContext, setUiContext] = useState<any | null>(null)
+
   // Expiry selector state
   const [expiryMode, setExpiryMode] = useState<ExpiryMode>('0dte')
   const [customSelectedExpiries, setCustomSelectedExpiries] = useState<string[]>([])
+
+  // Sync expiryMode with is0DteMode
+  useEffect(() => {
+    setIs0DteMode(expiryMode === '0dte')
+  }, [expiryMode])
 
   // Trigger loading screen update on settings / expiry changes
   useEffect(() => {
@@ -792,7 +802,13 @@ export function GammaExposureDashboard() {
                         />
 
                         {/* Synced Workspace Chart Card */}
-                        <div className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-3">
+                        <div 
+                          className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-3"
+                          data-ai-context={JSON.stringify({
+                            component: "Synced Strike Workspace",
+                            promptTemplate: "Analyze the strike levels and GEX clusters on the Synced Strike Workspace chart."
+                          })}
+                        >
                           <div className="h-[1200px]">
                             <SyncedStrikeWorkspace
                               startOptionData={activeStartOptionData}
@@ -809,60 +825,73 @@ export function GammaExposureDashboard() {
                         </div>
 
                         {/* Option Chain Card below */}
-                        <ChartWrapper
-                          title="Option Chain Grid"
-                          subtitle="Detailed strike levels, Greeks, and open interest distribution"
-                          height="auto"
-                          controls={
-                            <div className="flex items-center gap-3">
-                              <div className="flex items-center gap-2">
-                                <span className="text-[10px] text-[#949494] font-mono uppercase">Strikes</span>
-                                <Select value={strikesCount.toString()} onValueChange={(v) => setStrikesCount(v === "ALL" ? "ALL" : parseInt(v))}>
-                                  <SelectTrigger className="w-16 h-6 text-[10px] bg-black border-[#1A1A1E]">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent className="bg-black border-[#1A1A1E]">
-                                    <SelectItem value="6">6</SelectItem>
-                                    <SelectItem value="10">10</SelectItem>
-                                    <SelectItem value="12">12</SelectItem>
-                                    <SelectItem value="16">16</SelectItem>
-                                    <SelectItem value="ALL">ALL</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-[10px] text-[#949494] font-mono uppercase">Expiry</span>
-                                <Select value={selectedRampExpiry} onValueChange={setSelectedRampExpiry}>
-                                  <SelectTrigger className="w-28 h-6 text-[10px] bg-black border-[#1A1A1E]">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent className="bg-black border-[#1A1A1E]">
-                                    {futureExpiries.map((exp) => (
-                                      <SelectItem key={exp} value={exp}>{exp.slice(5)}</SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            </div>
-                          }
+                        <div
+                          data-ai-context={JSON.stringify({
+                            component: "Option Chain Grid",
+                            promptTemplate: "Explain the option chain positioning, call/put wall structure, and open interest concentration."
+                          })}
                         >
-                          <OptionChain
-                            data={optionData}
-                            ticker={ticker}
-                            spotPrice={spotPrice!}
-                            selectedExpiry={selectedRampExpiry}
-                            onExpiryChange={setSelectedRampExpiry}
-                            availableExpiries={futureExpiries}
-                            strikesCount={strikesCount}
-                            onStrikesCountChange={setStrikesCount}
-                          />
-                        </ChartWrapper>
+                          <ChartWrapper
+                            title="Option Chain Grid"
+                            subtitle="Detailed strike levels, Greeks, and open interest distribution"
+                            height="auto"
+                            controls={
+                              <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] text-[#949494] font-mono uppercase">Strikes</span>
+                                  <Select value={strikesCount.toString()} onValueChange={(v) => setStrikesCount(v === "ALL" ? "ALL" : parseInt(v))}>
+                                    <SelectTrigger className="w-16 h-6 text-[10px] bg-black border-[#1A1A1E]">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent className="bg-black border-[#1A1A1E]">
+                                      <SelectItem value="6">6</SelectItem>
+                                      <SelectItem value="10">10</SelectItem>
+                                      <SelectItem value="12">12</SelectItem>
+                                      <SelectItem value="16">16</SelectItem>
+                                      <SelectItem value="ALL">ALL</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] text-[#949494] font-mono uppercase">Expiry</span>
+                                  <Select value={selectedRampExpiry} onValueChange={setSelectedRampExpiry}>
+                                    <SelectTrigger className="w-28 h-6 text-[10px] bg-black border-[#1A1A1E]">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent className="bg-black border-[#1A1A1E]">
+                                      {futureExpiries.map((exp) => (
+                                        <SelectItem key={exp} value={exp}>{exp.slice(5)}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+                            }
+                          >
+                            <OptionChain
+                              data={optionData}
+                              ticker={ticker}
+                              spotPrice={spotPrice!}
+                              selectedExpiry={selectedRampExpiry}
+                              onExpiryChange={setSelectedRampExpiry}
+                              availableExpiries={futureExpiries}
+                              strikesCount={strikesCount}
+                              onStrikesCountChange={setStrikesCount}
+                            />
+                          </ChartWrapper>
+                        </div>
                       </div>
 
                       {/* Right panel — Watchlist & Expiry Selector (GEX Levels only) */}
                       <div className="w-full lg:w-[250px] lg:flex-shrink-0 flex flex-col gap-3">
                         {/* Watchlist */}
-                        <div className="border border-[#1A1A1E] bg-[#0A0A0C] rounded-lg p-3 flex flex-col gap-2.5">
+                        <div 
+                          className="border border-[#1A1A1E] bg-[#0A0A0C] rounded-lg p-3 flex flex-col gap-2.5"
+                          data-ai-context={JSON.stringify({
+                            component: "Watchlist",
+                            promptTemplate: "How do the tickers on the watchlist compare in terms of their GEX and volatility profiles?"
+                          })}
+                        >
                           <div className="flex items-center justify-between border-b border-[#1A1A1E] pb-2">
                             <span className="text-[11px] font-mono font-bold text-[#E5E5E5]">WATCHLIST</span>
                             <form onSubmit={handleAddTickerSubmit} className="flex items-center gap-1.5">
@@ -952,36 +981,50 @@ export function GammaExposureDashboard() {
                     <div className="flex flex-col lg:flex-row gap-4 min-h-0">
                       {/* Left side: Charts */}
                       <div className="flex-1 grid grid-cols-1 xl:grid-cols-2 gap-4 min-w-0">
-                        <ChartWrapper
-                          title="3D Gamma Exposure Surface"
-                          subtitle="Interactive 3D GEX mapping strike price and expiration date curves"
-                          height="550px"
+                        <div
+                          data-ai-context={JSON.stringify({
+                            component: "3D Gamma Exposure Surface",
+                            promptTemplate: "Explain the 3D Gamma Exposure Surface chart and what the GEX curves tell us about volatility regimes."
+                          })}
                         >
-                          <GEXSurfaceChart
-                            data={optionData}
-                            ticker={ticker}
-                            spotPrice={spotPrice!}
-                            selectedExpiries={activeExpiries}
-                            onModeChange={setExpiryMode}
-                            onSelectedExpiriesChange={setCustomSelectedExpiries}
-                            availableExpiries={futureExpiries}
-                          />
-                        </ChartWrapper>
-                        <ChartWrapper
-                          title="3D Implied Volatility Surface"
-                          subtitle="Interactive 3D IV mapping strike price and expiration date curves"
-                          height="550px"
+                          <ChartWrapper
+                            title="3D Gamma Exposure Surface"
+                            subtitle="Interactive 3D GEX mapping strike price and expiration date curves"
+                            height="550px"
+                          >
+                            <GEXSurfaceChart
+                              data={optionData}
+                              ticker={ticker}
+                              spotPrice={spotPrice!}
+                              selectedExpiries={activeExpiries}
+                              onModeChange={setExpiryMode}
+                              onSelectedExpiriesChange={setCustomSelectedExpiries}
+                              availableExpiries={futureExpiries}
+                            />
+                          </ChartWrapper>
+                        </div>
+                        <div
+                          data-ai-context={JSON.stringify({
+                            component: "3D Implied Volatility Surface",
+                            promptTemplate: "Explain the 3D Implied Volatility Surface chart. What does the volatility term structure and skew look like?"
+                          })}
                         >
-                          <IVSurfaceChart
-                            data={optionData}
-                            ticker={ticker}
-                            spotPrice={spotPrice!}
-                            selectedExpiries={activeExpiries}
-                            onModeChange={setExpiryMode}
-                            onSelectedExpiriesChange={setCustomSelectedExpiries}
-                            availableExpiries={futureExpiries}
-                          />
-                        </ChartWrapper>
+                          <ChartWrapper
+                            title="3D Implied Volatility Surface"
+                            subtitle="Interactive 3D IV mapping strike price and expiration date curves"
+                            height="550px"
+                          >
+                            <IVSurfaceChart
+                              data={optionData}
+                              ticker={ticker}
+                              spotPrice={spotPrice!}
+                              selectedExpiries={activeExpiries}
+                              onModeChange={setExpiryMode}
+                              onSelectedExpiriesChange={setCustomSelectedExpiries}
+                              availableExpiries={futureExpiries}
+                            />
+                          </ChartWrapper>
+                        </div>
                       </div>
 
                       {/* Right side: Expiry Selector panel */}
@@ -1005,39 +1048,52 @@ export function GammaExposureDashboard() {
 
                   {/* 5. Expected Move Workspace */}
                   {activeTab === 'expected-move' && (
-                    <ChartWrapper
-                      title="Implied Expected Move Ranges"
-                      subtitle="Implied boundaries calculated via 16-delta strangle options method"
-                      height="900px"
-                      controls={
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-[#949494] font-mono uppercase font-bold">Expiry</span>
-                          <Select value={selectedMoveExpiry} onValueChange={setSelectedMoveExpiry}>
-                            <SelectTrigger className="w-32 h-6 text-[10px] bg-black border-[#1A1A1E]">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent className="bg-black border-[#1A1A1E]">
-                              <SelectItem value="All Dates">All Dates</SelectItem>
-                              {futureExpiries.map((exp) => (
-                                <SelectItem key={exp} value={exp}>{exp.slice(5)}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      }
+                    <div
+                      data-ai-context={JSON.stringify({
+                        component: "Implied Expected Move Ranges",
+                        promptTemplate: "Explain the Expected Move chart. What are the key boundaries and market expectations?"
+                      })}
                     >
-                      <ExpectedMoveChart
-                        data={optionData}
-                        ticker={ticker}
-                        spotPrice={spotPrice!}
-                        selectedExpiry={selectedMoveExpiry}
-                      />
-                    </ChartWrapper>
+                      <ChartWrapper
+                        title="Implied Expected Move Ranges"
+                        subtitle="Implied boundaries calculated via 16-delta strangle options method"
+                        height="900px"
+                        controls={
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-[#949494] font-mono uppercase font-bold">Expiry</span>
+                            <Select value={selectedMoveExpiry} onValueChange={setSelectedMoveExpiry}>
+                              <SelectTrigger className="w-32 h-6 text-[10px] bg-black border-[#1A1A1E]">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent className="bg-black border-[#1A1A1E]">
+                                <SelectItem value="All Dates">All Dates</SelectItem>
+                                {futureExpiries.map((exp) => (
+                                  <SelectItem key={exp} value={exp}>{exp.slice(5)}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        }
+                      >
+                        <ExpectedMoveChart
+                          data={optionData}
+                          ticker={ticker}
+                          spotPrice={spotPrice!}
+                          selectedExpiry={selectedMoveExpiry}
+                        />
+                      </ChartWrapper>
+                    </div>
                   )}
 
                   {/* 6. Greek Gradient Heatmaps Workspace */}
                   {activeTab === 'gradient-charts' && (
-                    <div className="h-[1200px] w-full">
+                    <div 
+                      className="h-[1200px] w-full"
+                      data-ai-context={JSON.stringify({
+                        component: "Greek Gradient Heatmaps",
+                        promptTemplate: "Interpret the Greek Gradient Heatmaps for Vanna and Charm. What do they tell us about dealer positioning and flows?"
+                      })}
+                    >
                       <GradientChartsWorkspace
                         optionData={activeOptionData}
                         ticker={ticker}
@@ -1063,10 +1119,31 @@ export function GammaExposureDashboard() {
               showBriefingTab={true}
               title="GEX AI ANALYST"
               inputPlaceholder="Ask about GEX, gamma flip, options positioning..."
+              is0DteMode={is0DteMode}
+              on0DteModeChange={(val) => {
+                setIs0DteMode(val)
+                if (val) {
+                  setExpiryMode('0dte')
+                } else {
+                  if (expiryMode === '0dte') {
+                    setExpiryMode('90d')
+                  }
+                }
+              }}
+              uiContext={uiContext}
+              onClearUiContext={() => setUiContext(null)}
             />
           )}
         </div>
       </main>
+
+      {/* Floating Ask AI Button */}
+      <FloatingAskButton 
+        onTriggerAI={(context) => {
+          setUiContext(context)
+          setIsAIPanelOpen(true)
+        }}
+      />
     </div>
   )
 }

@@ -248,13 +248,20 @@ app.get('/api/analyze', async (req: Request, res: Response) => {
  */
 app.post('/api/analyst/chat', async (req: Request, res: Response) => {
   try {
-    const { message, history, ticker, livePrice } = req.body;
+    const { message, history, ticker, livePrice, uiContext, is0DteMode } = req.body;
     if (!message || typeof message !== 'string') {
       return res.status(400).json({ error: 'Message is required' });
     }
 
     const activeTicker = (typeof ticker === 'string' && ticker.trim()) ? ticker.trim().toUpperCase() : 'SPX';
-    const result = await aiAnalystService.processChat(message, history || [], activeTicker, typeof livePrice === 'number' ? livePrice : undefined);
+    const result = await aiAnalystService.processChat(
+      message,
+      history || [],
+      activeTicker,
+      typeof livePrice === 'number' ? livePrice : undefined,
+      uiContext,
+      !!is0DteMode
+    );
     res.json({
       success: true,
       ...result,

@@ -19,6 +19,12 @@ interface AIAnalystPanelProps {
   welcomeMessage?: string
   /** Optional placeholder override */
   inputPlaceholder?: string
+
+  // Context & 0DTE mode sync
+  is0DteMode?: boolean
+  on0DteModeChange?: (val: boolean) => void
+  uiContext?: any
+  onClearUiContext?: () => void
 }
 
 const DEFAULT_WELCOME = `Hello! I'm your **GEX Terminal AI Analyst**.
@@ -49,6 +55,10 @@ export function AIAnalystPanel({
   title = "AI ANALYST",
   welcomeMessage,
   inputPlaceholder,
+  is0DteMode = false,
+  on0DteModeChange,
+  uiContext,
+  onClearUiContext,
 }: AIAnalystPanelProps) {
   const welcome = welcomeMessage ?? DEFAULT_WELCOME
 
@@ -62,6 +72,13 @@ export function AIAnalystPanel({
   ])
   const [inputText, setInputText] = useState("")
   const [isChatLoading, setIsChatLoading] = useState(false)
+
+  // Auto-fill query if context is received
+  useEffect(() => {
+    if (uiContext && uiContext.promptTemplate) {
+      setInputText(uiContext.promptTemplate)
+    }
+  }, [uiContext])
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -83,7 +100,14 @@ export function AIAnalystPanel({
         .filter(m => m.id !== 'welcome')
         .map(m => ({ role: m.role, text: m.text }))
 
-      const response = await sendAIChatMessage(userMsg.text, apiHistory, ticker, livePrice)
+      const response = await sendAIChatMessage(
+        userMsg.text,
+        apiHistory,
+        ticker,
+        livePrice,
+        uiContext,
+        is0DteMode
+      )
 
       const modelMsg: ChatMessage = {
         id: `model_${Date.now()}`,
@@ -112,6 +136,42 @@ export function AIAnalystPanel({
     }
   }
 
+  const headerSlot = (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <span className={`w-1.5 h-1.5 rounded-full ${is0DteMode ? 'bg-[#00E676] animate-pulse' : 'bg-gray-600'}`} />
+          <span className="text-[10px] font-mono font-bold text-[#E5E5E5] uppercase tracking-wider">0DTE Trade Suggester</span>
+        </div>
+        <button
+          onClick={() => on0DteModeChange?.(!is0DteMode)}
+          className={`px-2 py-0.5 rounded text-[9px] font-mono font-semibold transition-all border ${
+            is0DteMode
+              ? 'bg-[#00E676]/10 text-[#00E676] border-[#00E676]/30 shadow-[0_0_8px_rgba(0,230,118,0.15)]'
+              : 'bg-black text-[#666] border-[#1C202E] hover:text-[#949494] hover:border-[#2B3045]'
+          }`}
+        >
+          {is0DteMode ? 'ACTIVE' : 'INACTIVE'}
+        </button>
+      </div>
+      {uiContext && (
+        <div className="flex items-center justify-between bg-white/[0.02] border border-[#1C202E] rounded px-2.5 py-1.5">
+          <div className="flex items-center gap-1.5 overflow-hidden">
+            <div className="w-1 h-2 bg-[#00B0FF] rounded-sm shrink-0" />
+            <span className="text-[9px] font-mono text-gray-400 truncate">Focusing: {uiContext.component}</span>
+          </div>
+          <button 
+            type="button" 
+            onClick={onClearUiContext} 
+            className="text-[9px] text-[#FF5252] hover:text-[#FF1744] font-bold font-mono transition-colors pl-2"
+          >
+            CLEAR
+          </button>
+        </div>
+      )}
+    </div>
+  )
+
   return (
     <AIChatPanelContainer
       title={title}
@@ -124,6 +184,7 @@ export function AIAnalystPanel({
       onInputChange={setInputText}
       onSend={handleSendMessage}
       inputPlaceholder={inputPlaceholder ?? "Ask about GEX, market regimes, or log a trade..."}
+      headerSlot={headerSlot}
     />
   )
 }

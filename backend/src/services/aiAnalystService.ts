@@ -179,13 +179,15 @@ Rules: No generic intro. Start directly with "## 0DTE Gamma Regime". Cite actual
 
   /**
    * Process a general chat query, with full live GEX context injected.
-   * The AI now has access to the actual current snapshot data for the given ticker.
+   * The AI now has access to the actual current snapshot.
    */
   public async processChat(
     message: string,
     history: Array<{ role: 'user' | 'model'; text: string }> = [],
     ticker: string = 'SPX',
-    livePrice?: number
+    livePrice?: number,
+    uiContext?: any,
+    is0DteMode?: boolean
   ): Promise<{ text: string; tradeLogged?: JournalTrade }> {
     if (!this.isEnabled()) {
       return { text: "AI Analyst is not configured. Please add GEMINI_API_KEY to your environment variables." };
@@ -194,13 +196,24 @@ Rules: No generic intro. Start directly with "## 0DTE Gamma Regime". Cite actual
     try {
       const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${this.getApiKey()}`;
 
-      // ─── Fetch live GEX snapshot for the active ticker ───────────────
-      // This is what the AI needs to answer questions like "what are current gamma levels?"
-      let gexDataBlock = `Active Ticker: ${ticker.toUpperCase()}\nNo GEX snapshot available — data may not have been collected yet.`;
+      // ─── Fetch live options snapshot and compile GEX + IV metrics ────────
+      let unifiedContextPayload: any = {
+        ticker: ticker.toUpperCase(),
+        spotPrice: livePrice || 0,
+        timestamp: new Date().toISOString(),
+        gexSummary: null,
+        ivSummary: null,
+        uiContext: uiContext || null,
+        is0DteModeActive: !!is0DteMode
+      };
+
       try {
         const snap = await getCurrentData(ticker.toUpperCase());
         if (snap && snap.options && snap.options.length > 0) {
           const spot = snap.spotPrice;
+          if (!livePrice) {
+            unifiedContextPayload.spotPrice = spot;
+          }
           const todayStr = new Date().toISOString().split('T')[0];
           let totalGex = 0; let totalVanna = 0; let totalCharm = 0;
           const expiryGex = new Map<string, number>();
@@ -227,59 +240,147 @@ Rules: No generic intro. Start directly with "## 0DTE Gamma Regime". Cite actual
             localMap.set(strike, cur);
           }
 
-
           // 0DTE strikes
           const zdte = Array.from(localMap.entries()).filter(([, v]) => v.dte === 0).sort((a, b) => Math.abs(b[1].netGex) - Math.abs(a[1].netGex));
           const zdteTotal = zdte.reduce((s, [, v]) => s + v.netGex, 0);
 
           // Gamma flip
           const nearSpot = Array.from(localMap.entries()).filter(([k]) => Math.abs(k - spot) / spot < 0.05).sort((a, b) => Math.abs(a[0] - spot) - Math.abs(b[0] - spot));
-          let flipLevel = 'Not detectable from current data';
+          let flipLevel: number | null = null;
           for (let i = 0; i < nearSpot.length - 1; i++) {
             const [ak, av] = nearSpot[i]; const [bk, bv] = nearSpot[i + 1];
             if ((av.netGex >= 0 && bv.netGex < 0) || (av.netGex < 0 && bv.netGex >= 0)) {
               const t = Math.abs(av.netGex) / (Math.abs(av.netGex) + Math.abs(bv.netGex));
-              flipLevel = (ak + t * (bk - ak)).toFixed(2);
+              flipLevel = ak + t * (bk - ak);
               break;
             }
           }
 
           // Top 10 strikes by abs GEX
-          const topStrikes = Array.from(localMap.entries()).sort((a, b) => Math.abs(b[1].netGex) - Math.abs(a[1].netGex)).slice(0, 10).map(([strike, v]) => `  Strike ${strike}: ${v.netGex >= 0 ? '+' : ''}${v.netGex.toFixed(4)}B GEX (${v.dte}DTE, CallOI=${v.callOI}, PutOI=${v.putOI}, ${v.netGex >= 0 ? 'CALL-DOM' : 'PUT-DOM'})`).join('\n');
+          const topStrikesList = Array.from(localMap.entries())
+            .sort((a, b) => Math.abs(b[1].netGex) - Math.abs(a[1].netGex))
+            .slice(0, 10)
+            .map(([strike, v]) => ({
+              strike,
+              netGexB: v.netGex,
+              dte: v.dte,
+              callOI: v.callOI,
+              putOI: v.putOI,
+              dominance: v.netGex >= 0 ? 'CALL-DOM' : 'PUT-DOM'
+            }));
 
-          // Top 0DTE strikes
-          const top0DTE = zdte.slice(0, 5).map(([strike, v]) => `  Strike ${strike}: ${v.netGex >= 0 ? '+' : ''}${v.netGex.toFixed(4)}B (${v.netGex >= 0 ? 'CALL WALL' : 'PUT WALL'})`).join('\n');
+          // Top 5 0DTE strikes
+          const top0DTEList = zdte.slice(0, 5).map(([strike, v]) => ({
+            strike,
+            netGexB: v.netGex,
+            regime: v.netGex >= 0 ? 'CALL WALL' : 'PUT WALL'
+          }));
 
           // Expiry breakdown
-          const expiryBreakdown = Array.from(expiryGex.entries()).map(([exp, gex]) => {
+          const expBreakdown = Array.from(expiryGex.entries()).map(([exp, gex]) => {
             const dte = Math.max(0, Math.round((new Date(exp + 'T00:00:00Z').getTime() - new Date(todayStr + 'T00:00:00Z').getTime()) / 86400000));
-            return { exp, dte, gex };
-          }).sort((a, b) => a.dte - b.dte).slice(0, 6).map(e => `  ${e.exp} (${e.dte}DTE): ${e.gex >= 0 ? '+' : ''}${e.gex.toFixed(4)}B`).join('\n');
+            return { exp, dte, netGexB: gex };
+          }).sort((a, b) => a.dte - b.dte).slice(0, 6);
 
-          gexDataBlock = `
-=== LIVE GEX DATA — ${ticker.toUpperCase()} ===
-Live Market Price: ${livePrice ? livePrice.toFixed(2) : spot.toFixed(2)}  ${livePrice && livePrice !== spot ? `(Data snapshot spot: ${spot.toFixed(2)})` : ''}
-Snapshot Time  : ${snap.timestamp}
-Total Net GEX  : ${totalGex >= 0 ? '+' : ''}${totalGex.toFixed(4)}B (${totalGex >= 0 ? 'LONG GAMMA' : 'SHORT GAMMA'})
-Gamma Flip     : ${flipLevel}
-Spot vs Flip   : ${flipLevel !== 'Not detectable from current data' ? ((livePrice || spot) > parseFloat(flipLevel) ? `ABOVE flip → Long Gamma regime` : `BELOW flip → Short Gamma regime`) : 'Unknown'}
-Net Vanna      : ${totalVanna >= 0 ? '+' : ''}${totalVanna.toFixed(4)} (${totalVanna > 0 ? 'Positive — upside vol-delta amplification' : 'Negative — downside vol-delta amplification'})
-Net Charm      : ${totalCharm >= 0 ? '+' : ''}${totalCharm.toFixed(4)} (${totalCharm > 0 ? 'Positive — bullish EOD delta drift' : 'Negative — bearish EOD delta drift'})
+          unifiedContextPayload.gexSummary = {
+            totalNetGexB: totalGex,
+            gammaRegime: totalGex >= 0 ? 'LONG GAMMA (volatility suppressing)' : 'SHORT GAMMA (volatility amplifying)',
+            gammaFlip: flipLevel ? parseFloat(flipLevel.toFixed(2)) : null,
+            netVanna: totalVanna,
+            netCharm: totalCharm,
+            zdteGexB: zdteTotal,
+            zdteRegime: zdteTotal >= 0 ? 'LONG GAMMA (pinning/mean-reversion)' : 'SHORT GAMMA (momentum/volatility-expansion)',
+            top0DTEStrikes: top0DTEList,
+            top10StrikesAllExpiries: topStrikesList,
+            expiryBreakdown: expBreakdown
+          };
 
-0DTE Net GEX   : ${zdteTotal >= 0 ? '+' : ''}${zdteTotal.toFixed(4)}B → ${zdteTotal >= 0 ? 'LONG GAMMA: expect pinning/mean-reversion' : 'SHORT GAMMA: expect trending/vol-expansion'}
+          // ─── IV SUMMARY METRICS ──────────────────────────────────────────
+          const expiriesSorted = Array.from(expiryGex.keys()).sort();
+          let atmIvFrontMonth = 0;
+          let termStructureSlope = 'Flat';
+          let skewRegime = 'Normal';
+          let skewSteepness = 0;
 
-TOP 0DTE STRIKES (by GEX):
-${top0DTE || '  No 0DTE data available'}
+          const uniqueStrikes = Array.from(localMap.keys()).sort((a, b) => a - b);
+          const atmStrike = uniqueStrikes.reduce((closest, curr) => 
+            Math.abs(curr - spot) < Math.abs(closest - spot) ? curr : closest, uniqueStrikes[0]
+          );
 
-TOP 10 STRIKES ALL EXPIRIES:
-${topStrikes}
+          // Front expiry ATM IV
+          const frontExpiry = expiriesSorted[0];
+          const frontAtmOptions = snap.options.filter(o => 
+            parseFloat(String(o.strike)) === atmStrike && 
+            (o.expiration instanceof Date ? o.expiration : new Date(String(o.expiration))).toISOString().split('T')[0] === frontExpiry
+          );
+          if (frontAtmOptions.length > 0) {
+            atmIvFrontMonth = (frontAtmOptions.reduce((sum, o) => sum + (o.impliedVolatility || 0), 0) / frontAtmOptions.length) * 100;
+          }
 
-EXPIRY GEX BREAKDOWN:
-${expiryBreakdown}
-=== END GEX DATA ===`;
+          // Expiry term structure slope (compare near-term vs. far-term ATM IV)
+          if (expiriesSorted.length > 1) {
+            const farExpiry = expiriesSorted[expiriesSorted.length - 1];
+            const farAtmOptions = snap.options.filter(o => 
+              parseFloat(String(o.strike)) === atmStrike && 
+              (o.expiration instanceof Date ? o.expiration : new Date(String(o.expiration))).toISOString().split('T')[0] === farExpiry
+            );
+            if (farAtmOptions.length > 0) {
+              const farAtmIv = (farAtmOptions.reduce((sum, o) => sum + (o.impliedVolatility || 0), 0) / farAtmOptions.length) * 100;
+              termStructureSlope = farAtmIv > atmIvFrontMonth ? 'Contango' : 'Backwardation';
+            }
+          }
+
+          // Volatility Skew at 30 days or front expiry
+          const targetExpiry = expiriesSorted.find(exp => {
+            const dte = Math.max(0, Math.round((new Date(exp + 'T00:00:00Z').getTime() - new Date(todayStr + 'T00:00:00Z').getTime()) / 86400000));
+            return dte >= 20 && dte <= 45;
+          }) || expiriesSorted[Math.min(expiriesSorted.length - 1, 2)] || frontExpiry;
+
+          if (targetExpiry) {
+            const putStrike = atmStrike * 0.90;
+            const callStrike = atmStrike * 1.10;
+
+            const closestPutStrike = uniqueStrikes.reduce((closest, curr) => 
+              Math.abs(curr - putStrike) < Math.abs(closest - putStrike) ? curr : closest, uniqueStrikes[0]
+            );
+            const closestCallStrike = uniqueStrikes.reduce((closest, curr) => 
+              Math.abs(curr - callStrike) < Math.abs(closest - callStrike) ? curr : closest, uniqueStrikes[0]
+            );
+
+            const putOpts = snap.options.filter(o => 
+              parseFloat(String(o.strike)) === closestPutStrike && 
+              o.type === 'P' && 
+              (o.expiration instanceof Date ? o.expiration : new Date(String(o.expiration))).toISOString().split('T')[0] === targetExpiry
+            );
+            const callOpts = snap.options.filter(o => 
+              parseFloat(String(o.strike)) === closestCallStrike && 
+              o.type === 'C' && 
+              (o.expiration instanceof Date ? o.expiration : new Date(String(o.expiration))).toISOString().split('T')[0] === targetExpiry
+            );
+
+            if (putOpts.length > 0 && callOpts.length > 0) {
+              const putIvVal = (putOpts[0].impliedVolatility || 0) * 100;
+              const callIvVal = (callOpts[0].impliedVolatility || 0) * 100;
+              skewSteepness = putIvVal - callIvVal;
+              skewRegime = skewSteepness > 5 ? 'Asymmetric Put Bid (Crash Smirk)' : (skewSteepness < -3 ? 'Call Bid (Reverse Skew)' : 'Symmetric Smile');
+            }
+          }
+
+          unifiedContextPayload.ivSummary = {
+            overallAtmVolPct: atmIvFrontMonth,
+            termStructure: {
+              slope: termStructureSlope,
+              frontMonthATM: atmIvFrontMonth,
+              expiryChecked: targetExpiry
+            },
+            skewMetrics: {
+              skewRegime,
+              skewSteepnessPct: skewSteepness
+            }
+          };
         }
       } catch (gexErr: any) {
-        console.warn('[AI Chat] Could not fetch GEX snapshot:', gexErr.message);
+        console.warn('[AI Chat] Could not compile unified GEX/IV context:', gexErr.message);
       }
 
       // Map chat history to Gemini API format
@@ -380,28 +481,32 @@ ${expiryBreakdown}
         }
       ];
 
-      const systemPrompt = `You are an elite GEX (Gamma Exposure) terminal analyst and trading assistant embedded in a professional options dashboard.
+      // Build system prompt incorporating the unified JSON context
+      const systemPrompt = `You are an elite options market analyst and GEX/IV trading assistant.
+You have DIRECT ACCESS to the live application-state and market context JSON payload provided below. When users ask questions, analyze this JSON and answer directly. Never state that you cannot access real-time data.
 
-You have DIRECT ACCESS to the live GEX snapshot below. When users ask about gamma levels, strikes, the gamma flip, Vanna, Charm, or market regime — ANSWER DIRECTLY using the data provided. Do NOT say you cannot access real-time data. You have it right here.
+=== LIVE DASHBOARD JSON CONTEXT ===
+${JSON.stringify(unifiedContextPayload, null, 2)}
+=== END JSON CONTEXT ===
 
-${gexDataBlock}
+[RECONCILING CONTEXT & USER FOCUS]
+If the JSON payload contains "uiContext", the user has triggered a query from a specific dashboard component (e.g. GEX surface, IV surface, expected move, option chain, or watchlist). Focus your analysis primarily on that component and active ticker first.
+
+[0DTE EDUCATIONAL TRADE SESSIONS]
+If "is0DteModeActive" is true, the user is in 0DTE mode. You must append an "Educational 0DTE Option Setup" section to your response:
+1. Identify the 0DTE gamma regime from "gexSummary.zdteRegime".
+   - LONG GAMMA (Positive 0DTE GEX): Suggest a mean-reversion setup (e.g., Short Iron Condor or Butterfly Spread) to capitalize on price pinning and theta decay at the Call/Put walls.
+   - SHORT GAMMA (Negative 0DTE GEX): Suggest a momentum breakout setup (e.g., OTM Debit Spread or Long Straddle) to follow the price breakout beyond the walls.
+2. Select actual strike prices from the "gexSummary.top0DTEStrikes" or proximity to spotPrice.
+3. Keep it purely educational, describing the mechanics, risks, and dealer hedging effects. Add this disclaimer: "FOR EDUCATIONAL PURPOSES ONLY. OPTION TRADING INVOLVES SUBSTANTIAL RISK."
 
 You are also equipped with tools for the user's trading journal:
 - 'log_trade': Logs a single trade.
-- 'log_batch_trades': Logs multiple trades at once (batch upload/import).
-- 'view_trades': Retrieves logged trades, optionally filtered by date.
+- 'log_batch_trades': Logs multiple trades at once.
+- 'view_trades': Retrieves logged trades.
 - 'delete_trade': Deletes a trade by ID.
 
-Journal tool rules:
-- When user asks to view/list trades → call 'view_trades'
-- When user asks to delete a trade with an ID → call 'delete_trade' directly
-- When user asks to delete without specifying an ID → first call 'view_trades' to find the correct ID, then delete
-- When user pastes a list/CSV/table of multiple trades → use 'log_batch_trades'
-- PnL = (exitPrice - entryPrice) × quantity × (Option: ×100, Equity: ×1). For Sell/short trades, reverse signs.
-
-If you call a tool, confirm what you did concisely. For GEX/market questions, use the live data above and give specific, analytical answers.`;
-
-
+Make your answers terminal-grade, concise, and mathematically rigorous.`;
 
       // Call Gemini API
       const response = await axios.post(
@@ -430,9 +535,8 @@ If you call a tool, confirm what you did concisely. For GEX/market questions, us
           const args = call.args;
           console.log('[AI Analyst] Gemini invoked log_trade with args:', args);
 
-          // Construct trade data
           const todayStr = new Date().toISOString().split('T')[0];
-          const timeStr = new Date().toTimeString().slice(0, 5); // "HH:MM"
+          const timeStr = new Date().toTimeString().slice(0, 5);
 
           const trade: JournalTrade = {
             id: `trade_${Date.now()}`,
@@ -457,11 +561,9 @@ If you call a tool, confirm what you did concisely. For GEX/market questions, us
             status: 'Closed'
           };
 
-          // Save trade to database
           const loggedTrade = await createTrade(trade);
           console.log('[AI Analyst] Trade successfully logged to database:', loggedTrade.id);
 
-          // Return response back to user confirming log
           const details = `${trade.direction} ${trade.quantity} ${trade.ticker} ${trade.tradeType === 'Option' ? `${trade.strike} ${trade.optionType} exp ${trade.expiration}` : ''} at $${trade.entryPrice} (Exit: $${trade.exitPrice}, PnL: $${trade.pnl >= 0 ? '+' : ''}${trade.pnl.toFixed(2)})`;
 
           return {
@@ -480,7 +582,7 @@ If you call a tool, confirm what you did concisely. For GEX/market questions, us
           for (let i = 0; i < tradesList.length; i++) {
             const item = tradesList[i];
             const todayStr = new Date().toISOString().split('T')[0];
-            const timeStr = new Date().toTimeString().slice(0, 5); // "HH:MM"
+            const timeStr = new Date().toTimeString().slice(0, 5);
 
             const trade: JournalTrade = {
               id: `trade_${nowMs}_${i}`,
@@ -584,7 +686,6 @@ If you call a tool, confirm what you did concisely. For GEX/market questions, us
         }
       }
 
-      // If no function call, return regular text response
       return {
         text: part?.text || "I'm sorry, I couldn't process that query."
       };

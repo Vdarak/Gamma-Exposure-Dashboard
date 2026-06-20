@@ -482,7 +482,9 @@ export async function sendAIChatMessage(
   message: string,
   history: Array<{ role: 'user' | 'model'; text: string }> = [],
   ticker: string = 'SPX',
-  livePrice?: number
+  livePrice?: number,
+  uiContext?: any,
+  is0DteMode?: boolean
 ): Promise<{ text: string; tradeLogged?: JournalTrade }> {
   try {
     const response = await fetch(`${BACKEND_URL}/api/analyst/chat`, {
@@ -490,7 +492,7 @@ export async function sendAIChatMessage(
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ message, history, ticker, livePrice })
+      body: JSON.stringify({ message, history, ticker, livePrice, uiContext, is0DteMode })
     })
     if (!response.ok) throw new Error('Failed to communicate with AI Analyst')
     return await response.json()
