@@ -181,4 +181,38 @@ SELECT
 FROM option_snapshots s
 JOIN option_data o ON s.id = o.snapshot_id;
 
+-- Commitments of Traders (COT) weekly institutional positions
+CREATE TABLE IF NOT EXISTS cot_positions (
+  id SERIAL PRIMARY KEY,
+  ticker VARCHAR(10) NOT NULL, -- 'SPX', 'GLD', 'NDX', etc.
+  report_date DATE NOT NULL,
+  open_interest INTEGER NOT NULL DEFAULT 0,
+  noncomm_long INTEGER NOT NULL,
+  noncomm_short INTEGER NOT NULL,
+  comm_long INTEGER NOT NULL,
+  comm_short INTEGER NOT NULL,
+  retail_long INTEGER NOT NULL,
+  retail_short INTEGER NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(ticker, report_date)
+);
 
+CREATE INDEX IF NOT EXISTS idx_cot_positions_ticker_date ON cot_positions(ticker, report_date DESC);
+
+-- Cache table for daily GARCH forecast metrics
+CREATE TABLE IF NOT EXISTS quant_forecasts (
+  id SERIAL PRIMARY KEY,
+  ticker VARCHAR(10) NOT NULL,
+  forecast_date DATE NOT NULL,
+  garch_vol_10d DECIMAL(8,6) NOT NULL,
+  garch_vol_20d DECIMAL(8,6) NOT NULL,
+  garch_vol_30d DECIMAL(8,6) NOT NULL,
+  omega DECIMAL(16,10) NOT NULL,
+  alpha DECIMAL(8,6) NOT NULL,
+  beta DECIMAL(8,6) NOT NULL,
+  unconditional_vol DECIMAL(8,6) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(ticker, forecast_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_quant_forecasts_ticker_date ON quant_forecasts(ticker, forecast_date DESC);

@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ChevronDown, ChevronUp } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -114,15 +114,38 @@ export function OptionChain({
 }: OptionChainProps) {
   const [selectedStrike, setSelectedStrike] = useState<number | null>(null)
 
+  // Synchronize parent selected expiry if invalid or empty
+  useEffect(() => {
+    if (availableExpiries.length > 0) {
+      if (!selectedExpiry || !availableExpiries.includes(selectedExpiry)) {
+        onExpiryChange(availableExpiries[0])
+      }
+    }
+  }, [selectedExpiry, availableExpiries, onExpiryChange])
+
   const processedData = useMemo(() => {
     const today = new Date()
     let filteredData = data
 
-    // Filter by expiry (no "All Dates" option)
-    const selectedDate = new Date(selectedExpiry)
-    filteredData = data.filter((option) => 
-      option.expiration.toDateString() === selectedDate.toDateString()
-    )
+    // Safety fallback if selectedExpiry is empty or invalid
+    const activeExpiry = (selectedExpiry && availableExpiries.includes(selectedExpiry))
+      ? selectedExpiry
+      : (availableExpiries.length > 0 ? availableExpiries[0] : null)
+
+    if (!activeExpiry) return []
+
+    // Filter by expiry (no "All Dates" option) using timezone-independent UTC comparison
+    filteredData = data.filter((option) => {
+      try {
+        const y = option.expiration.getUTCFullYear()
+        const m = String(option.expiration.getUTCMonth() + 1).padStart(2, '0')
+        const d = String(option.expiration.getUTCDate()).padStart(2, '0')
+        const expStr = `${y}-${m}-${d}`
+        return expStr === activeExpiry
+      } catch {
+        return false
+      }
+    })
 
     // Calculate time to expiration
     filteredData.forEach((option) => {
@@ -242,8 +265,54 @@ export function OptionChain({
 
   const isAtTheMoney = (strike: number) => Math.abs(strike - spotPrice) <= 0.5
 
+  const formatExpiryTab = (dateStr: string) => {
+    const parts = dateStr.split('-')
+    if (parts.length < 3) return dateStr
+    const year = parseInt(parts[0], 10)
+    const monthIdx = parseInt(parts[1], 10) - 1
+    const day = parseInt(parts[2], 10)
+    
+    const date = new Date(Date.UTC(year, monthIdx, day))
+    const currentYear = new Date().getFullYear()
+    const monthName = date.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' })
+    
+    if (year === currentYear) {
+      return `${monthName} ${day}`
+    } else {
+      return `${monthName} ${day}, ${year}`
+    }
+  }
+
   return (
     <div className="space-y-4">
+      {/* Scrollable Expiry Selector Row */}
+      {availableExpiries && availableExpiries.length > 0 && (
+        <div className="flex items-center pb-1">
+          <div 
+            className="flex-1 flex gap-1.5 overflow-x-auto whitespace-nowrap py-2 px-2.5 bg-black/40 border border-[#1A1A1D] rounded scroll-smooth"
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          >
+            {availableExpiries.map((expiry) => {
+              const isActive = expiry === selectedExpiry
+              return (
+                <button
+                  key={expiry}
+                  onClick={() => onExpiryChange(expiry)}
+                  className={cn(
+                    "px-3 py-1.5 rounded text-[10px] font-mono font-medium border uppercase transition-all duration-150 flex-shrink-0",
+                    isActive
+                      ? "bg-terminal-green/10 border-terminal-green text-terminal-green shadow-[0_0_8px_rgba(0,200,5,0.15)]"
+                      : "bg-[#0A0A0C] border-[#1A1A1E] text-[#949494] hover:text-[#E5E5E5] hover:border-[#333]"
+                  )}
+                >
+                  {formatExpiryTab(expiry)}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Option Chain Table Container */}
       <div className="relative border border-[#1A1A1A] rounded overflow-hidden">
         {/* Sticky Header */}

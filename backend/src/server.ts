@@ -31,6 +31,8 @@ import { getAvailableTickers, getTickerDateRange } from './backtester/duckdbServ
 import { runBacktest } from './backtester/engine';
 import { getStoredRates, updateRates } from './services/ratesService';
 import { AIAnalystService } from './services/aiAnalystService';
+import { getGarchForecast, getProbabilityMap, getQuantumTunneling } from './services/quantEngineService';
+import { ingestCotData, getHistoricalCot } from './services/cotIngestionService';
 
 dotenv.config();
 
@@ -639,6 +641,79 @@ app.get('/api/journal/settings/:key', async (req: Request, res: Response) => {
   }
 });
 
+// ============= QUANT SUITE API ENDPOINTS =============
+
+/**
+ * Get Breeden-Litzenberger Implied Probability Density Map
+ */
+app.get('/api/quant/probability-map', async (req: Request, res: Response) => {
+  try {
+    const { ticker, expiration } = req.query;
+    if (!ticker || typeof ticker !== 'string') {
+      return res.status(400).json({ error: 'Ticker parameter is required' });
+    }
+    const expStr = typeof expiration === 'string' ? expiration : undefined;
+    const data = await getProbabilityMap(ticker, expStr);
+    res.json(data);
+  } catch (error: any) {
+    console.error('Error in /api/quant/probability-map:', error);
+    res.status(500).json({ error: error.message || 'Failed to calculate probability map' });
+  }
+});
+
+/**
+ * Get GARCH(1,1) Volatility forecast vs option IV term structure
+ */
+app.get('/api/quant/garch-forecast', async (req: Request, res: Response) => {
+  try {
+    const { ticker } = req.query;
+    if (!ticker || typeof ticker !== 'string') {
+      return res.status(400).json({ error: 'Ticker parameter is required' });
+    }
+    const data = await getGarchForecast(ticker);
+    res.json(data);
+  } catch (error: any) {
+    console.error('Error in /api/quant/garch-forecast:', error);
+    res.status(500).json({ error: error.message || 'Failed to compute GARCH forecast' });
+  }
+});
+
+/**
+ * Get Quantum Tunneling wall breakthrough probabilities
+ */
+app.get('/api/quant/quantum-tunneling', async (req: Request, res: Response) => {
+  try {
+    const { ticker } = req.query;
+    if (!ticker || typeof ticker !== 'string') {
+      return res.status(400).json({ error: 'Ticker parameter is required' });
+    }
+    const data = await getQuantumTunneling(ticker);
+    res.json(data);
+  } catch (error: any) {
+    console.error('Error in /api/quant/quantum-tunneling:', error);
+    res.status(500).json({ error: error.message || 'Failed to compute quantum tunneling probabilities' });
+  }
+});
+
+/**
+ * Get CFTC COT Position Flow macro data
+ */
+app.get('/api/quant/cot-flow', async (req: Request, res: Response) => {
+  try {
+    const { ticker } = req.query;
+    const activeTicker = typeof ticker === 'string' ? ticker : 'SPX';
+    const data = await getHistoricalCot(activeTicker);
+    res.json({
+      success: true,
+      ticker: activeTicker.toUpperCase(),
+      data
+    });
+  } catch (error: any) {
+    console.error('Error in /api/quant/cot-flow:', error);
+    res.status(500).json({ error: error.message || 'Failed to retrieve COT position flow' });
+  }
+});
+
 /**
  * Update a configuration setting
  */
@@ -795,6 +870,21 @@ cron.schedule('0 3,10,13,20 * * *', async () => {
 
 console.log('⏰ Interest rate cron job scheduled: at SOD & EOD for US/India (3 AM, 10 AM, 1 PM, 8 PM UTC)');
 
+/**
+ * Schedule weekly Commitment of Traders (COT) report update
+ * Every Saturday at 4:00 AM UTC
+ */
+cron.schedule('0 4 * * 6', async () => {
+  console.log(`\n⏰ [${new Date().toISOString()}] Scheduled COT data ingestion triggered`);
+  try {
+    await ingestCotData();
+  } catch (error) {
+    console.error('❌ Scheduled COT data ingestion failed:', error);
+  }
+});
+
+console.log('⏰ COT weekly cron job scheduled: Saturdays at 4:00 AM UTC');
+
 // ============= SERVER STARTUP =============
 
 async function startServer() {
@@ -814,6 +904,14 @@ async function startServer() {
       await getStoredRates();
     } catch (e) {
       console.error('⚠️ Failed to fetch initial rates:', e);
+    }
+
+    // Ingest/seed COT data
+    console.log('📊 Fetching and seeding Commitment of Traders (COT) macro data...');
+    try {
+      await ingestCotData();
+    } catch (e) {
+      console.error('⚠️ Failed to ingest/seed COT data:', e);
     }
 
     // Initial data collection

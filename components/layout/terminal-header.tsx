@@ -164,19 +164,10 @@ export function TerminalHeader({
     setShowInput(false)
   }
 
-  // Consistent mock price change based on ticker name and price
+  // Real price changes are not present in raw option snapshot data (avoid mock data)
   const priceChange = useMemo(() => {
-    if (!spotPrice) return { value: 0, pct: 0 }
-    const charCodeSum = ticker.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)
-    const isNegative = charCodeSum % 2 === 0
-    const pct = 0.2 + ((charCodeSum % 220) / 100)
-    const signedPct = pct * (isNegative ? -1 : 1)
-    const value = spotPrice * (signedPct / 100)
-    return {
-      value,
-      pct: signedPct
-    }
-  }, [ticker, spotPrice])
+    return null
+  }, [])
 
   // Compute aggregate stats for GEX if optionData is provided
   const stats = useMemo(() => {
@@ -210,7 +201,7 @@ export function TerminalHeader({
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   }
 
-  const isUp = priceChange.pct >= 0
+  const isUp = priceChange ? (priceChange as any).pct >= 0 : true
 
   // Dynamic gauge ranges
   const gexMax = Math.max(Math.abs(totalGEX || 0) * 2, 0.5)
@@ -265,9 +256,11 @@ export function TerminalHeader({
                 <span className="text-xs font-extrabold text-white">
                   {currencySymbol}{spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
-                <span className={`text-[10px] font-bold ${isUp ? 'text-[#00C805]' : 'text-[#FF3B60]'}`}>
-                  [{isUp ? '+' : ''}{priceChange.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({isUp ? '+' : ''}{priceChange.pct.toFixed(2)}%)]
-                </span>
+                {priceChange && (
+                  <span className={`text-[10px] font-bold ${isUp ? 'text-[#00C805]' : 'text-[#FF3B60]'}`}>
+                    [{isUp ? '+' : ''}{(priceChange as any).value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({isUp ? '+' : ''}{(priceChange as any).pct.toFixed(2)}%)]
+                  </span>
+                )}
               </div>
             </div>
 

@@ -37,6 +37,7 @@ export function GradientChartsWorkspace({
 }: GradientChartsWorkspaceProps) {
   const [history, setHistory] = useState<OptionSnapshot[]>([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [ratesInfo, setRatesInfo] = useState({
     usRiskFreeRate: 0.05,
     indiaRiskFreeRate: 0.065,
@@ -73,9 +74,10 @@ export function GradientChartsWorkspace({
   const activeR = market === 'INDIA' ? ratesInfo.indiaRiskFreeRate : ratesInfo.usRiskFreeRate
   const activeQ = market === 'INDIA' ? 0.012 : 0.013
 
-  // Load or generate history
+  // Load history (no mock generator fallback)
   useEffect(() => {
     setLoading(true)
+    setError(null)
     fetch(`${BACKEND_URL}/api/historical-data?ticker=${ticker}&hoursBack=24`)
       .then(res => res.json())
       .then(res => {
@@ -113,107 +115,14 @@ export function GradientChartsWorkspace({
           setHistory(parsed)
           setSelectedTimeIdx(parsed.length - 1)
         } else {
-          throw new Error("Insufficient database history. Falling back to simulator.")
+          throw new Error("Insufficient historical database records to construct heatmaps.")
         }
       })
       .catch(err => {
         console.warn(err.message)
-        // Generate high-resolution mock snapshot history for gorgeous gradient rendering
-        const mockSnaps: OptionSnapshot[] = []
-        const now = new Date()
-        const numSnaps = 50
-        const intervalMs = 8 * 60 * 1000 // 8 minutes apart
-        let currentSpot = spotPrice
-
-        // Seed random number generator
-        const seedString = ticker + spotPrice
-        let seed = seedString.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)
-        const random = () => {
-          const x = Math.sin(seed++) * 10000
-          return x - Math.floor(x)
-        }
-
-        // Generate options chain base template
-        const baseStrikes: number[] = []
-        const strikeSpacing = ticker === 'SPX' ? 5 : ticker === 'SPY' ? 1 : 10
-        const baseStrike = Math.round(spotPrice / strikeSpacing) * strikeSpacing
-        for (let i = -30; i <= 30; i++) {
-          baseStrikes.push(baseStrike + i * strikeSpacing)
-        }
-
-        // Fixed expiration for options chain to properly capture dynamic DTE decay over the historical timeline
-        const fixedExpiration = new Date(now.getTime() + 1.5 * 24 * 60 * 60 * 1000)
-
-        // Check if we have real optionData to seed the timeline
-        const hasRealSeed = Array.isArray(optionData) && optionData.length > 0
-
-        for (let i = 0; i < numSnaps; i++) {
-          const snapTime = new Date(now.getTime() - (numSnaps - 1 - i) * intervalMs)
-          
-          // Daily random walk centered on current spot
-          const priceChange = (random() - 0.49) * (currentSpot * 0.0018)
-          currentSpot = currentSpot + priceChange
-          if (i === numSnaps - 1) {
-            currentSpot = spotPrice // pin last snapshot to active spot price
-          }
-
-          // Build option chain at this snapshot
-          let snapshotOptions: OptionData[] = []
-
-          if (hasRealSeed) {
-            // Clone real options template, but project to historical snapTime
-            snapshotOptions = optionData.map(opt => ({
-              option: opt.option,
-              strike: opt.strike,
-              type: opt.type,
-              expiration: opt.expiration,
-              open_interest: opt.open_interest || 0,
-              volume: opt.volume || 0,
-              iv: opt.iv || 20,
-              gamma: opt.gamma || 0,
-              delta: opt.delta || 0,
-            }))
-          } else {
-            // Fallback synthetic generator if no prop data
-            baseStrikes.forEach(strike => {
-              const distFromATM = Math.abs(strike - currentSpot) / currentSpot
-              const baseOI = Math.max(100, Math.round(15000 * Math.exp(-distFromATM * distFromATM * 150)))
-              const iv = Math.max(0.08, 0.16 + (currentSpot - strike) / currentSpot * 0.25 + (random() - 0.5) * 0.01)
-
-              snapshotOptions.push({
-                option: `${ticker} ${strike} C`,
-                strike,
-                type: "C",
-                expiration: fixedExpiration,
-                open_interest: Math.round(baseOI * (1.2 - distFromATM)),
-                volume: Math.round(baseOI * 0.15 * random()),
-                iv: iv * 100,
-                gamma: 0,
-                delta: 0,
-              })
-              snapshotOptions.push({
-                option: `${ticker} ${strike} P`,
-                strike,
-                type: "P",
-                expiration: fixedExpiration,
-                open_interest: Math.round(baseOI * (0.9 + distFromATM)),
-                volume: Math.round(baseOI * 0.12 * random()),
-                iv: (iv + 0.02) * 100,
-                gamma: 0,
-                delta: 0,
-              })
-            })
-          }
-
-          mockSnaps.push({
-            timestamp: snapTime,
-            spotPrice: currentSpot,
-            options: snapshotOptions
-          })
-        }
-
-        setHistory(mockSnaps)
-        setSelectedTimeIdx(mockSnaps.length - 1)
+        setError(err.message || "Failed to load historical options chain data.")
+        setHistory([])
+        setSelectedTimeIdx(null)
       })
       .finally(() => setLoading(false))
   }, [ticker, spotPrice, optionData])
@@ -309,9 +218,9 @@ export function GradientChartsWorkspace({
           <Clock className="w-6 h-6 animate-spin text-terminal-green mb-3" />
           <span>PARSING HISTORICAL EXPOSURE GRID SNAPSHOTS...</span>
         </div>
-      ) : history.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center bg-black text-[#666] font-mono text-xs">
-          <span>No historical options chain series available.</span>
+      ) : error || history.length === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center bg-black text-[#666] font-mono text-xs gap-2">
+          <span>⚠️ {error || "No historical options chain series available."}</span>
         </div>
       ) : (
         <div className="flex-1 flex flex-row min-h-0 bg-black">

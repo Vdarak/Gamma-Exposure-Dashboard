@@ -502,5 +502,134 @@ export async function sendAIChatMessage(
   }
 }
 
+// ============= QUANT PRICING API FETCHERS =============
 
+export interface ProbabilityMapData {
+  success: boolean
+  ticker: string
+  expiration: string
+  availableExpiries: string[]
+  spotPrice: number
+  mean: number
+  stdDev: number
+  skewness: number
+  kurtosis: number
+  pinStrike: number
+  pdf: Array<{ strike: number; density: number; cumulative: number }>
+}
 
+export interface GarchForecastData {
+  success: boolean
+  ticker: string
+  unconditionalVol: number
+  alpha: number
+  beta: number
+  omega: number
+  garchVolForecasts: Array<{ horizonDays: number; forecastedVol: number }>
+  optionTermStructure: Array<{ daysToExpiry: number; expiration: string; averageIv: number }>
+  isFallback?: boolean
+}
+
+export interface QuantumTunnelingData {
+  success: boolean
+  ticker: string
+  spotPrice: number
+  averageDailyVolatility: number
+  callWall: {
+    strike: number
+    gexBillions: number
+    distancePoints: number
+    distancePercent: number
+    barrierStrength: number
+    breakthroughProbability: number
+    status: string
+  }
+  putWall: {
+    strike: number
+    gexBillions: number
+    distancePoints: number
+    distancePercent: number
+    barrierStrength: number
+    breakthroughProbability: number
+    status: string
+  }
+}
+
+export interface CotFlowData {
+  success: boolean
+  ticker: string
+  data: Array<{
+    reportDate: string
+    openInterest: number
+    commLong: number
+    commShort: number
+    commNet: number
+    noncommLong: number
+    noncommShort: number
+    noncommNet: number
+    retailLong: number
+    retailShort: number
+    retailNet: number
+  }>
+}
+
+/**
+ * Fetch Breeden-Litzenberger Implied Probability Density Map
+ */
+export async function getProbabilityMap(ticker: string, expiration?: string): Promise<ProbabilityMapData> {
+  try {
+    const url = new URL(`${BACKEND_URL}/api/quant/probability-map`)
+    url.searchParams.append('ticker', ticker)
+    if (expiration) {
+      url.searchParams.append('expiration', expiration)
+    }
+    const response = await fetch(url.toString())
+    if (!response.ok) throw new Error(`Failed to fetch probability map for ${ticker}`)
+    return await response.json()
+  } catch (error) {
+    console.error('Error fetching probability map:', error)
+    throw error
+  }
+}
+
+/**
+ * Fetch GARCH(1,1) Volatility Forecast
+ */
+export async function getGarchForecast(ticker: string): Promise<GarchForecastData> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/quant/garch-forecast?ticker=${ticker}`)
+    if (!response.ok) throw new Error(`Failed to fetch GARCH forecast for ${ticker}`)
+    return await response.json()
+  } catch (error) {
+    console.error('Error fetching GARCH forecast:', error)
+    throw error
+  }
+}
+
+/**
+ * Fetch Quantum Tunneling wall breakthrough probabilities
+ */
+export async function getQuantumTunneling(ticker: string): Promise<QuantumTunnelingData> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/quant/quantum-tunneling?ticker=${ticker}`)
+    if (!response.ok) throw new Error(`Failed to fetch quantum tunneling for ${ticker}`)
+    return await response.json()
+  } catch (error) {
+    console.error('Error fetching quantum tunneling data:', error)
+    throw error
+  }
+}
+
+/**
+ * Fetch CFTC Commitment of Traders (COT) Net Positioning
+ */
+export async function getCotFlow(ticker: string): Promise<CotFlowData> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/quant/cot-flow?ticker=${ticker}`)
+    if (!response.ok) throw new Error(`Failed to fetch COT position flow for ${ticker}`)
+    return await response.json()
+  } catch (error) {
+    console.error('Error fetching COT flow:', error)
+    throw error
+  }
+}

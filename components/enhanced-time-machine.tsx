@@ -211,23 +211,11 @@ export function EnhancedTimeMachine({
       } else {
         throw new Error('Invalid response structure')
       }
-    } catch (err) {
-      console.warn('Backend not connected. Generating mock timestamps for Time Machine:', err)
-      setError('Showing sample historical intervals.')
-      
-      // Fallback to sample timeline: generate 20 steps of 15m intervals
-      const sampleList: TimestampInfo[] = []
-      const now = new Date()
-      const startPrice = ticker === 'SPX' ? 7405 : ticker === 'SPY' ? 757 : 180
-      for (let i = 19; i >= 0; i--) {
-        const time = new Date(now.getTime() - i * 15 * 60 * 1000)
-        sampleList.push({
-          timestamp: time,
-          spotPrice: startPrice + Math.sin(i * 0.5) * 5,
-        })
-      }
-      setTimestamps(sampleList)
-      setSelectedRange([sampleList.length - 1, sampleList.length - 1])
+    } catch (err: any) {
+      console.warn('Backend not connected or failed to fetch timestamps:', err)
+      setError(err.message || 'No historical checkpoints available. Verify backend is active.')
+      setTimestamps([])
+      setSelectedRange(null)
     } finally {
       setLoading(false)
     }

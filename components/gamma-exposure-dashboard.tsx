@@ -28,6 +28,10 @@ import { OptionFlowDashboard } from "./option-flow-dashboard"
 import { BacktestDashboard } from "./algorithms/backtest-dashboard"
 import { AIAnalystPanel } from "./AIAnalystPanel"
 import { FloatingAskButton } from "./ui/floating-ask-button"
+import { ProbabilityMapChart } from "./charts/probability-map-chart"
+import { GarchForecastChart } from "./charts/garch-forecast-chart"
+import { QuantumTunnelingGauge } from "./charts/quantum-tunneling-gauge"
+import { CotFlowChart } from "./charts/cot-flow-chart"
 
 // UI components
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -35,23 +39,33 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 // ─── Sidebar Config ──────────────────────────────────────────────
 
 const SIDEBAR_TABS = [
-  { id: 'gex', label: 'Gex', icon: 'gex' },
-  { id: 'flow', label: 'Option Flow', icon: 'flow' },
-  { id: 'scanners', label: 'Scanners', icon: 'scanners' },
-  { id: 'screener', label: 'Screener', icon: 'screener' },
+  { id: 'gex', label: 'GEX Analytics', icon: 'gex' },
+  { id: 'flow', label: 'Options Flow', icon: 'flow' },
+  { id: 'quant', label: 'Quant Pricing', icon: 'scanners' },
+  { id: 'algos', label: 'Backtesting', icon: 'algos' },
   { id: 'journal', label: 'Journal', icon: 'calendar' },
-  { id: 'algos', label: 'Algorithms', icon: 'algos' },
 ]
 
-// ─── GEX Bottom sub-tabs ─────────────────────────────────────────
+// ─── Sub-tabs Config per Sidebar Tab ─────────────────────────────
 
-const BOTTOM_TABS = [
-  { id: 'gex-levels', label: 'GEX Levels' },
-  { id: 'flow-historical', label: 'Flow/Historical' },
-  { id: 'gradient-charts', label: 'Gradient View' },
-  { id: 'surface', label: '3D Surface Model' },
-  { id: 'expected-move', label: 'Expected Move' },
-]
+const SUB_TABS: { [key: string]: Array<{ id: string; label: string }> } = {
+  gex: [
+    { id: 'distribution', label: 'Distribution' },
+    { id: 'projections', label: 'Projections' },
+    { id: 'surfaces', label: 'Surfaces' },
+  ],
+  flow: [
+    { id: 'live-tape', label: 'Live Tape' },
+    { id: 'history-trend', label: 'History Trend' },
+  ],
+  quant: [
+    { id: 'probability-map', label: 'Probability Map' },
+    { id: 'garch-forecast', label: 'GARCH Forecast' },
+    { id: 'quantum-tunnel', label: 'Quantum Tunnel' },
+    { id: 'cot-positions', label: 'COT Positions' },
+  ]
+}
+
 
 // ─── Ticker lists ────────────────────────────────────────────────
 
@@ -68,7 +82,7 @@ const INDIA_TICKERS = [
 export function GammaExposureDashboard() {
   // Navigation State
   const [activeSidebarTab, setActiveSidebarTab] = useState("gex")
-  const [activeTab, setActiveTab] = useState("gex-levels")
+  const [activeTab, setActiveTab] = useState("distribution")
 
   // Core state
   const [ticker, setTicker] = useState("SPX")
@@ -133,19 +147,12 @@ export function GammaExposureDashboard() {
     return Array.from(new Set([...defaultWatchlist, ...customTickers]))
   }, [defaultWatchlist, customTickers])
 
-  // Get stable mocked stats for watchlist rendering
-  const getWatchlistItem = useCallback((t: string) => {
+  // Get real spot price for currently active ticker, or null/N/A for others (avoid mock data)
+  const getWatchlistItem = useCallback((t: string): { price: number | null, pct: number | null } => {
     if (t === ticker && spotPrice !== null) {
-      const charSum = t.split('').reduce((sum, c) => sum + c.charCodeAt(0), 0)
-      const isNeg = charSum % 2 === 0
-      const pct = 0.2 + ((charSum % 220) / 100) * (isNeg ? -1 : 1)
-      return { price: spotPrice, pct }
+      return { price: spotPrice, pct: null }
     }
-    const charSum = t.split('').reduce((sum, c) => sum + c.charCodeAt(0), 0)
-    const isNeg = charSum % 2 === 0
-    const pct = 0.2 + ((charSum % 220) / 100) * (isNeg ? -1 : 1)
-    const basePrice = t === 'SPX' ? 7584.43 : t === 'SPY' ? 757.06 : t === 'QQQ' ? 740.50 : 180 + (charSum % 300)
-    return { price: basePrice, pct }
+    return { price: null, pct: null }
   }, [ticker, spotPrice])
 
   // Derived date collections
@@ -510,7 +517,9 @@ export function GammaExposureDashboard() {
                 key={tab.id}
                 onClick={() => {
                   setActiveSidebarTab(tab.id)
-                  if (tab.id === 'gex') setActiveTab('gex-levels')
+                  if (tab.id === 'gex') setActiveTab('distribution')
+                  else if (tab.id === 'flow') setActiveTab('live-tape')
+                  else if (tab.id === 'quant') setActiveTab('probability-map')
                 }}
                 className="group flex flex-col items-center gap-1 w-full relative transition-all py-2"
                 title={tab.label}
@@ -584,7 +593,9 @@ export function GammaExposureDashboard() {
               key={tab.id}
               onClick={() => {
                 setActiveSidebarTab(tab.id)
-                if (tab.id === 'gex') setActiveTab('gex-levels')
+                if (tab.id === 'gex') setActiveTab('distribution')
+                else if (tab.id === 'flow') setActiveTab('live-tape')
+                else if (tab.id === 'quant') setActiveTab('probability-map')
               }}
               className="group flex flex-col items-center justify-center gap-1 w-12 relative h-full py-1.5"
             >
@@ -698,32 +709,6 @@ export function GammaExposureDashboard() {
               </div>
             )}
 
-            {/* Interactive Sidebar mockups */}
-            {activeSidebarTab !== 'gex' && activeSidebarTab !== 'journal' && activeSidebarTab !== 'flow' && activeSidebarTab !== 'algos' && (
-              <div className="flex-1 flex flex-col items-center justify-center gap-4 text-[#949494]">
-                <div className="w-12 h-12 rounded-full border border-[#1A1A1E] bg-[#0A0A0C] flex items-center justify-center">
-                  <svg className="w-5 h-5 text-[#333]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                  </svg>
-                </div>
-                <div className="text-center">
-                  <h3 className="text-xs font-bold font-mono text-[#E5E5E5] uppercase tracking-wider">{activeSidebarTab} SYSTEM LOCK</h3>
-                  <p className="text-[10px] font-mono text-[#444] mt-1">PENDING REALTIME WEBSOCKET INGESTION PIPELINE</p>
-                </div>
-              </div>
-            )}
-
-            {/* Options Flow Workspace */}
-            {activeSidebarTab === 'flow' && (
-              <div className="flex-1 p-4 flex flex-col min-h-0 bg-[#020203]">
-                <OptionFlowDashboard 
-                  ticker={ticker}
-                  onTickerSelect={handleTickerSelect}
-                  availableTickers={watchlistTickers}
-                />
-              </div>
-            )}
-
             {/* Trading Journal Workspace */}
             {activeSidebarTab === 'journal' && (
               <div className="flex-1 flex flex-col min-h-0 overflow-hidden h-full">
@@ -736,13 +721,13 @@ export function GammaExposureDashboard() {
               <BacktestDashboard />
             )}
 
-            {/* Active GEX Workspace tabs content */}
-            {activeSidebarTab === 'gex' && hasData && !isLoading && (
+            {/* Unified Workspace Shell for GEX, Flow, and Quant */}
+            {(activeSidebarTab === 'gex' || activeSidebarTab === 'flow' || activeSidebarTab === 'quant') && !isLoading && (
               <div className="flex-1 flex flex-col min-h-0">
-                {/* TOP WORKSPACE NAVIGATION TABS (Moved from bottom) */}
+                {/* TOP WORKSPACE NAVIGATION TABS */}
                 <div className="border-b border-[#1A1A1E] bg-[#08080A] flex items-center px-4 py-2 justify-between select-none flex-shrink-0">
                   <div className="flex items-center gap-1.5">
-                    {BOTTOM_TABS.map(tab => {
+                    {SUB_TABS[activeSidebarTab]?.map(tab => {
                       const active = activeTab === tab.id
                       return (
                         <button
@@ -760,23 +745,29 @@ export function GammaExposureDashboard() {
                     })}
                   </div>
 
-                  {/* Settings toggle */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-mono text-[#444] uppercase">Engine</span>
-                    <Select value={pricingMethod} onValueChange={(v) => handlePricingMethodChange(v as PricingMethod)}>
-                      <SelectTrigger className="w-28 h-6 text-[10px] bg-black border-[#1A1A1E]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-black border-[#1A1A1E]">
-                        <SelectItem value="black-scholes">Black-Scholes</SelectItem>
-                        <SelectItem value="simplified">Constant IV</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  {/* Settings toggle (Only show for GEX Analytics tab) */}
+                  {activeSidebarTab === 'gex' && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono text-[#444] uppercase">Engine</span>
+                      <Select value={pricingMethod} onValueChange={(v) => handlePricingMethodChange(v as PricingMethod)}>
+                        <SelectTrigger className="w-28 h-6 text-[10px] bg-black border-[#1A1A1E]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-black border-[#1A1A1E]">
+                          <SelectItem value="black-scholes">Black-Scholes</SelectItem>
+                          <SelectItem value="simplified">Constant IV</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                 </div>
 
                 {/* Workspace tab views with loading screen overlay */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-4 terminal-scrollbar relative">
+                <div className={`flex-1 overflow-y-auto terminal-scrollbar relative ${
+                  activeSidebarTab === 'quant' && activeTab === 'cot-positions'
+                    ? 'p-0 space-y-0'
+                    : 'p-4 space-y-4'
+                }`}>
                   {isUpdating && (
                     <div className="absolute inset-0 bg-black/85 backdrop-blur-sm z-50 flex flex-col items-center justify-center transition-all duration-300">
                       <div className="flex items-center gap-3 text-terminal-green">
@@ -786,182 +777,357 @@ export function GammaExposureDashboard() {
                     </div>
                   )}
 
-                  {/* 1. GEX Levels Workspace — charts on left, watchlist/expiry panel on right */}
-                  {activeTab === 'gex-levels' && (
-                    <div className="flex flex-col lg:flex-row gap-4 min-h-0">
-                      {/* Main charts column */}
-                      <div className="flex-1 flex flex-col gap-4 min-w-0">
-                        {/* Session Range Slider */}
-                        <SessionTimer
-                          ticker={ticker}
-                          currentRange={currentRange}
-                          onCheckpointChange={handleCheckpointChange}
-                          isLive={isLive}
-                          onLiveChange={setIsLive}
-                          onTimestampsLoad={setAllTimestamps}
-                        />
-
-                        {/* Synced Workspace Chart Card */}
-                        <div 
-                          className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-3"
-                          data-ai-context={JSON.stringify({
-                            component: "Synced Strike Workspace",
-                            promptTemplate: "Analyze the strike levels and GEX clusters on the Synced Strike Workspace chart."
-                          })}
-                        >
-                          <div className="h-[1200px]">
-                            <SyncedStrikeWorkspace
-                              startOptionData={activeStartOptionData}
-                              endOptionData={activeEndOptionData}
-                              ticker={ticker}
-                              startSpotPrice={startSpotPrice ?? spotPrice!}
-                              endSpotPrice={endSpotPrice ?? spotPrice!}
-                              market={market}
-                              pricingMethod={pricingMethod}
-                              expiryMode={expiryMode}
-                              isLive={isLive}
-                            />
-                          </div>
+                  {/* ==================== 1. GEX Analytics sub-tabs ==================== */}
+                  {activeSidebarTab === 'gex' && (
+                    <>
+                      {!hasData ? (
+                        <div className="flex-1 flex items-center justify-center text-xs font-mono text-[#555] py-20">
+                          No GEX/options data available for ticker {ticker}. Please collect data first.
                         </div>
+                      ) : (
+                        <>
+                          {/* Distribution Sub-tab */}
+                          {activeTab === 'distribution' && (
+                            <div className="flex flex-col lg:flex-row gap-4 min-h-0">
+                              {/* Main charts column */}
+                              <div className="flex-1 flex flex-col gap-4 min-w-0">
+                                {/* Session Range Slider */}
+                                <SessionTimer
+                                  ticker={ticker}
+                                  currentRange={currentRange}
+                                  onCheckpointChange={handleCheckpointChange}
+                                  isLive={isLive}
+                                  onLiveChange={setIsLive}
+                                  onTimestampsLoad={setAllTimestamps}
+                                />
 
-                        {/* Option Chain Card below */}
-                        <div
-                          data-ai-context={JSON.stringify({
-                            component: "Option Chain Grid",
-                            promptTemplate: "Explain the option chain positioning, call/put wall structure, and open interest concentration."
-                          })}
-                        >
-                          <ChartWrapper
-                            title="Option Chain Grid"
-                            subtitle="Detailed strike levels, Greeks, and open interest distribution"
-                            height="auto"
-                            controls={
-                              <div className="flex items-center gap-3">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-[10px] text-[#949494] font-mono uppercase">Strikes</span>
-                                  <Select value={strikesCount.toString()} onValueChange={(v) => setStrikesCount(v === "ALL" ? "ALL" : parseInt(v))}>
-                                    <SelectTrigger className="w-16 h-6 text-[10px] bg-black border-[#1A1A1E]">
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent className="bg-black border-[#1A1A1E]">
-                                      <SelectItem value="6">6</SelectItem>
-                                      <SelectItem value="10">10</SelectItem>
-                                      <SelectItem value="12">12</SelectItem>
-                                      <SelectItem value="16">16</SelectItem>
-                                      <SelectItem value="ALL">ALL</SelectItem>
-                                    </SelectContent>
-                                  </Select>
+                                {/* Synced Workspace Chart Card */}
+                                <div 
+                                  className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-3"
+                                  data-ai-context={JSON.stringify({
+                                    component: "Synced Strike Workspace",
+                                    promptTemplate: "Analyze the strike levels and GEX clusters on the Synced Strike Workspace chart."
+                                  })}
+                                >
+                                  <div className="h-[1200px]">
+                                    <SyncedStrikeWorkspace
+                                      startOptionData={activeStartOptionData}
+                                      endOptionData={activeEndOptionData}
+                                      ticker={ticker}
+                                      startSpotPrice={startSpotPrice ?? spotPrice!}
+                                      endSpotPrice={endSpotPrice ?? spotPrice!}
+                                      market={market}
+                                      pricingMethod={pricingMethod}
+                                      expiryMode={expiryMode}
+                                      isLive={isLive}
+                                    />
+                                  </div>
                                 </div>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-[10px] text-[#949494] font-mono uppercase">Expiry</span>
-                                  <Select value={selectedRampExpiry} onValueChange={setSelectedRampExpiry}>
-                                    <SelectTrigger className="w-28 h-6 text-[10px] bg-black border-[#1A1A1E]">
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent className="bg-black border-[#1A1A1E]">
-                                      {futureExpiries.map((exp) => (
-                                        <SelectItem key={exp} value={exp}>{exp.slice(5)}</SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+
+                                {/* Option Chain Card below */}
+                                <div
+                                  data-ai-context={JSON.stringify({
+                                    component: "Option Chain Grid",
+                                    promptTemplate: "Explain the option chain positioning, call/put wall structure, and open interest concentration."
+                                  })}
+                                >
+                                  <ChartWrapper
+                                    title="Option Chain Grid"
+                                    subtitle="Detailed strike levels, Greeks, and open interest distribution"
+                                    height="auto"
+                                    controls={
+                                      <div className="flex items-center gap-3">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-[10px] text-[#949494] font-mono uppercase">Strikes</span>
+                                          <Select value={strikesCount.toString()} onValueChange={(v) => setStrikesCount(v === "ALL" ? "ALL" : parseInt(v))}>
+                                            <SelectTrigger className="w-16 h-6 text-[10px] bg-black border-[#1A1A1E]">
+                                              <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent className="bg-black border-[#1A1A1E]">
+                                              <SelectItem value="6">6</SelectItem>
+                                              <SelectItem value="10">10</SelectItem>
+                                              <SelectItem value="12">12</SelectItem>
+                                              <SelectItem value="16">16</SelectItem>
+                                              <SelectItem value="20">20</SelectItem>
+                                              <SelectItem value="ALL">ALL</SelectItem>
+                                            </SelectContent>
+                                          </Select>
+                                        </div>
+                                        <PricingMethodToggle pricingMethod={pricingMethod} onPricingMethodChange={handlePricingMethodChange} />
+                                      </div>
+                                    }
+                                  >
+                                    <OptionChain
+                                      data={optionData}
+                                      ticker={ticker}
+                                      spotPrice={spotPrice!}
+                                      selectedExpiry={selectedWallExpiry}
+                                      onExpiryChange={setSelectedWallExpiry}
+                                      availableExpiries={futureExpiries}
+                                      strikesCount={strikesCount}
+                                      onStrikesCountChange={setStrikesCount}
+                                    />
+                                  </ChartWrapper>
                                 </div>
                               </div>
-                            }
-                          >
-                            <OptionChain
-                              data={optionData}
-                              ticker={ticker}
-                              spotPrice={spotPrice!}
-                              selectedExpiry={selectedRampExpiry}
-                              onExpiryChange={setSelectedRampExpiry}
-                              availableExpiries={futureExpiries}
-                              strikesCount={strikesCount}
-                              onStrikesCountChange={setStrikesCount}
-                            />
-                          </ChartWrapper>
-                        </div>
-                      </div>
 
-                      {/* Right panel — Watchlist & Expiry Selector (GEX Levels only) */}
-                      <div className="w-full lg:w-[250px] lg:flex-shrink-0 flex flex-col gap-3">
-                        {/* Watchlist */}
-                        <div 
-                          className="border border-[#1A1A1E] bg-[#0A0A0C] rounded-lg p-3 flex flex-col gap-2.5"
-                          data-ai-context={JSON.stringify({
-                            component: "Watchlist",
-                            promptTemplate: "How do the tickers on the watchlist compare in terms of their GEX and volatility profiles?"
-                          })}
-                        >
-                          <div className="flex items-center justify-between border-b border-[#1A1A1E] pb-2">
-                            <span className="text-[11px] font-mono font-bold text-[#E5E5E5]">WATCHLIST</span>
-                            <form onSubmit={handleAddTickerSubmit} className="flex items-center gap-1.5">
-                              <input
-                                name="tickerSearch"
-                                type="text"
-                                placeholder="ADD..."
-                                className="w-12 h-5 text-[9px] font-mono bg-black border border-[#222] rounded px-1 text-white outline-none focus:border-terminal-green/40"
-                              />
-                              <button
-                                type="submit"
-                                className="w-5 h-5 flex items-center justify-center rounded border border-[#222] bg-black/40 text-[10px] text-[#949494] hover:text-[#888] hover:border-[#333]"
-                              >
-                                +
-                              </button>
-                            </form>
-                          </div>
-                          <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-0.5 terminal-scrollbar">
-                            {watchlistTickers.map(t => {
-                              const active = t === ticker
-                              const stats = getWatchlistItem(t)
-                              const isUp = stats.pct >= 0
-                              return (
-                                <div
-                                  key={t}
-                                  onClick={() => handleTickerSelect(t)}
-                                  className={`flex items-center justify-between px-2 py-1 rounded transition-colors cursor-pointer ${
-                                    active
-                                      ? 'bg-[#15151A] text-[#E5E5E5] border border-terminal-green/30'
-                                      : 'text-[#666] hover:bg-[#0E0E10] hover:text-[#888] border border-transparent'
-                                  }`}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-xs font-mono font-bold uppercase">{t}</span>
-                                    {customTickers.includes(t) && (
-                                      <button type="button" onClick={(e) => handleRemoveCustomTicker(t, e)} className="text-[9px] text-terminal-red/60 hover:text-terminal-red font-bold">×</button>
-                                    )}
+                              {/* Sidebar Details / watchlist / expiry panel */}
+                              <div className="w-full lg:w-[280px] lg:flex-shrink-0 flex flex-col gap-4">
+                                {/* Spot Price Stats Board */}
+                                <div className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-3 select-text">
+                                  <div className="flex justify-between items-start">
+                                    <div>
+                                      <span className="text-[9px] font-mono text-[#555] uppercase block">Ticker</span>
+                                      <span className="text-xl font-mono font-black text-terminal-green tracking-tighter">{ticker}</span>
+                                    </div>
+                                    <div className="text-right">
+                                      <span className="text-[9px] font-mono text-[#555] uppercase block">Spot Price</span>
+                                      <span className="text-xl font-mono font-black text-[#E5E5E5] tracking-tighter">
+                                        ${spotPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                      </span>
+                                    </div>
                                   </div>
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="text-[10px] font-mono font-bold">{stats.price.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</span>
-                                    <span className={`text-[9px] font-mono px-1 rounded text-center min-w-[42px] font-bold ${ isUp ? 'bg-terminal-green/10 text-terminal-green' : 'bg-terminal-red/10 text-terminal-red' }`}>
-                                      {isUp ? '+' : ''}{stats.pct.toFixed(2)}%
-                                    </span>
+
+                                  <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-[#141416]">
+                                    <div>
+                                      <span className="text-[8px] font-mono text-[#444] uppercase block">Total Net GEX</span>
+                                      <span className={`text-xs font-mono font-bold ${totalGEX >= 0 ? 'text-terminal-green' : 'text-terminal-red'}`}>
+                                        {totalGEX >= 0 ? '+' : ''}{totalGEX.toFixed(2)} Bn
+                                      </span>
+                                    </div>
+                                    <div>
+                                      <span className="text-[8px] font-mono text-[#444] uppercase block">Gamma Flip</span>
+                                      <span className="text-xs font-mono font-bold text-terminal-magenta">
+                                        {findZeroGammaLevel(activeOptionData, spotPrice!) ? `$${Math.round(findZeroGammaLevel(activeOptionData, spotPrice!)!)}` : 'None'}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="mt-3 text-[9px] font-mono text-[#444] flex justify-between border-t border-[#141416]/50 pt-2">
+                                    <span>LAST INGESTED:</span>
+                                    <span>{lastUpdated ? lastUpdated.toLocaleTimeString() : 'N/A'}</span>
                                   </div>
                                 </div>
-                              )
-                            })}
-                          </div>
-                        </div>
 
-                        {/* Expiry Selector */}
-                        <div className="flex flex-col">
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <span className="text-[11px] font-mono font-bold text-[#E5E5E5]">EXPIRATIONS</span>
-                          </div>
-                          <ExpirySelector
-                            availableExpiries={futureExpiries}
-                            mode={expiryMode}
-                            onModeChange={setExpiryMode}
-                            selectedExpiries={customSelectedExpiries}
-                            onSelectedExpiriesChange={setCustomSelectedExpiries}
-                            optionData={optionData}
-                          />
-                        </div>
-                      </div>
-                    </div>
+                                {/* Custom Tickers / Watchlist */}
+                                <div className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-3">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <span className="text-[11px] font-mono font-bold text-[#E5E5E5]">WATCHLIST</span>
+                                    {market === 'USA' ? (
+                                      <span className="text-[9px] font-mono text-[#444] uppercase bg-[#141416] px-1.5 py-0.5 rounded">US (CBOE)</span>
+                                    ) : (
+                                      <span className="text-[9px] font-mono text-[#444] uppercase bg-[#141416] px-1.5 py-0.5 rounded">INDIA (NSE)</span>
+                                    )}
+                                  </div>
+
+                                  <div className="flex flex-col gap-1 max-h-[220px] overflow-y-auto pr-1 terminal-scrollbar">
+                                    {watchlistTickers.map(t => {
+                                      const active = ticker === t
+                                      const stats = getWatchlistItem(t)
+                                      const isUp = (stats && stats.pct !== null) ? stats.pct >= 0 : true
+                                      
+                                      if (!stats) return null
+                                      
+                                      return (
+                                        <div
+                                          key={t}
+                                          onClick={() => handleTickerSelect(t)}
+                                          className={`flex items-center justify-between p-2 rounded cursor-pointer transition-all duration-150 ${
+                                            active
+                                              ? 'bg-[#15151A] text-[#E5E5E5] border border-terminal-green/30'
+                                              : 'text-[#666] hover:bg-[#0E0E10] hover:text-[#888] border border-transparent'
+                                          }`}
+                                        >
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-xs font-mono font-bold uppercase">{t}</span>
+                                            {customTickers.includes(t) && (
+                                              <button type="button" onClick={(e) => handleRemoveCustomTicker(t, e)} className="text-[9px] text-terminal-red/60 hover:text-terminal-red font-bold">×</button>
+                                            )}
+                                          </div>
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="text-[10px] font-mono font-bold">
+                                              {stats.price !== null
+                                                ? stats.price.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+                                                : '—'}
+                                            </span>
+                                            {stats.pct !== null ? (
+                                              <span className={`text-[9px] font-mono px-1 rounded text-center min-w-[42px] font-bold ${ isUp ? 'bg-terminal-green/10 text-terminal-green' : 'bg-terminal-red/10 text-terminal-red' }`}>
+                                                {stats.pct >= 0 ? '+' : ''}{stats.pct.toFixed(2)}%
+                                              </span>
+                                            ) : (
+                                              <span className="text-[9px] font-mono px-1 rounded text-center min-w-[42px] text-[#444] font-bold">
+                                                —
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+
+                                {/* Expiry Selector */}
+                                <div className="flex flex-col">
+                                  <div className="flex items-center gap-1.5 mb-1">
+                                    <span className="text-[11px] font-mono font-bold text-[#E5E5E5]">EXPIRATIONS</span>
+                                  </div>
+                                  <ExpirySelector
+                                    availableExpiries={futureExpiries}
+                                    mode={expiryMode}
+                                    onModeChange={setExpiryMode}
+                                    selectedExpiries={customSelectedExpiries}
+                                    onSelectedExpiriesChange={setCustomSelectedExpiries}
+                                    optionData={optionData}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Projections Sub-tab */}
+                          {activeTab === 'projections' && (
+                            <div className="flex flex-col gap-4">
+                              {/* Expected Move Card */}
+                              <div
+                                data-ai-context={JSON.stringify({
+                                  component: "Implied Expected Move Ranges",
+                                  promptTemplate: "Explain the Expected Move chart. What are the key boundaries and market expectations?"
+                                })}
+                              >
+                                <ChartWrapper
+                                  title="Implied Expected Move Ranges"
+                                  subtitle="Implied boundaries calculated via 16-delta strangle options method"
+                                  height="600px"
+                                  controls={
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[10px] text-[#949494] font-mono uppercase font-bold">Expiry</span>
+                                      <Select value={selectedMoveExpiry} onValueChange={setSelectedMoveExpiry}>
+                                        <SelectTrigger className="w-32 h-6 text-[10px] bg-black border-[#1A1A1E]">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent className="bg-black border-[#1A1A1E]">
+                                          <SelectItem value="All Dates">All Dates</SelectItem>
+                                          {futureExpiries.map((exp) => (
+                                            <SelectItem key={exp} value={exp}>{exp.slice(5)}</SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                  }
+                                >
+                                  <ExpectedMoveChart
+                                    data={optionData}
+                                    ticker={ticker}
+                                    spotPrice={spotPrice!}
+                                    selectedExpiry={selectedMoveExpiry}
+                                  />
+                                </ChartWrapper>
+                              </div>
+
+                              {/* Vanna/Charm Greek Gradients */}
+                              <div 
+                                className="h-[1200px] w-full"
+                                data-ai-context={JSON.stringify({
+                                  component: "Greek Gradient Heatmaps",
+                                  promptTemplate: "Interpret the Greek Gradient Heatmaps for Vanna and Charm. What do they tell us about dealer positioning and flows?"
+                                })}
+                              >
+                                <GradientChartsWorkspace
+                                  optionData={activeOptionData}
+                                  ticker={ticker}
+                                  spotPrice={spotPrice!}
+                                  market={market}
+                                  pricingMethod={pricingMethod}
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Surfaces Sub-tab */}
+                          {activeTab === 'surfaces' && (
+                            <div className="flex flex-col lg:flex-row gap-4 min-h-0">
+                              {/* Left side: Charts */}
+                              <div className="flex-1 grid grid-cols-1 xl:grid-cols-2 gap-4 min-w-0">
+                                <div
+                                  data-ai-context={JSON.stringify({
+                                    component: "3D Gamma Exposure Surface",
+                                    promptTemplate: "Explain the 3D Gamma Exposure Surface chart and what the GEX curves tell us about volatility regimes."
+                                  })}
+                                >
+                                  <ChartWrapper
+                                    title="3D Gamma Exposure Surface"
+                                    subtitle="Interactive 3D GEX mapping strike price and expiration date curves"
+                                    height="550px"
+                                  >
+                                    <GEXSurfaceChart
+                                      data={optionData}
+                                      ticker={ticker}
+                                      spotPrice={spotPrice!}
+                                      selectedExpiries={activeExpiries}
+                                      onModeChange={setExpiryMode}
+                                      onSelectedExpiriesChange={setCustomSelectedExpiries}
+                                      availableExpiries={futureExpiries}
+                                    />
+                                  </ChartWrapper>
+                                </div>
+                                <div
+                                  data-ai-context={JSON.stringify({
+                                    component: "3D Implied Volatility Surface",
+                                    promptTemplate: "Explain the 3D Implied Volatility Surface chart. What does the volatility term structure and skew look like?"
+                                  })}
+                                >
+                                  <ChartWrapper
+                                    title="3D Implied Volatility Surface"
+                                    subtitle="Interactive 3D IV mapping strike price and expiration date curves"
+                                    height="550px"
+                                  >
+                                    <IVSurfaceChart
+                                      data={optionData}
+                                      ticker={ticker}
+                                      spotPrice={spotPrice!}
+                                      selectedExpiries={activeExpiries}
+                                      onModeChange={setExpiryMode}
+                                      onSelectedExpiriesChange={setCustomSelectedExpiries}
+                                      availableExpiries={futureExpiries}
+                                    />
+                                  </ChartWrapper>
+                                </div>
+                              </div>
+
+                              {/* Right side: Expiry Selector panel */}
+                              <div className="w-full lg:w-[250px] lg:flex-shrink-0 flex flex-col gap-3">
+                                <div className="flex flex-col">
+                                  <div className="flex items-center gap-1.5 mb-1">
+                                    <span className="text-[11px] font-mono font-bold text-[#E5E5E5]">EXPIRATIONS</span>
+                                  </div>
+                                  <ExpirySelector
+                                    availableExpiries={futureExpiries}
+                                    mode={expiryMode}
+                                    onModeChange={setExpiryMode}
+                                    selectedExpiries={customSelectedExpiries}
+                                    onSelectedExpiriesChange={setCustomSelectedExpiries}
+                                    optionData={optionData}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </>
                   )}
 
-                  {/* 2. Flow/Historical Workspace */}
-                  {activeTab === 'flow-historical' && (
+                  {/* ==================== 2. Options Flow sub-tabs ==================== */}
+                  {activeSidebarTab === 'flow' && activeTab === 'live-tape' && (
+                    <div className="flex-1 flex flex-col min-h-0 bg-[#020203]">
+                      <OptionFlowDashboard 
+                        ticker={ticker}
+                        onTickerSelect={handleTickerSelect}
+                        availableTickers={watchlistTickers}
+                      />
+                    </div>
+                  )}
+                  {activeSidebarTab === 'flow' && activeTab === 'history-trend' && (
                     <div className="flex-1 p-4 overflow-y-auto">
                       <FlowHistoricalView
                         ticker={ticker}
@@ -974,133 +1140,25 @@ export function GammaExposureDashboard() {
                     </div>
                   )}
 
-
-
-                  {/* 4. 3D Surface Model Workspace */}
-                  {activeTab === 'surface' && (
-                    <div className="flex flex-col lg:flex-row gap-4 min-h-0">
-                      {/* Left side: Charts */}
-                      <div className="flex-1 grid grid-cols-1 xl:grid-cols-2 gap-4 min-w-0">
-                        <div
-                          data-ai-context={JSON.stringify({
-                            component: "3D Gamma Exposure Surface",
-                            promptTemplate: "Explain the 3D Gamma Exposure Surface chart and what the GEX curves tell us about volatility regimes."
-                          })}
-                        >
-                          <ChartWrapper
-                            title="3D Gamma Exposure Surface"
-                            subtitle="Interactive 3D GEX mapping strike price and expiration date curves"
-                            height="550px"
-                          >
-                            <GEXSurfaceChart
-                              data={optionData}
-                              ticker={ticker}
-                              spotPrice={spotPrice!}
-                              selectedExpiries={activeExpiries}
-                              onModeChange={setExpiryMode}
-                              onSelectedExpiriesChange={setCustomSelectedExpiries}
-                              availableExpiries={futureExpiries}
-                            />
-                          </ChartWrapper>
-                        </div>
-                        <div
-                          data-ai-context={JSON.stringify({
-                            component: "3D Implied Volatility Surface",
-                            promptTemplate: "Explain the 3D Implied Volatility Surface chart. What does the volatility term structure and skew look like?"
-                          })}
-                        >
-                          <ChartWrapper
-                            title="3D Implied Volatility Surface"
-                            subtitle="Interactive 3D IV mapping strike price and expiration date curves"
-                            height="550px"
-                          >
-                            <IVSurfaceChart
-                              data={optionData}
-                              ticker={ticker}
-                              spotPrice={spotPrice!}
-                              selectedExpiries={activeExpiries}
-                              onModeChange={setExpiryMode}
-                              onSelectedExpiriesChange={setCustomSelectedExpiries}
-                              availableExpiries={futureExpiries}
-                            />
-                          </ChartWrapper>
-                        </div>
-                      </div>
-
-                      {/* Right side: Expiry Selector panel */}
-                      <div className="w-full lg:w-[250px] lg:flex-shrink-0 flex flex-col gap-3">
-                        <div className="flex flex-col">
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <span className="text-[11px] font-mono font-bold text-[#E5E5E5]">EXPIRATIONS</span>
-                          </div>
-                          <ExpirySelector
-                            availableExpiries={futureExpiries}
-                            mode={expiryMode}
-                            onModeChange={setExpiryMode}
-                            selectedExpiries={customSelectedExpiries}
-                            onSelectedExpiriesChange={setCustomSelectedExpiries}
-                            optionData={optionData}
-                          />
-                        </div>
-                      </div>
+                  {/* ==================== 3. Quant Pricing sub-tabs ==================== */}
+                  {activeSidebarTab === 'quant' && activeTab === 'probability-map' && (
+                    <div className="flex-1 flex flex-col min-h-0 p-4">
+                      <ProbabilityMapChart ticker={ticker} />
                     </div>
                   )}
-
-                  {/* 5. Expected Move Workspace */}
-                  {activeTab === 'expected-move' && (
-                    <div
-                      data-ai-context={JSON.stringify({
-                        component: "Implied Expected Move Ranges",
-                        promptTemplate: "Explain the Expected Move chart. What are the key boundaries and market expectations?"
-                      })}
-                    >
-                      <ChartWrapper
-                        title="Implied Expected Move Ranges"
-                        subtitle="Implied boundaries calculated via 16-delta strangle options method"
-                        height="900px"
-                        controls={
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-[#949494] font-mono uppercase font-bold">Expiry</span>
-                            <Select value={selectedMoveExpiry} onValueChange={setSelectedMoveExpiry}>
-                              <SelectTrigger className="w-32 h-6 text-[10px] bg-black border-[#1A1A1E]">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent className="bg-black border-[#1A1A1E]">
-                                <SelectItem value="All Dates">All Dates</SelectItem>
-                                {futureExpiries.map((exp) => (
-                                  <SelectItem key={exp} value={exp}>{exp.slice(5)}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        }
-                      >
-                        <ExpectedMoveChart
-                          data={optionData}
-                          ticker={ticker}
-                          spotPrice={spotPrice!}
-                          selectedExpiry={selectedMoveExpiry}
-                        />
-                      </ChartWrapper>
+                  {activeSidebarTab === 'quant' && activeTab === 'garch-forecast' && (
+                    <div className="flex-1 flex flex-col min-h-0 p-4">
+                      <GarchForecastChart ticker={ticker} />
                     </div>
                   )}
-
-                  {/* 6. Greek Gradient Heatmaps Workspace */}
-                  {activeTab === 'gradient-charts' && (
-                    <div 
-                      className="h-[1200px] w-full"
-                      data-ai-context={JSON.stringify({
-                        component: "Greek Gradient Heatmaps",
-                        promptTemplate: "Interpret the Greek Gradient Heatmaps for Vanna and Charm. What do they tell us about dealer positioning and flows?"
-                      })}
-                    >
-                      <GradientChartsWorkspace
-                        optionData={activeOptionData}
-                        ticker={ticker}
-                        spotPrice={spotPrice!}
-                        market={market}
-                        pricingMethod={pricingMethod}
-                      />
+                  {activeSidebarTab === 'quant' && activeTab === 'quantum-tunnel' && (
+                    <div className="flex-1 flex flex-col min-h-0 p-4">
+                      <QuantumTunnelingGauge ticker={ticker} />
+                    </div>
+                  )}
+                  {activeSidebarTab === 'quant' && activeTab === 'cot-positions' && (
+                    <div className="flex-1 flex flex-col min-h-0">
+                      <CotFlowChart />
                     </div>
                   )}
                 </div>

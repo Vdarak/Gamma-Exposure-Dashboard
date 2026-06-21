@@ -158,67 +158,10 @@ export function SyncedStrikeWorkspace({
     return () => resizeObserver.disconnect()
   }, [])
 
-  // 1. Generate stable candlestick data based on spotPrice and selected timeframe (either real Yahoo or fallback)
+  // 1. Candlestick data from historical server collection (no mock data fallback)
   const candles = useMemo(() => {
-    if (candlesData.length > 0) {
-      return candlesData
-    }
-
-    // Fallback Mock Generator
-    const count = 80
-    const list: any[] = []
-    let currentPrice = endSpotPrice
-    const now = new Date()
-
-    const seedString = ticker + endSpotPrice + timeframe
-    let seed = seedString.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)
-    const random = () => {
-      const x = Math.sin(seed++) * 10000
-      return x - Math.floor(x)
-    }
-
-    let intervalMs = 24 * 60 * 60 * 1000 // default 1D
-    if (timeframe === '1m') intervalMs = 1 * 60 * 1000
-    else if (timeframe === '5m') intervalMs = 5 * 60 * 1000
-    else if (timeframe === '15m') intervalMs = 15 * 60 * 1000
-    else if (timeframe === '1W') intervalMs = 7 * 24 * 60 * 60 * 1000
-
-    for (let i = 0; i < count; i++) {
-      const date = new Date(now.getTime() - (count - 1 - i) * intervalMs)
-      
-      let dateStr = ''
-      if (timeframe.endsWith('m')) {
-        dateStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
-      } else {
-        dateStr = date.toLocaleDateString([], { month: 'short', day: 'numeric' })
-      }
-
-      const change = (random() - 0.485) * (currentPrice * 0.003)
-      const open = currentPrice - change
-      const close = currentPrice
-      const high = Math.max(open, close) + random() * (currentPrice * 0.0015)
-      const low = Math.min(open, close) - random() * (currentPrice * 0.0015)
-      const vol = Math.floor(10000 + random() * 90000)
-
-      list.push({
-        date: dateStr,
-        timestamp: date.getTime(),
-        open,
-        high,
-        low,
-        close,
-        volume: vol,
-      })
-
-      currentPrice = open
-    }
-
-    list.reverse()
-    if (list.length > 0) {
-      list[list.length - 1].close = endSpotPrice
-    }
-    return list
-  }, [ticker, endSpotPrice, timeframe, candlesData])
+    return candlesData
+  }, [candlesData])
 
   // Slice visible candles and indicator data
   const visibleCandlesData = useMemo(() => {
@@ -228,6 +171,9 @@ export function SyncedStrikeWorkspace({
   // 2. Calculate dynamic Indicators (EMA 50 only)
   const indicatorData = useMemo(() => {
     const closes = candles.map(c => c.close)
+    if (closes.length === 0) {
+      return { ema50: [] }
+    }
 
     const ema = (period: number) => {
       const vals: number[] = []
@@ -1599,12 +1545,19 @@ export function SyncedStrikeWorkspace({
       </div>
 
       {/* Candlestick SVG with Wheel zoom, drag events and reset double click */}
-      <svg 
-        ref={candleSvgRef} 
-        className={`h-full ${isCandlesCollapsed ? 'cursor-ns-resize' : 'cursor-crosshair'}`} 
-        onMouseDown={handleMouseDown}
-        onDoubleClick={handleDoubleClick}
-      />
+      <div className="h-full relative flex-shrink-0" style={{ width: isCandlesCollapsed ? '75px' : `${dimensions.width * 0.5}px` }}>
+        <svg 
+          ref={candleSvgRef} 
+          className={`h-full w-full ${isCandlesCollapsed ? 'cursor-ns-resize' : 'cursor-crosshair'}`} 
+          onMouseDown={handleMouseDown}
+          onDoubleClick={handleDoubleClick}
+        />
+        {candles.length === 0 && !loadingHistory && !isCandlesCollapsed && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-10 pointer-events-none border-r border-[#141416]">
+            <span className="text-xs font-mono text-[#555] uppercase tracking-wider text-center px-4">No historical price data available</span>
+          </div>
+        )}
+      </div>
 
       {/* GEX/VEX Profile SVG */}
       <svg 
