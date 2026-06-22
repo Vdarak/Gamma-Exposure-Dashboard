@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic"
 import { type NextRequest, NextResponse } from "next/server"
 
 // Helper function to determine if symbol is an index or equity

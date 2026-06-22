@@ -91,20 +91,6 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
     return () => observer.disconnect()
   }, [data])
 
-  // Map vertical wheel scroll to horizontal scrolling for density curves expiries selector
-  useEffect(() => {
-    const el = densityScrollRef.current
-    if (!el) return
-
-    const handleWheel = (e: WheelEvent) => {
-      if (e.deltaY === 0) return
-      e.preventDefault()
-      el.scrollLeft += e.deltaY * 0.8
-    }
-
-    el.addEventListener("wheel", handleWheel, { passive: false })
-    return () => el.removeEventListener("wheel", handleWheel)
-  }, [dropdownExpiries])
 
   // Find active 2D PDF data based on dropdown selection
   const active2DPdf = useMemo(() => {
@@ -441,6 +427,21 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
     }))
   }, [data])
 
+  // Map vertical wheel scroll to horizontal scrolling for density curves expiries selector
+  useEffect(() => {
+    const el = densityScrollRef.current
+    if (!el) return
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.deltaY === 0) return
+      e.preventDefault()
+      el.scrollLeft += e.deltaY * 0.8
+    }
+
+    el.addEventListener("wheel", handleWheel, { passive: false })
+    return () => el.removeEventListener("wheel", handleWheel)
+  }, [dropdownExpiries])
+
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-[#020203] p-4 text-[#D4D4D8] font-mono gap-4 overflow-y-auto terminal-scrollbar">
       {/* Top 2 charts row */}
@@ -472,10 +473,14 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
               <h2 className="text-xs font-mono font-bold text-[#E5E5E5] tracking-wider uppercase">Implied Density Curve PDF ($f(K)$)</h2>
               <p className="text-[9px] text-[#555] mt-0.5">Breeden-Litzenberger Risk-Neutral Probability distribution</p>
             </div>
-            {dropdownExpiries.length > 0 && (
+          </div>
+
+          {dropdownExpiries.length > 0 && (
+            <div className="flex items-center pb-1 flex-shrink-0">
               <div 
                 ref={densityScrollRef}
-                className="flex items-center gap-1.5 overflow-x-auto max-w-[240px] md:max-w-[320px] scrollbar-none pr-1"
+                className="flex-1 flex gap-1.5 overflow-x-auto whitespace-nowrap py-1.5 px-2 bg-black/40 border border-[#1A1A1D] rounded scroll-smooth"
+                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
               >
                 {dropdownExpiries.map(exp => {
                   const active = exp.value === selectedExpiry;
@@ -483,10 +488,10 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
                     <button
                       key={exp.value}
                       onClick={() => setSelectedExpiry(exp.value)}
-                      className={`px-2 py-0.5 rounded text-[9px] font-mono font-semibold transition-all border shrink-0 ${
+                      className={`px-3 py-1 rounded text-[10px] font-mono font-medium border uppercase transition-all duration-150 flex-shrink-0 ${
                         active
-                          ? 'bg-terminal-green/10 text-terminal-green border-terminal-green/30'
-                          : 'bg-black text-[#666] border-[#1C202E] hover:text-[#949494] hover:border-[#2B3045]'
+                          ? 'bg-terminal-green/10 border-terminal-green text-terminal-green shadow-[0_0_8px_rgba(0,200,5,0.15)]'
+                          : 'bg-[#0A0A0C] border-[#1A1A1E] text-[#949494] hover:text-[#E5E5E5] hover:border-[#333]'
                       }`}
                     >
                       {exp.label}
@@ -494,8 +499,8 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
                   );
                 })}
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {isLoading && !data && (
             <div className="flex-1 flex items-center justify-center">
