@@ -820,7 +820,7 @@ export function GammaExposureDashboard() {
                                     promptTemplate: "Analyze the strike levels and GEX clusters on the Synced Strike Workspace chart."
                                   })}
                                 >
-                                  <div className="h-[calc(100vh-220px)] min-h-[480px]">
+                                  <div className="h-[calc(100vh-180px)] min-h-[580px]">
                                     <SyncedStrikeWorkspace
                                       startOptionData={activeStartOptionData}
                                       endOptionData={activeEndOptionData}
@@ -1069,7 +1069,7 @@ export function GammaExposureDashboard() {
                             <p className="text-[10px] font-mono text-[#555] mt-0.5">Strikes GEX and Volume distribution overlay</p>
                           </div>
                         </div>
-                        <div className="h-[550px] w-full">
+                        <div className="h-[620px] w-full">
                           <SyncedStrikeWorkspace
                             startOptionData={activeStartOptionData}
                             endOptionData={activeEndOptionData}

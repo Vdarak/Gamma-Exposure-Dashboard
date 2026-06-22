@@ -262,15 +262,15 @@ export function GitaQuote() {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div className={`relative h-6 flex items-center justify-center transition-opacity duration-500 ${fade ? 'opacity-80 hover:opacity-100' : 'opacity-0'}`}>
+      <div className={`relative min-h-[24px] py-1 flex items-center justify-center transition-opacity duration-500 ${fade ? 'opacity-80 hover:opacity-100' : 'opacity-0'}`}>
         {/* Translation (Visible by default, fades out on hover) */}
-        <p className={`absolute text-[10px] md:text-[11px] text-[#fff] font-mono whitespace-nowrap overflow-hidden text-ellipsis max-w-full px-4 transition-all duration-300 ${hovered ? 'opacity-0 scale-[0.98] pointer-events-none' : 'opacity-100 scale-100'
+        <p className={`text-[10px] md:text-[11px] text-[#fff] font-mono text-center px-4 transition-all duration-300 whitespace-normal lg:whitespace-nowrap ${hovered ? 'absolute opacity-0 scale-[0.98] pointer-events-none' : 'relative opacity-100 scale-100'
           }`}>
           {current.translation}
         </p>
 
         {/* Sanskrit Shloka (Faded out by default, fades in on hover) */}
-        <p className={`absolute text-[10px] md:text-[11px] text-[#FFA726]/85 font-mono whitespace-nowrap overflow-hidden text-ellipsis max-w-full px-4 transition-all duration-300 ${hovered ? 'opacity-100 scale-100' : 'opacity-0 scale-[1.02] pointer-events-none'
+        <p className={`text-[10px] md:text-[11px] text-[#FFA726]/85 font-mono text-center px-4 transition-all duration-300 whitespace-normal lg:whitespace-nowrap ${hovered ? 'relative opacity-100 scale-100' : 'absolute opacity-0 scale-[1.02] pointer-events-none'
           }`}>
           {current.sanskrit.replace(/\n/g, '  ')}
         </p>

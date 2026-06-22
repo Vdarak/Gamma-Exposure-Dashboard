@@ -226,10 +226,17 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
     const sortedExpiries = [...data.expiries].sort((a, b) => a.daysToExpiry - b.daysToExpiry)
     const maxDte = d3.max(sortedExpiries, d => d.daysToExpiry) || 90
 
-    // Scales - Continuous Linear Scale for DTE
+    // Grid dimension settings to ensure perfect squares that fill the container
+    const numRows = 70
+    const cellSize = height / numRows
+    const numCols = Math.max(10, Math.floor(width / cellSize))
+    const gridWidth = numCols * cellSize
+    const xOffset = (width - gridWidth) / 2
+
+    // Scales - Continuous Linear Scale for DTE, aligned to the square grid boundaries
     const xScale = d3.scaleLinear()
       .domain([0, maxDte])
-      .range([0, width])
+      .range([xOffset, xOffset + gridWidth])
 
     // Y scale matches Stock Price offset %: spanning -40% to +30%
     const yScale = d3.scaleLinear()
@@ -252,12 +259,6 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
       }
       return closest.density;
     }
-
-    // Grid dimension settings
-    const numCols = 80
-    const numRows = 70
-    const cellWidth = width / numCols
-    const cellHeight = height / numRows
 
     // Generate flat grid cell array with bilinear DTE interpolation
     const cells: any[] = []
@@ -312,28 +313,55 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
       .join('rect')
       .attr('class', 'cell')
       .attr('x', d => xScale(d.dte))
-      .attr('y', d => yScale(d.pctOffset) - cellHeight)
-      .attr('width', Math.max(0.5, cellWidth - 0.2))
-      .attr('height', Math.max(0.5, cellHeight - 0.2))
+      .attr('y', d => yScale(d.pctOffset) - cellSize)
+      .attr('width', Math.max(0.5, cellSize - 0.2))
+      .attr('height', Math.max(0.5, cellSize - 0.2))
       .attr('fill', d => colorScale(d.normalizedDensity))
       .on('mousemove', (event, d) => {
         if (!tooltipRef.current || !containerRef3D.current) return
         const containerRect = containerRef3D.current.getBoundingClientRect()
         
         tooltipRef.current.innerHTML = `
-          <div style="font-family:${typography.fontSans};font-size:11px;color:${colors.text.primary};font-weight:600">
-            Maturity Horizon: ${d.dte.toFixed(1)} Days to Expiry (Linear Interpolated)
+          <div class="flex items-center justify-between border-b border-[#222]/40 pb-1.5 mb-1 flex-row gap-6">
+            <span class="text-[10px] font-mono font-bold text-[#E5E5E5] uppercase tracking-wider">Maturity Horizon</span>
+            <span class="text-[10px] font-mono text-[#00C805] font-bold">${d.dte.toFixed(1)} DTE</span>
           </div>
-          <div style="font-family:${typography.fontMono};font-size:10px;color:${colors.accent.amber};margin-top:3px">
-            Strike Level: $${d.strike.toFixed(1)} (${d.pctOffset >= 0 ? '+' : ''}${d.pctOffset.toFixed(1)}%)
-          </div>
-          <div style="font-family:${typography.fontMono};font-size:10px;color:${colors.accent.cyan}">
-            Relative Prob: ${(d.normalizedDensity * 100).toFixed(0)}%
+          <div class="flex flex-col gap-1.5 mt-1">
+            <div class="flex items-center justify-between text-[10px] font-mono flex-row gap-6">
+              <span class="text-[#949494]">Strike Level</span>
+              <span class="text-[#E5E5E5] font-bold">$${d.strike.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</span>
+            </div>
+            <div class="flex items-center justify-between text-[10px] font-mono flex-row gap-6">
+              <span class="text-[#949494]">Price Offset</span>
+              <span class="font-bold ${d.pctOffset >= 0 ? 'text-[#00C805]' : 'text-[#FF3B60]'}">${d.pctOffset >= 0 ? '+' : ''}${d.pctOffset.toFixed(1)}%</span>
+            </div>
+            <div class="flex items-center justify-between text-[10px] font-mono border-t border-[#222]/20 pt-1.5 mt-0.5 flex-row gap-6">
+              <span class="text-[#949494]">Relative Prob</span>
+              <span class="text-[#00C8FF] font-bold">${(d.normalizedDensity * 100).toFixed(0)}%</span>
+            </div>
           </div>
         `
         tooltipRef.current.style.opacity = '1'
-        tooltipRef.current.style.left = `${event.clientX - containerRect.left + 15}px`
-        tooltipRef.current.style.top = `${event.clientY - containerRect.top - 45}px`
+
+        const relX = event.clientX - containerRect.left
+        const relY = event.clientY - containerRect.top
+
+        // Intelligent edge-detection positioning
+        if (relX > containerRect.width - 280) {
+          tooltipRef.current.style.left = `${relX - 15}px`
+          tooltipRef.current.style.transform = 'translateX(-100%)'
+        } else {
+          tooltipRef.current.style.left = `${relX + 15}px`
+          tooltipRef.current.style.transform = 'none'
+        }
+
+        if (relY < 120) {
+          tooltipRef.current.style.top = `${relY + 20}px`
+        } else if (relY > containerRect.height - 120) {
+          tooltipRef.current.style.top = `${relY - 120}px`
+        } else {
+          tooltipRef.current.style.top = `${relY - 45}px`
+        }
       })
       .on('mouseleave', () => {
         if (tooltipRef.current) tooltipRef.current.style.opacity = '0'
@@ -343,7 +371,7 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
     const spotY = yScale(0)
     if (spotY >= 0 && spotY <= height) {
       g.append('line')
-        .attr('x1', 0).attr('x2', width)
+        .attr('x1', xOffset).attr('x2', xOffset + gridWidth)
         .attr('y1', spotY).attr('y2', spotY)
         .attr('stroke', '#FFFFFF')
         .attr('stroke-width', 0.8)
@@ -351,7 +379,7 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
         .style('opacity', 0.4)
 
       g.append('text')
-        .attr('x', 6)
+        .attr('x', xOffset + 6)
         .attr('y', spotY - 4)
         .attr('fill', '#FFFFFF')
         .style('font-family', typography.fontMono)
@@ -524,7 +552,7 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
             {/* Sync Tooltip */}
             <div
               ref={tooltipRef}
-              className="absolute pointer-events-none opacity-0 bg-[#0F0F12]/95 border border-[#222]/85 px-3 py-2 rounded text-[#D4D4D8] z-30 shadow-2xl transition-opacity duration-100"
+              className="absolute pointer-events-none opacity-0 bg-[#070709]/95 border border-[#141416]/90 rounded p-3 flex flex-col gap-2 shadow-2xl z-30 min-w-[260px] transition-opacity duration-100 text-[#D4D4D8]"
               style={{ width: "max-content" }}
             />
           </div>
