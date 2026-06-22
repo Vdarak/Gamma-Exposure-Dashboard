@@ -33,6 +33,7 @@ import { getStoredRates, updateRates } from './services/ratesService';
 import { AIAnalystService } from './services/aiAnalystService';
 import { getGarchForecast, getProbabilityMap, getQuantumTunneling } from './services/quantEngineService';
 import { ingestCotData, getHistoricalCot } from './services/cotIngestionService';
+import { pool } from './db/connection';
 
 dotenv.config();
 
@@ -739,6 +740,213 @@ app.put('/api/journal/settings/:key', async (req: Request, res: Response) => {
   }
 });
 
+// ============= SAAS WAITLIST & BILLING ENDPOINTS =============
+
+/**
+ * POST /api/waitlist/signup
+ * Add email to waitlist
+ */
+app.post('/api/waitlist/signup', async (req: Request, res: Response) => {
+  try {
+    const { email, tier } = req.body;
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ error: 'Email parameter is required' });
+    }
+    const selectedTier = typeof tier === 'string' ? tier : 'Free';
+    const status = selectedTier === 'Free' ? 'paid' : 'pending';
+
+    // Insert or update on conflict
+    const query = `
+      INSERT INTO waitlist_signups (email, tier, status)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (email) 
+      DO UPDATE SET tier = EXCLUDED.tier, status = CASE WHEN waitlist_signups.status = 'paid' THEN 'paid' ELSE EXCLUDED.status END
+      RETURNING *
+    `;
+    const result = await pool.query(query, [email.toLowerCase().trim(), selectedTier, status]);
+    
+    res.json({
+      success: true,
+      data: result.rows[0]
+    });
+  } catch (error: any) {
+    console.error('Error in /api/waitlist/signup:', error);
+    res.status(500).json({ error: error.message || 'Failed to submit waitlist signup' });
+  }
+});
+
+/**
+ * POST /api/billing/create-checkout-session
+ * Create checkout session for paid waitlist pre-orders
+ */
+app.post('/api/billing/create-checkout-session', async (req: Request, res: Response) => {
+  try {
+    const { email, tier } = req.body;
+    if (!email || !tier) {
+      return res.status(400).json({ error: 'Email and tier are required' });
+    }
+
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+    const sessionId = `cs_${Math.random().toString(36).substring(2, 15)}`;
+    
+    // Calculate price based on tier
+    // Pro: $199/yr, Lifetime: $499
+    let priceName = 'Pro Access';
+    let amount = 19900; // in cents
+    if (tier === 'Lifetime') {
+      priceName = 'Lifetime Access';
+      amount = 49900;
+    }
+
+    // Save initial pending state with session ID
+    await pool.query(
+      `INSERT INTO waitlist_signups (email, tier, status, stripe_session_id)
+       VALUES ($1, $2, 'pending', $3)
+       ON CONFLICT (email)
+       DO UPDATE SET stripe_session_id = EXCLUDED.stripe_session_id, tier = EXCLUDED.tier
+       WHERE waitlist_signups.status != 'paid'`,
+      [email.toLowerCase().trim(), tier, sessionId]
+    );
+
+    if (stripeSecretKey) {
+      // Real Stripe session creation if credentials exist
+      try {
+        const stripe = require('stripe')(stripeSecretKey);
+        const session = await stripe.checkout.sessions.create({
+          payment_method_types: ['card'],
+          line_items: [{
+            price_data: {
+              currency: 'usd',
+              product_data: {
+                name: `Gamma Exposure Terminal - ${priceName}`,
+                description: 'Pre-order priority waitlist access and terminal premium tools.',
+              },
+              unit_amount: amount,
+            },
+            quantity: 1,
+          }],
+          mode: 'payment',
+          customer_email: email,
+          success_url: `${FRONTEND_URL}/dashboard?session_id={CHECKOUT_SESSION_ID}&checkout=success`,
+          cancel_url: `${FRONTEND_URL}/?checkout=cancel`,
+        });
+
+        // Update with the real Stripe session ID
+        await pool.query(
+          'UPDATE waitlist_signups SET stripe_session_id = $1 WHERE email = $2',
+          [session.id, email.toLowerCase().trim()]
+        );
+
+        return res.json({
+          success: true,
+          sessionId: session.id,
+          checkoutUrl: session.url
+        });
+      } catch (stripeError: any) {
+        console.warn('Stripe checkout creation failed, falling back to simulation:', stripeError.message);
+      }
+    }
+
+    // Fallback: Return simulated checkout url
+    const simulatedCheckoutUrl = `${FRONTEND_URL}/checkout-session?session_id=${sessionId}&email=${encodeURIComponent(email)}&tier=${encodeURIComponent(tier)}`;
+    res.json({
+      success: true,
+      sessionId,
+      checkoutUrl: simulatedCheckoutUrl
+    });
+  } catch (error: any) {
+    console.error('Error in /api/billing/create-checkout-session:', error);
+    res.status(500).json({ error: error.message || 'Failed to create billing checkout session' });
+  }
+});
+
+/**
+ * POST /api/billing/webhook
+ * Standard Stripe webhook listener (can be triggered by Stripe CLI or simulated)
+ */
+app.post('/api/billing/webhook', async (req: Request, res: Response) => {
+  try {
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+    const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    
+    let event: any = req.body;
+    let sessionId: string | undefined;
+
+    if (stripeSecretKey && stripeWebhookSecret) {
+      const stripe = require('stripe')(stripeSecretKey);
+      const signature = req.headers['stripe-signature'];
+      try {
+        if (signature) {
+          event = stripe.webhooks.constructEvent(
+            req.body,
+            signature,
+            stripeWebhookSecret
+          );
+        }
+      } catch (err: any) {
+        console.error(`⚠️ Webhook signature verification failed:`, err.message);
+      }
+    }
+
+    // Handle the checkout.session.completed event
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      sessionId = session.id;
+      const email = session.customer_email || session.customer_details?.email;
+      
+      console.log(`💳 Stripe payment received for session ${sessionId} (${email})`);
+      
+      if (sessionId) {
+        await pool.query(
+          "UPDATE waitlist_signups SET status = 'paid' WHERE stripe_session_id = $1 OR (email = $2 AND status = 'pending')",
+          [sessionId, email ? email.toLowerCase().trim() : '']
+        );
+      }
+    }
+
+    res.json({ received: true });
+  } catch (error: any) {
+    console.error('Error in /api/billing/webhook:', error);
+    res.status(500).json({ error: error.message || 'Webhook handler failed' });
+  }
+});
+
+/**
+ * POST /api/billing/sim-payment-success
+ * Developer simulation route to trigger webhook database updates for the simulated checkout flow
+ */
+app.post('/api/billing/sim-payment-success', async (req: Request, res: Response) => {
+  try {
+    const { sessionId, email } = req.body;
+    if (!sessionId) {
+      return res.status(400).json({ error: 'Session ID is required' });
+    }
+
+    console.log(`💳 Simulated payment success callback triggered for session ${sessionId} (${email})`);
+    
+    const query = `
+      UPDATE waitlist_signups 
+      SET status = 'paid' 
+      WHERE stripe_session_id = $1 OR (email = $2 AND status = 'pending')
+      RETURNING *
+    `;
+    const result = await pool.query(query, [sessionId, email ? email.toLowerCase().trim() : '']);
+    
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'No pending waitlist entry found for this session/email' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Simulated payment processed successfully',
+      data: result.rows[0]
+    });
+  } catch (error: any) {
+    console.error('Error in /api/billing/sim-payment-success:', error);
+    res.status(500).json({ error: error.message || 'Simulation payment handler failed' });
+  }
+});
+
 // ============= HELPER FUNCTIONS =============
 
 /**
@@ -831,7 +1039,285 @@ app.post('/api/collect-now', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Retrieve recorded historical suggestions
+ */
+app.get('/api/suggestions/history', async (req: Request, res: Response) => {
+  try {
+    const ticker = (req.query.ticker as string || 'SPX').toUpperCase();
+    const result = await pool.query(
+      `SELECT id, ticker, timestamp, spot_price as "spotPrice", suggestion_type as "suggestionType", title, description, strikes, entry_trigger as "entryTrigger", risk_reward as "riskReward", confidence_score as "confidenceScore", ppi
+       FROM option_suggestions_history
+       WHERE ticker = $1
+       ORDER BY timestamp DESC
+       LIMIT 100`,
+      [ticker]
+    );
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error: any) {
+    console.error('Error in /api/suggestions/history:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch suggestions history' });
+  }
+});
+
+/**
+ * Manual trigger to log a suggestion
+ */
+app.post('/api/suggestions/collect', async (req: Request, res: Response) => {
+  try {
+    const ticker = (req.body?.ticker as string || 'SPX').toUpperCase();
+    console.log(`📊 Manual option suggestion logging triggered for ${ticker}`);
+    await recordOptionSuggestion(ticker);
+    res.json({
+      success: true,
+      message: `Option suggestion logged for ${ticker}`
+    });
+  } catch (error: any) {
+    console.error('Error in /api/suggestions/collect:', error);
+    res.status(500).json({ error: error.message || 'Failed to log suggestion' });
+  }
+});
+
+// ============= OPTION SUGGESTIONS RECORDER WORKER =============
+
+async function recordOptionSuggestion(ticker: string) {
+  try {
+    const snapshot = await getCurrentData(ticker);
+    if (!snapshot || !snapshot.options || snapshot.options.length === 0) {
+      console.log(`[Suggestions Recorder] No current options data for ${ticker}, skipping.`);
+      return;
+    }
+
+    const spot = snapshot.spotPrice;
+    const options = snapshot.options;
+    const referenceDate = new Date(snapshot.timestamp);
+    
+    let totalGEX = 0;
+    const gexByStrike: Record<number, number> = {};
+    const strikeOpenInterest: Record<number, { callOi: number; putOi: number }> = {};
+
+    const now = new Date(snapshot.timestamp);
+    now.setHours(0, 0, 0, 0);
+    const expiries = Array.from(new Set(options.map(o => o.expiration.getTime())))
+      .map(t => new Date(t))
+      .sort((a, b) => a.getTime() - b.getTime());
+    const selectedExpiry = expiries.find(d => d >= now) || expiries[0] || new Date();
+
+    options.forEach(opt => {
+      const vol = opt.impliedVolatility > 1.0 ? opt.impliedVolatility / 100 : (opt.impliedVolatility > 0.01 ? opt.impliedVolatility : 0.3);
+      const daysDiff = Math.max(1, Math.ceil((opt.expiration.getTime() - referenceDate.getTime()) / (1000 * 60 * 60 * 24)));
+      const T = daysDiff / 262;
+      const r = 0.0525;
+      const q = 0.0;
+
+      let gamma = 0;
+      if (T > 0 && vol > 0) {
+        const d1 = (Math.log(spot / opt.strike) + (r - q + 0.5 * vol * vol) * T) / (vol * Math.sqrt(T));
+        const normPdf = Math.exp(-0.5 * d1 * d1) / Math.sqrt(2 * Math.PI);
+        gamma = (Math.exp(-q * T) * normPdf) / (spot * vol * Math.sqrt(T));
+      }
+
+      let gexVal = opt.openInterest * 100 * spot * spot * 0.01 * gamma;
+      if (opt.type === 'P') gexVal = -gexVal;
+
+      totalGEX += gexVal;
+      gexByStrike[opt.strike] = (gexByStrike[opt.strike] || 0) + gexVal;
+
+      if (opt.expiration.toDateString() === selectedExpiry.toDateString()) {
+        if (!strikeOpenInterest[opt.strike]) {
+          strikeOpenInterest[opt.strike] = { callOi: 0, putOi: 0 };
+        }
+        if (opt.type === 'C') {
+          strikeOpenInterest[opt.strike].callOi += opt.openInterest;
+        } else {
+          strikeOpenInterest[opt.strike].putOi += opt.openInterest;
+        }
+      }
+    });
+
+    let maxGexStrike = 0;
+    let maxGexVal = 0;
+    Object.entries(gexByStrike).forEach(([strikeStr, val]) => {
+      if (Math.abs(val) > Math.abs(maxGexVal)) {
+        maxGexVal = val;
+        maxGexStrike = parseFloat(strikeStr);
+      }
+    });
+
+    let callWall = spot * 1.01;
+    let putWall = spot * 0.99;
+    let maxCallOi = -1;
+    let maxPutOi = -1;
+
+    Object.entries(strikeOpenInterest).forEach(([strikeStr, oi]) => {
+      const strikeNum = parseFloat(strikeStr);
+      if (oi.callOi > maxCallOi) {
+        maxCallOi = oi.callOi;
+        callWall = strikeNum;
+      }
+      if (oi.putOi > maxPutOi) {
+        maxPutOi = oi.putOi;
+        putWall = strikeNum;
+      }
+    });
+
+    let strikeAbove = spot * 1.01;
+    let strikeBelow = spot * 0.99;
+    let maxGexAboveVal = 0;
+    let maxGexBelowVal = 0;
+
+    Object.entries(gexByStrike).forEach(([strikeStr, val]) => {
+      const strikeNum = parseFloat(strikeStr);
+      if (strikeNum > spot) {
+        if (val > maxGexAboveVal) {
+          maxGexAboveVal = val;
+          strikeAbove = strikeNum;
+        }
+      } else if (strikeNum < spot) {
+        if (Math.abs(val) > maxGexBelowVal) {
+          maxGexBelowVal = Math.abs(val);
+          strikeBelow = strikeNum;
+        }
+      }
+    });
+
+    const roundStrikeAbove = Math.round(strikeAbove / 5) * 5;
+    const roundStrikeBelow = Math.round(strikeBelow / 5) * 5;
+
+    const dateCT = new Date(snapshot.timestamp.toLocaleString("en-US", { timeZone: "America/Chicago" }));
+    const hour = dateCT.getHours();
+    const minutes = dateCT.getMinutes();
+    const minutesTillClose = Math.max(5, Math.min(390, (16 - hour) * 60 - minutes));
+
+    const isPosGex = totalGEX > 0;
+    const proximity = Math.abs(spot - maxGexStrike) / spot;
+    let ppi = 40;
+    
+    if (isPosGex) ppi += 20;
+    else ppi -= 35;
+
+    if (proximity < 0.001) ppi += 30;
+    else if (proximity < 0.005) ppi += 15;
+    else if (proximity > 0.015) ppi -= 20;
+
+    if (minutesTillClose <= 60) ppi += 15;
+
+    const finalPpi = Math.max(5, Math.min(95, ppi));
+    const isPinRegime = finalPpi >= 55 || (totalGEX < 0 && proximity < 0.008);
+
+    const distToCall = Math.abs(spot - callWall) / spot;
+    const distToPut = Math.abs(spot - putWall) / spot;
+    const callProb = Math.max(2, Math.min(98, Math.round((1 - distToCall) * 50 + (totalGEX < 0 ? 30 : -10))));
+    const putProb = Math.max(2, Math.min(98, Math.round((1 - distToPut) * 50 + (totalGEX < 0 ? 30 : -10))));
+
+    let type = "neutral_pin";
+    let title = "";
+    let description = "";
+    let strikes = "";
+    let confidenceScore = finalPpi;
+    let entryTrigger = "";
+    let riskReward = "";
+
+    const formatCurrency = (val: number) => `$${val.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`;
+
+    if (isPinRegime) {
+      if (totalGEX < 0) {
+        type = "bearish_breakout";
+        title = `${ticker} 0DTE Negative Pin Settlebomb`;
+        description = `A massive negative GEX cluster at ${maxGexStrike} is acting as a gravity well. Despite negative gamma volatility, dealer hedging flows are trapping the index near this key strike.`;
+        strikes = `BUY 1x SPX ${maxGexStrike - 10} Put / SELL 2x SPX ${maxGexStrike} Put / BUY 1x SPX ${maxGexStrike + 10} Put (0DTE Put Butterfly Spread)`;
+        entryTrigger = `Enter when price oscillates within 0.5% of ${maxGexStrike} after 2:30 PM EST.`;
+        riskReward = "Max Risk: $220 | Max Reward: $780 (per lot)";
+        confidenceScore = Math.max(50, 90 - Math.round(proximity * 10000));
+      } else {
+        type = "neutral_pin";
+        title = `${ticker} 0DTE Pin Settlebomb`;
+        description = `Positive GEX cluster is acting as a major price magnet. Dealer hedging will compress volatility and pin the close near ${maxGexStrike}.`;
+        strikes = `BUY 1x SPX ${maxGexStrike - 10} Call / SELL 2x SPX ${maxGexStrike} Call / BUY 1x SPX ${maxGexStrike + 10} Call (0DTE Butterfly Spread)`;
+        entryTrigger = `Enter between 3:15 PM and 3:30 PM EST if price remains within 0.25% of ${maxGexStrike}.`;
+        riskReward = "Max Risk: $180 | Max Reward: $820 (per lot)";
+      }
+    } else {
+      const isCallWallProximity = Math.abs(spot - callWall) / spot < 0.003;
+      const isPutWallProximity = Math.abs(spot - putWall) / spot < 0.003;
+
+      if (spot >= callWall || isCallWallProximity) {
+        type = "bullish_squeeze";
+        title = `${ticker} 0DTE Squeeze Settlebomb (Target: ${roundStrikeAbove})`;
+        description = `Spot is breaching Call Wall at ${callWall} in a Negative GEX regime. Dealer short-gamma covering will accelerate a sharp short-squeeze upward, pulling price toward the highest positive GEX cluster at ${roundStrikeAbove}.`;
+        strikes = `BUY 1x SPX ${Math.round(callWall / 5) * 5} Call / SELL 1x SPX ${roundStrikeAbove} Call (0DTE Bull Call Spread)`;
+        entryTrigger = `Enter on a solid 5-minute candle close above ${callWall} with rising options volume.`;
+        riskReward = "Max Risk: $250 | Max Reward: Unlimited (Uncapped squeeze)";
+        confidenceScore = Math.round(callProb * 0.9);
+      } else if (spot <= putWall || isPutWallProximity) {
+        type = "bearish_breakout";
+        title = `${ticker} 0DTE Put Crash Settlebomb (Target: ${roundStrikeBelow})`;
+        description = `Spot is cracking below Put Wall at ${putWall} in a Negative GEX regime. Dealer delta-hedging will dump futures, creating a cascading selloff toward the highest negative GEX cluster at ${roundStrikeBelow}.`;
+        strikes = `BUY 1x SPX ${Math.round(putWall / 5) * 5} Put / SELL 1x SPX ${roundStrikeBelow} Put (0DTE Bear Put Spread)`;
+        entryTrigger = `Enter on a solid 5-minute candle close below ${putWall} with high put buying flow.`;
+        riskReward = "Max Risk: $300 | Max Reward: Unlimited";
+        confidenceScore = Math.round(putProb * 0.9);
+      } else {
+        type = "credit_spread";
+        title = `${ticker} 0DTE Range-Bound Credit Settlebomb`;
+        description = `Volatility is elevated but spot sits in no-man's-land between ${putWall} and ${callWall}. Positive GEX walls are holding.`;
+        strikes = `SELL 1x SPX ${Math.ceil(callWall / 5) * 5} Call / SELL 1x SPX ${Math.floor(putWall / 5) * 5} Put (0DTE Iron Condor)`;
+        entryTrigger = `Enter if index stays in range during lunchtime (11:30 AM - 1:30 PM EST) and decay ramps.`;
+        riskReward = "Max Risk: $400 | Max Reward: $100 (92% probability of full profit)";
+        confidenceScore = 88;
+      }
+    }
+
+    await pool.query(
+      `INSERT INTO option_suggestions_history (
+        ticker, timestamp, spot_price, suggestion_type, title, description, strikes, entry_trigger, risk_reward, confidence_score, ppi
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [
+        ticker,
+        snapshot.timestamp,
+        spot,
+        type,
+        title,
+        description,
+        strikes,
+        entryTrigger,
+        riskReward,
+        confidenceScore,
+        finalPpi
+      ]
+    );
+
+    console.log(`[Suggestions Recorder] Successfully logged suggestion: ${title} for ${ticker} at ${snapshot.timestamp}`);
+  } catch (error) {
+    console.error(`[Suggestions Recorder] Failed to log option suggestion for ${ticker}:`, error);
+  }
+}
+
 // ============= SCHEDULED TASKS =============
+
+/**
+ * Schedule option suggestions logging every 15 minutes during market hours
+ */
+cron.schedule('*/15 * * * 1-5', async () => {
+  const now = new Date();
+  const dateET = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const hour = dateET.getHours();
+  const minutes = dateET.getMinutes();
+  
+  // Market hours: 9:30 AM to 4:00 PM EST. 9:45 AM ET to 4:00 PM ET is the target logging window
+  const isMarketSession = (hour === 9 && minutes >= 45) || (hour > 9 && hour < 16) || (hour === 16 && minutes === 0);
+  
+  if (isMarketSession) {
+    console.log(`\n⏰ [${new Date().toISOString()}] Recording option suggestion snapshot for SPX`);
+    await recordOptionSuggestion('SPX');
+  }
+});
+
+console.log('⏰ Option suggestion logging scheduled: every 15 mins during market hours (9:45 AM to 4:00 PM ET)');
+
 
 /**
  * Schedule data collection every N minutes

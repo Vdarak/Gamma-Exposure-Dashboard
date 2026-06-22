@@ -531,6 +531,16 @@ export interface ProbabilityMapData {
   kurtosis: number
   pinStrike: number
   pdf: Array<{ strike: number; density: number; cumulative: number }>
+  expiries?: Array<{
+    expiration: string
+    daysToExpiry: number
+    mean: number
+    stdDev: number
+    skewness: number
+    kurtosis: number
+    pinStrike: number
+    pdf: Array<{ strike: number; density: number; cumulative: number }>
+  }>
 }
 
 export interface GarchForecastData {

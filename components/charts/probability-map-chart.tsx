@@ -95,12 +95,12 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
   // Find active 2D PDF data based on dropdown selection
   const active2DPdf = useMemo(() => {
     if (!data || !data.expiries) return null
-    return data.expiries.find(d => d.expiration === selectedExpiry) || data.expiries[0]
+    return data.expiries.find((d: any) => d.expiration === selectedExpiry) || data.expiries[0]
   }, [data, selectedExpiry])
 
   // ─── 1. RENDER D3 2D DENSITY CURVE (Top Right) ───
   useEffect(() => {
-    if (!svgRef2D.current || !active2DPdf || !active2DPdf.pdf || active2DPdf.pdf.length === 0) return
+    if (!svgRef2D.current || !active2DPdf || !active2DPdf.pdf || active2DPdf.pdf.length === 0 || !data) return
 
     const margin = { top: 15, right: 15, bottom: 30, left: 45 }
     const width = dims2D.width - margin.left - margin.right
@@ -114,11 +114,11 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
     const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
 
     // Scales
-    const xMin = d3.min(active2DPdf.pdf, d => d.strike) || 0
-    const xMax = d3.max(active2DPdf.pdf, d => d.strike) || 100
+    const xMin = d3.min(active2DPdf.pdf, (d: any) => d.strike) || 0
+    const xMax = d3.max(active2DPdf.pdf, (d: any) => d.strike) || 100
     const xScale = d3.scaleLinear().domain([xMin, xMax]).range([0, width])
 
-    const yMax = d3.max(active2DPdf.pdf, d => d.density) || 0.01
+    const yMax = d3.max(active2DPdf.pdf, (d: any) => d.density) || 0.01
     const yScale = d3.scaleLinear().domain([0, yMax * 1.1]).range([height, 0])
 
     // Area & Line Generators
@@ -226,7 +226,7 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
 
     // Sort expiries chronologically
     const sortedExpiries = [...data.expiries].sort((a, b) => a.daysToExpiry - b.daysToExpiry)
-    const maxDte = d3.max(sortedExpiries, d => d.daysToExpiry) || 90
+    const maxDte = d3.max(sortedExpiries, (d: any) => d.daysToExpiry) || 90
 
     // Grid dimension settings to ensure perfect squares that fill the container
     const numRows = 70
@@ -314,12 +314,12 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
       .data(cells)
       .join('rect')
       .attr('class', 'cell')
-      .attr('x', d => xScale(d.dte))
-      .attr('y', d => yScale(d.pctOffset) - cellSize)
+      .attr('x', (d: any) => xScale(d.dte))
+      .attr('y', (d: any) => yScale(d.pctOffset) - cellSize)
       .attr('width', Math.max(0.5, cellSize - 0.2))
       .attr('height', Math.max(0.5, cellSize - 0.2))
-      .attr('fill', d => colorScale(d.normalizedDensity))
-      .on('mousemove', (event, d) => {
+      .attr('fill', (d: any) => colorScale(d.normalizedDensity))
+      .on('mousemove', (event, d: any) => {
         if (!tooltipRef.current || !containerRef3D.current) return
         const containerRect = containerRef3D.current.getBoundingClientRect()
         
@@ -400,7 +400,7 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
       .style('font-size', '8.5px')
     xAxisG.selectAll('.tick line').attr('stroke', '#1A1A1E')
 
-    const yAxis = d3.axisLeft(yScale).tickValues([-40, -25, -10, 0, 15, 30]).tickFormat(d => {
+    const yAxis = d3.axisLeft(yScale).tickValues([-40, -25, -10, 0, 15, 30]).tickFormat((d: any) => {
       if (d === 0) return 'SPOT'
       return `${d >= 0 ? '+' : ''}${d}%`
     })

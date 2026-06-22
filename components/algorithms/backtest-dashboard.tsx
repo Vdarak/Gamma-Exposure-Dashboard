@@ -172,6 +172,7 @@ export function BacktestDashboard() {
       const json = await response.json();
       if (response.ok && json.success) {
         setResult(json.data);
+        localStorage.setItem('last_backtest_result', JSON.stringify(json.data));
         setActiveTab('overview');
         setLeftSidebarTab('settings'); // Make the settings panel take over the chat
         toast.success(`Backtest completed for ${configToRun.ticker}!`);

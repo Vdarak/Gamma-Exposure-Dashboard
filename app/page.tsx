@@ -1,5 +1,5 @@
-import { GammaExposureDashboard } from "@/components/gamma-exposure-dashboard"
+import { LandingPage } from "@/components/landing/landing-page"
 
 export default function HomePage() {
-  return <GammaExposureDashboard />
+  return <LandingPage />
 }

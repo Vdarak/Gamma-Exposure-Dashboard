@@ -219,3 +219,32 @@ CREATE TABLE IF NOT EXISTS quant_forecasts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_quant_forecasts_ticker_date ON quant_forecasts(ticker, forecast_date DESC);
+
+-- SaaS Waitlist Signups
+CREATE TABLE IF NOT EXISTS waitlist_signups (
+  id SERIAL PRIMARY KEY,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  tier VARCHAR(50) NOT NULL DEFAULT 'Free',
+  status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'paid')),
+  stripe_session_id VARCHAR(255),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Option Suggestions History
+CREATE TABLE IF NOT EXISTS option_suggestions_history (
+  id SERIAL PRIMARY KEY,
+  ticker VARCHAR(10) NOT NULL,
+  timestamp TIMESTAMP NOT NULL,
+  spot_price DECIMAL(12, 4) NOT NULL,
+  suggestion_type VARCHAR(50) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  description TEXT NOT NULL,
+  strikes TEXT NOT NULL,
+  entry_trigger TEXT NOT NULL,
+  risk_reward TEXT NOT NULL,
+  confidence_score INTEGER NOT NULL,
+  ppi INTEGER NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_suggestions_ticker_timestamp ON option_suggestions_history(ticker, timestamp DESC);
+

@@ -289,26 +289,66 @@ export async function loadHistoricalData(
     else if (timeframe === '30m') aggMinutes = 30;
     else if (timeframe === '1h') aggMinutes = 60;
 
+    // Check if Indian market to set correct session times
+    const isIndia = ['NIFTY', 'BANKNIFTY', 'RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK', 'KOTAKBANK', 'SBIN', 'ITC', 'LT'].includes(tickerUpper) || tickerUpper.endsWith('.NS');
+    const marketStart = isIndia ? '09:15:00' : '09:30:00';
+    const marketEnd = isIndia ? '15:30:00' : '16:00:00';
+
     let sql = '';
     if (aggMinutes === 1) {
-      // Direct load
+      // Direct load with outlier/wick cleaning and session hours filtering
       sql = `
         SELECT 
           timestamp::VARCHAR as timestamp,
           open::DOUBLE as open,
-          high::DOUBLE as high,
-          low::DOUBLE as low,
+          CASE 
+            WHEN CAST(timestamp AS TIME) = TIME '${marketEnd}' THEN greatest(open::DOUBLE, close::DOUBLE)
+            WHEN (high::DOUBLE - greatest(open::DOUBLE, close::DOUBLE)) / close::DOUBLE > 0.015 
+              THEN greatest(open::DOUBLE, close::DOUBLE) + 0.001 * close::DOUBLE
+            ELSE high::DOUBLE
+          END as high,
+          CASE 
+            WHEN CAST(timestamp AS TIME) = TIME '${marketEnd}' THEN least(open::DOUBLE, close::DOUBLE)
+            WHEN (least(open::DOUBLE, close::DOUBLE) - low::DOUBLE) / close::DOUBLE > 0.015 
+              THEN least(open::DOUBLE, close::DOUBLE) - 0.001 * close::DOUBLE
+            ELSE low::DOUBLE
+          END as low,
           close::DOUBLE as close,
           volume::DOUBLE as volume
         FROM ${readFunc}(${sourceArg})
         WHERE timestamp >= '${startDate} 00:00:00' AND timestamp <= '${endDate} 23:59:59'
+          AND CAST(timestamp AS TIME) >= TIME '${marketStart}'
+          AND CAST(timestamp AS TIME) <= TIME '${marketEnd}'
         ORDER BY timestamp ASC
       `;
     } else {
-      // Aggregate 1-minute bars using DuckDB window/grouping functions
-      // We truncate the timestamp to the lower boundaries of the bar interval
+      // Aggregate 1-minute bars using DuckDB time_bucket and arg_min/arg_max window functions.
+      // Performs outlier cleaning on the 1-minute bars first before aggregating.
       sql = `
-        WITH grouped_bars AS (
+        WITH cleaned_raw AS (
+          SELECT 
+            timestamp,
+            open::DOUBLE as open,
+            close::DOUBLE as close,
+            volume::DOUBLE as volume,
+            CASE 
+              WHEN CAST(timestamp AS TIME) = TIME '${marketEnd}' THEN greatest(open::DOUBLE, close::DOUBLE)
+              WHEN (high::DOUBLE - greatest(open::DOUBLE, close::DOUBLE)) / close::DOUBLE > 0.015 
+                THEN greatest(open::DOUBLE, close::DOUBLE) + 0.001 * close::DOUBLE
+              ELSE high::DOUBLE
+            END as high,
+            CASE 
+              WHEN CAST(timestamp AS TIME) = TIME '${marketEnd}' THEN least(open::DOUBLE, close::DOUBLE)
+              WHEN (least(open::DOUBLE, close::DOUBLE) - low::DOUBLE) / close::DOUBLE > 0.015 
+                THEN least(open::DOUBLE, close::DOUBLE) - 0.001 * close::DOUBLE
+              ELSE low::DOUBLE
+            END as low
+          FROM ${readFunc}(${sourceArg})
+          WHERE timestamp >= '${startDate} 00:00:00' AND timestamp <= '${endDate} 23:59:59'
+            AND CAST(timestamp AS TIME) >= TIME '${marketStart}'
+            AND CAST(timestamp AS TIME) <= TIME '${marketEnd}'
+        ),
+        grouped_bars AS (
           SELECT 
             time_bucket(INTERVAL '${aggMinutes} minutes', timestamp) AS bucket_time,
             timestamp,
@@ -317,31 +357,18 @@ export async function loadHistoricalData(
             low,
             close,
             volume
-          FROM ${readFunc}(${sourceArg})
-          WHERE timestamp >= '${startDate} 00:00:00' AND timestamp <= '${endDate} 23:59:59'
-        ),
-        ranked_bars AS (
-          SELECT
-            bucket_time,
-            open,
-            close,
-            volume,
-            row_number() OVER (PARTITION BY bucket_time ORDER BY timestamp ASC) as rn_first,
-            row_number() OVER (PARTITION BY bucket_time ORDER BY timestamp DESC) as rn_last
-          FROM grouped_bars
+          FROM cleaned_raw
         )
         SELECT 
-          g.bucket_time::VARCHAR as timestamp,
-          MIN(r_first.open)::DOUBLE as open,
-          MAX(g.high)::DOUBLE as high,
-          MIN(g.low)::DOUBLE as low,
-          MIN(r_last.close)::DOUBLE as close,
-          SUM(g.volume)::DOUBLE as volume
-        FROM grouped_bars g
-        LEFT JOIN ranked_bars r_first ON g.bucket_time = r_first.bucket_time AND r_first.rn_first = 1
-        LEFT JOIN ranked_bars r_last ON g.bucket_time = r_last.bucket_time AND r_last.rn_last = 1
-        GROUP BY g.bucket_time
-        ORDER BY g.bucket_time ASC
+          bucket_time::VARCHAR as timestamp,
+          arg_min(open, timestamp)::DOUBLE as open,
+          MAX(high)::DOUBLE as high,
+          MIN(low)::DOUBLE as low,
+          arg_max(close, timestamp)::DOUBLE as close,
+          SUM(volume)::DOUBLE as volume
+        FROM grouped_bars
+        GROUP BY bucket_time
+        ORDER BY bucket_time ASC
       `;
     }
 

@@ -26,6 +26,7 @@ import { HorizontalExpirySelector } from "./controls/horizontal-expiry-selector"
 import { TradingJournal } from "./trading-journal/trading-journal"
 import { OptionFlowDashboard } from "./option-flow-dashboard"
 import { BacktestDashboard } from "./algorithms/backtest-dashboard"
+import { StrategyStatsDashboard } from "./dashboard/strategy-stats-dashboard"
 import { AIAnalystPanel } from "./AIAnalystPanel"
 import { FloatingAskButton } from "./ui/floating-ask-button"
 import { ProbabilityMapChart } from "./charts/probability-map-chart"
@@ -33,6 +34,8 @@ import { GarchForecastChart } from "./charts/garch-forecast-chart"
 import { QuantumTunnelingGauge } from "./charts/quantum-tunneling-gauge"
 import { CotFlowChart } from "./charts/cot-flow-chart"
 import { GitaQuote } from "./layout/gita-quote"
+import { ConfluenceHub } from "./confluence/confluence-hub"
+import { createJournalTrade } from "@/lib/backend-api"
 
 // UI components
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -40,11 +43,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 // ─── Sidebar Config ──────────────────────────────────────────────
 
 const SIDEBAR_TABS = [
+  { id: 'confluences', label: 'Confluence Hub', icon: 'confluence' },
   { id: 'gex', label: 'GEX Analytics', icon: 'gex' },
   { id: 'flow', label: 'Options Flow', icon: 'flow' },
   { id: 'quant', label: 'Quant Pricing', icon: 'scanners' },
   { id: 'algos', label: 'Backtesting', icon: 'algos' },
   { id: 'journal', label: 'Journal', icon: 'calendar' },
+  { id: 'stats', label: 'Strategy Stats', icon: 'stats' },
 ]
 
 // ─── Sub-tabs Config per Sidebar Tab ─────────────────────────────
@@ -82,7 +87,7 @@ const INDIA_TICKERS = [
 
 export function GammaExposureDashboard() {
   // Navigation State
-  const [activeSidebarTab, setActiveSidebarTab] = useState("gex")
+  const [activeSidebarTab, setActiveSidebarTab] = useState("confluences")
   const [activeTab, setActiveTab] = useState("distribution")
 
   // Core state
@@ -547,6 +552,11 @@ export function GammaExposureDashboard() {
                     ? 'text-terminal-green scale-105'
                     : 'text-[#444] group-hover:text-[#949499]'
                 }`}>
+                  {tab.icon === 'confluence' && (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9s2.015-9 4.5-9m0 0a9.004 9.004 0 018.716 6.747M12 3a9.004 9.004 0 00-8.716 6.747" />
+                    </svg>
+                  )}
                   {tab.icon === 'gex' && (
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
@@ -575,6 +585,11 @@ export function GammaExposureDashboard() {
                   {tab.icon === 'algos' && (
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+                    </svg>
+                  )}
+                  {tab.icon === 'stats' && (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0020.25 18V6A2.25 2.25 0 0018 3.75H6A2.25 2.25 0 003.75 6v12A2.25 2.25 0 006 20.25z" />
                     </svg>
                   )}
                 </div>
@@ -621,6 +636,11 @@ export function GammaExposureDashboard() {
                   ? 'text-terminal-green scale-105'
                   : 'text-[#555]'
               }`}>
+                {tab.icon === 'confluence' && (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9s2.015-9 4.5-9m0 0a9.004 9.004 0 018.716 6.747M12 3a9.004 9.004 0 00-8.716 6.747" />
+                  </svg>
+                )}
                 {tab.icon === 'gex' && (
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
@@ -649,6 +669,11 @@ export function GammaExposureDashboard() {
                 {tab.icon === 'algos' && (
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+                  </svg>
+                )}
+                {tab.icon === 'stats' && (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0020.25 18V6A2.25 2.25 0 0018 3.75H6A2.25 2.25 0 003.75 6v12A2.25 2.25 0 006 20.25z" />
                   </svg>
                 )}
               </div>
@@ -722,6 +747,46 @@ export function GammaExposureDashboard() {
               </div>
             )}
 
+            {/* Confluence Hub Workspace */}
+            {activeSidebarTab === 'confluences' && !isLoading && (
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                <ConfluenceHub
+                  ticker={ticker}
+                  market={market}
+                  spotPrice={spotPrice}
+                  optionData={activeOptionData}
+                  pricingMethod={pricingMethod}
+                  totalGEX={activeTotalGEX}
+                  gammaFlipLevel={gammaFlipLevel}
+                  onLogJournalTrade={async (trade) => {
+                    try {
+                      const journalTrade = {
+                        id: `SB-${Date.now()}`,
+                        tradeDate: trade.date,
+                        timeEntered: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+                        timeExited: null,
+                        ticker: trade.ticker,
+                        tradeType: 'Option' as const,
+                        direction: 'Buy' as const,
+                        quality: 'A' as const,
+                        pnl: 0,
+                        pnlPercent: 0,
+                        rationale: trade.notes,
+                        strategy: trade.strategy,
+                        quantity: 1,
+                        entryPrice: trade.entryPrice,
+                        exitPrice: 0,
+                        status: 'Open' as const
+                      }
+                      await createJournalTrade(journalTrade)
+                    } catch (e) {
+                      console.error("Error creating journal trade:", e)
+                    }
+                  }}
+                />
+              </div>
+            )}
+
             {/* Trading Journal Workspace */}
             {activeSidebarTab === 'journal' && (
               <div className="flex-1 flex flex-col min-h-0 overflow-hidden h-full">
@@ -732,6 +797,13 @@ export function GammaExposureDashboard() {
             {/* Algorithms Backtesting Workspace */}
             {activeSidebarTab === 'algos' && (
               <BacktestDashboard />
+            )}
+
+            {/* Strategy Stats Workspace */}
+            {activeSidebarTab === 'stats' && (
+              <div className="flex-1 flex flex-col min-h-0 overflow-y-auto h-full p-4">
+                <StrategyStatsDashboard />
+              </div>
             )}
 
             {/* Unified Workspace Shell for GEX, Flow, and Quant */}
@@ -831,6 +903,10 @@ export function GammaExposureDashboard() {
                                       pricingMethod={pricingMethod}
                                       expiryMode={expiryMode}
                                       isLive={isLive}
+                                      availableExpiries={futureExpiries}
+                                      selectedExpiries={customSelectedExpiries}
+                                      onSelectedExpiriesChange={setCustomSelectedExpiries}
+                                      onExpiryModeChange={setExpiryMode}
                                     />
                                   </div>
                                 </div>
@@ -1089,6 +1165,10 @@ export function GammaExposureDashboard() {
                             isLive={isLive}
                             defaultRotated={true}
                             defaultCandlesCollapsed={true}
+                            availableExpiries={futureExpiries}
+                            selectedExpiries={customSelectedExpiries}
+                            onSelectedExpiriesChange={setCustomSelectedExpiries}
+                            onExpiryModeChange={setExpiryMode}
                           />
                         </div>
                       </div>

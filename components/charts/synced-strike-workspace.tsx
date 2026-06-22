@@ -10,9 +10,12 @@ import {
   findZeroGammaLevel,
   computeVannaByStrike,
   computeCharmByStrike,
+  computeCallPutWalls,
   type PricingMethod
 } from "@/lib/calculations"
-import { ChevronsLeft, ChevronsRight, BarChart3, Settings2, RotateCw } from "lucide-react"
+import { ChevronsLeft, ChevronsRight, BarChart3, Settings2, RotateCw, Layers, Calendar } from "lucide-react"
+import { Popover, PopoverTrigger, PopoverContent } from "../ui/popover"
+import { ExpirySelector } from "../controls/expiry-selector"
 
 function formatCompact(num: number): string {
   if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`
@@ -60,6 +63,10 @@ interface SyncedStrikeWorkspaceProps {
   isLive: boolean
   defaultRotated?: boolean
   defaultCandlesCollapsed?: boolean
+  availableExpiries?: string[]
+  selectedExpiries?: string[]
+  onSelectedExpiriesChange?: (expiries: string[]) => void
+  onExpiryModeChange?: (mode: any) => void
 }
 
 
@@ -75,6 +82,10 @@ export function SyncedStrikeWorkspace({
   isLive,
   defaultRotated,
   defaultCandlesCollapsed,
+  availableExpiries,
+  selectedExpiries,
+  onSelectedExpiriesChange,
+  onExpiryModeChange,
 }: SyncedStrikeWorkspaceProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const candleSvgRef = useRef<SVGSVGElement>(null)
@@ -97,6 +108,7 @@ export function SyncedStrikeWorkspace({
 
   // Collapsible Candlestick panel state
   const [isCandlesCollapsed, setIsCandlesCollapsed] = useState(defaultCandlesCollapsed ?? false)
+  const [isGexOverlayEnabled, setIsGexOverlayEnabled] = useState(false)
 
   // Risk-free rate information
   const [ratesInfo, setRatesInfo] = useState({
@@ -120,6 +132,63 @@ export function SyncedStrikeWorkspace({
       })
       .catch(err => console.error("Error loading risk-free rates:", err))
   }, [])
+
+  // Synchronize GEX overlay state with native browser fullscreen state
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (!containerRef.current) return
+      const isCurrentlyFullscreen = document.fullscreenElement === containerRef.current
+      setIsGexOverlayEnabled(isCurrentlyFullscreen)
+    }
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange)
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange)
+    document.addEventListener("mozfullscreenchange", handleFullscreenChange)
+    document.addEventListener("MSFullscreenChange", handleFullscreenChange)
+
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange)
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange)
+      document.removeEventListener("mozfullscreenchange", handleFullscreenChange)
+      document.removeEventListener("MSFullscreenChange", handleFullscreenChange)
+    }
+  }, [])
+
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return
+    
+    const nextState = !isGexOverlayEnabled
+    
+    try {
+      if (nextState) {
+        const el = containerRef.current
+        if (el.requestFullscreen) {
+          el.requestFullscreen()
+        } else if ((el as any).webkitRequestFullscreen) {
+          (el as any).webkitRequestFullscreen()
+        } else if ((el as any).mozRequestFullScreen) {
+          (el as any).mozRequestFullScreen()
+        } else if ((el as any).msRequestFullscreen) {
+          (el as any).msRequestFullscreen()
+        }
+      } else {
+        if (document.fullscreenElement) {
+          if (document.exitFullscreen) {
+            document.exitFullscreen()
+          } else if ((document as any).webkitExitFullscreen) {
+            (document as any).webkitExitFullscreen()
+          } else if ((document as any).mozCancelFullScreen) {
+            (document as any).mozCancelFullScreen()
+          } else if ((document as any).msExitFullscreen) {
+            (document as any).msExitFullscreen()
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Fullscreen toggle failed:", err)
+      setIsGexOverlayEnabled(nextState)
+    }
+  }
 
 
   // Automatically update timeframe defaults when expiryMode changes
@@ -167,11 +236,75 @@ export function SyncedStrikeWorkspace({
     isDragging: boolean
     isPriceScale: boolean
     isProfileDrag?: boolean
+    isTimeScale?: boolean
     startX: number
     startY: number
     initialYDomain: [number, number]
     initialXRange: [number, number]
   } | null>(null)
+
+  // Calculate Walls & GEX Clusters
+  const walls = useMemo(() => {
+    if (!endOptionData.length || !endSpotPrice) return { callWall: 0, putWall: 0 }
+    
+    // Find the nearest expiration date
+    const now = new Date()
+    now.setHours(0, 0, 0, 0)
+    const expiries = Array.from(new Set(endOptionData.map(o => o.expiration.getTime())))
+      .map(t => new Date(t))
+      .sort((a, b) => a.getTime() - b.getTime())
+    const selectedExpiry = expiries.find(d => d >= now) || expiries[0] || new Date()
+    
+    return computeCallPutWalls(endOptionData, selectedExpiry)
+  }, [endOptionData, endSpotPrice])
+
+  // Calculate Probability of Touching (PoT) for Call Wall and Put Wall
+  const wallTouchProbabilities = useMemo(() => {
+    if (!endOptionData.length || !walls.callWall || !walls.putWall) {
+      return { callWallTouch: 0, putWallTouch: 0 }
+    }
+
+    const expiries = Array.from(new Set(endOptionData.map(o => o.expiration.getTime())))
+      .map(t => new Date(t))
+      .sort((a, b) => a.getTime() - b.getTime())
+    
+    if (expiries.length === 0) return { callWallTouch: 0, putWallTouch: 0 }
+    const furthestExpiry = expiries[expiries.length - 1]
+
+    // Find Call Wall option for furthest expiry
+    const callWallStrike = walls.callWall
+    const callWallOpts = endOptionData.filter(o => 
+      o.expiration.toDateString() === furthestExpiry.toDateString() && 
+      o.type === 'C'
+    )
+    let callWallOpt = callWallOpts.find(o => o.strike === callWallStrike)
+    if (!callWallOpt && callWallOpts.length > 0) {
+      callWallOpt = callWallOpts.reduce((prev, curr) => 
+        Math.abs(curr.strike - callWallStrike) < Math.abs(prev.strike - callWallStrike) ? curr : prev
+      )
+    }
+
+    // Find Put Wall option for furthest expiry
+    const putWallStrike = walls.putWall
+    const putWallOpts = endOptionData.filter(o => 
+      o.expiration.toDateString() === furthestExpiry.toDateString() && 
+      o.type === 'P'
+    )
+    let putWallOpt = putWallOpts.find(o => o.strike === putWallStrike)
+    if (!putWallOpt && putWallOpts.length > 0) {
+      putWallOpt = putWallOpts.reduce((prev, curr) => 
+        Math.abs(curr.strike - putWallStrike) < Math.abs(prev.strike - putWallStrike) ? curr : prev
+      )
+    }
+
+    const callDelta = callWallOpt ? Math.abs(callWallOpt.delta || 0.15) : 0.15
+    const putDelta = putWallOpt ? Math.abs(putWallOpt.delta || -0.15) : 0.15
+
+    const callWallTouch = Math.min(99, Math.max(1, Math.round(2 * callDelta * 100)))
+    const putWallTouch = Math.min(99, Math.max(1, Math.round(2 * putDelta * 100)))
+
+    return { callWallTouch, putWallTouch }
+  }, [endOptionData, walls])
 
   // Resize listener
   useEffect(() => {
@@ -372,14 +505,15 @@ export function SyncedStrikeWorkspace({
       const startNetVal = startItem ? (isVolMode ? ((startItem as any).volume || 0) : ((startItem as any).charm || 0)) : 0
       const endNetVal = endItem ? (isVolMode ? ((endItem as any).volume || 0) : ((endItem as any).charm || 0)) : 0
 
+      const divisor = isVolMode ? 1 : 1e9
       return {
         strike,
         startNetVal,
         endNetVal,
-        startCallVal: startCallVal / 1e9,
-        startPutVal: -startPutVal / 1e9,
-        endCallVal: endCallVal / 1e9,
-        endPutVal: -endPutVal / 1e9,
+        startCallVal: startCallVal / divisor,
+        startPutVal: -startPutVal / divisor,
+        endCallVal: endCallVal / divisor,
+        endPutVal: -endPutVal / divisor,
       }
     })
   }, [
@@ -418,10 +552,20 @@ export function SyncedStrikeWorkspace({
   const tickerRightMax = useMemo(() => {
     const isVolMode = displayMode === 'gamma-vol'
     if (isVolMode) {
-      // Volume: raw contract counts — scan all net volume values
-      const vals = rightProfileDataCombined.flatMap(p => [
-        Math.abs(p.startNetVal), Math.abs(p.endNetVal),
-      ])
+      // Volume: raw contract counts
+      const vals = rightProfileDataCombined.flatMap(p => {
+        if (showAbsolute) {
+          return [
+            Math.abs(p.startNetVal), Math.abs(p.endNetVal),
+            Math.abs(p.startCallVal), Math.abs(p.endCallVal),
+            Math.abs(p.startPutVal), Math.abs(p.endPutVal),
+          ]
+        } else {
+          return [
+            Math.abs(p.startNetVal), Math.abs(p.endNetVal),
+          ]
+        }
+      })
       const peak = Math.max(...vals, 1)
       const limit = peak
       // Round to a clean step: 1k, 5k, 10k, 50k, 100k, etc.
@@ -522,6 +666,31 @@ export function SyncedStrikeWorkspace({
         const halfSpan = (maxY - minY) / 2
         const newHalfSpan = Math.max(endSpotPrice * 0.001, Math.min(endSpotPrice * 0.4, halfSpan * factor))
         setYDomain([center - newHalfSpan, center + newHalfSpan])
+      } else if (dragState.isTimeScale) {
+        // Dragging Time Scale (X-axis): stretch/compress X scale range (timeline zoom)
+        const factor = 1 + (deltaX / 220)
+        const [startIdx, endIdx] = dragState.initialXRange
+        const initialSpan = endIdx - startIdx
+        const newSpan = Math.max(5, Math.min(candles.length, Math.round(initialSpan * factor)))
+        
+        // Adjust bounds centered around the mid-index of the initial range
+        const midIdx = (startIdx + endIdx) / 2
+        const halfSpan = newSpan / 2
+        let newStart = Math.round(midIdx - halfSpan)
+        let newEnd = Math.round(midIdx + halfSpan)
+        
+        // Clamp bounds to [0, candles.length]
+        if (newStart < 0) {
+          newEnd -= newStart
+          newStart = 0
+        }
+        if (newEnd > candles.length) {
+          newStart -= (newEnd - candles.length)
+          newEnd = candles.length
+        }
+        newStart = Math.max(0, newStart)
+        
+        setXRange([newStart, newEnd])
       } else {
         const [minY, maxY] = dragState.initialYDomain
         const span = maxY - minY
@@ -567,15 +736,18 @@ export function SyncedStrikeWorkspace({
   const handleMouseDown = (event: React.MouseEvent<SVGSVGElement>) => {
     const rect = event.currentTarget.getBoundingClientRect()
     const clickX = event.clientX - rect.left
+    const clickY = event.clientY - rect.top
 
     // If candles are collapsed, the entire 50px area is the price scale Y-axis.
     // Otherwise, Y-axis lies on the right edge of the candlestick SVG (width - 45 to width)
     const isPriceScale = isCandlesCollapsed || clickX >= (rect.width - 45)
+    const isTimeScale = clickY >= (rect.height - 40)
 
     setDragState({
       isDragging: true,
-      isPriceScale,
+      isPriceScale: isTimeScale ? false : isPriceScale,
       isProfileDrag: false,
+      isTimeScale,
       startX: event.clientX,
       startY: event.clientY,
       initialYDomain: [...yDomain] as [number, number],
@@ -614,7 +786,8 @@ export function SyncedStrikeWorkspace({
 
   // ─── D3 Rendering ───
   useEffect(() => {
-    if (!candleSvgRef.current || !gexSvgRef.current || !volSvgRef.current || yDomain[0] === 0) return
+    if (!candleSvgRef.current || yDomain[0] === 0) return
+    if (!isGexOverlayEnabled && (!gexSvgRef.current || !volSvgRef.current)) return
 
     const isCollapsed = isCandlesCollapsed
     const margin = isCollapsed
@@ -624,39 +797,56 @@ export function SyncedStrikeWorkspace({
     const chartHeight = dimensions.height - margin.top - margin.bottom
 
     const totalWidth = dimensions.width
-    const candleWidth = isCollapsed ? 75 : totalWidth * 0.5
+    const candleWidth = isGexOverlayEnabled
+      ? totalWidth
+      : (isCollapsed ? 75 : totalWidth * 0.5)
 
-    let gexWidth = isCollapsed ? (totalWidth - 75) / 2 : totalWidth * 0.25
-    let volWidth = isCollapsed ? (totalWidth - 75) / 2 : totalWidth * 0.25
+    let gexWidth = isGexOverlayEnabled
+      ? 0
+      : (isCollapsed ? (totalWidth - 75) / 2 : totalWidth * 0.25)
+    let volWidth = isGexOverlayEnabled
+      ? 0
+      : (isCollapsed ? (totalWidth - 75) / 2 : totalWidth * 0.25)
     let gexHeight = dimensions.height
     let volHeight = dimensions.height
 
     if (isRotated) {
-      gexWidth = isCollapsed ? (totalWidth - 75) : totalWidth * 0.5
-      volWidth = isCollapsed ? (totalWidth - 75) : totalWidth * 0.5
+      gexWidth = isGexOverlayEnabled ? 0 : (isCollapsed ? (totalWidth - 75) : totalWidth * 0.5)
+      volWidth = isGexOverlayEnabled ? 0 : (isCollapsed ? (totalWidth - 75) : totalWidth * 0.5)
       gexHeight = dimensions.height / 2
       volHeight = dimensions.height / 2
     }
 
     const candleSvg = d3.select(candleSvgRef.current)
-    const gexSvg = d3.select(gexSvgRef.current)
-    const volSvg = d3.select(volSvgRef.current)
+    const gexSvg = !isGexOverlayEnabled ? d3.select(gexSvgRef.current) : null
+    const volSvg = !isGexOverlayEnabled ? d3.select(volSvgRef.current) : null
 
 
     // Clear previous elements
     candleSvg.selectAll('*').remove()
-    gexSvg.selectAll('*').remove()
-    volSvg.selectAll('*').remove()
+    if (!isGexOverlayEnabled && gexSvg && volSvg) {
+      gexSvg.selectAll('*').remove()
+      volSvg.selectAll('*').remove()
+    }
 
     // Dimensions
     candleSvg.attr('width', candleWidth).attr('height', dimensions.height)
-    gexSvg.attr('width', gexWidth).attr('height', gexHeight)
-    volSvg.attr('width', volWidth).attr('height', volHeight)
+    if (!isGexOverlayEnabled && gexSvg && volSvg) {
+      gexSvg.attr('width', gexWidth).attr('height', gexHeight)
+      volSvg.attr('width', volWidth).attr('height', volHeight)
+    }
 
     // Shared Y scale (Strike Price)
     const yScale = d3.scaleLinear()
       .domain(yDomain)
       .range([chartHeight, 0])
+
+    const maxGexStrikeObj = endGexProfile.reduce((max, current) => {
+      return Math.abs(current.gex) > Math.abs(max.gex) ? current : max;
+    }, { strike: 0, gex: 0 });
+
+    const maxGexStrike = maxGexStrikeObj.strike;
+    const maxGexVal = maxGexStrikeObj.gex;
 
     const formatCurrency = (val: number) => {
       const symbol = market === 'INDIA' ? '₹' : '$'
@@ -674,7 +864,7 @@ export function SyncedStrikeWorkspace({
 
       const yTicks = yScale.ticks(8)
 
-      if (!isCollapsed) {
+      if (!isCollapsed || isGexOverlayEnabled) {
         // Render Ticker and Spot watermark background
         const watermark = g.append('g')
           .attr('class', 'watermark')
@@ -704,6 +894,33 @@ export function SyncedStrikeWorkspace({
           .domain(visibleCandlesData.map((_, i) => i.toString()))
           .range([0, width])
           .padding(0.25)
+
+        const leftProfileData = leftProfileDataCombined.filter(p => p.strike >= yDomain[0] && p.strike <= yDomain[1])
+
+        // Draw GEX Heat Bands (Background stripes) when overlay mode is enabled
+        if (isGexOverlayEnabled) {
+          leftProfileData.forEach(p => {
+            const y = yScale(p.strike)
+            if (y === undefined || y < 0 || y > chartHeight) return
+
+            const isPos = p.endNetVal >= 0
+            const color = isPos ? '#00ff66' : '#ff3366'
+            const absVal = Math.abs(p.endNetVal)
+            // Calculate opacity: max opacity 0.08, min 0.0
+            const opacity = Math.min(0.08, (absVal / tickerGexMax) * 0.12)
+
+            if (opacity > 0.002) {
+              g.append('rect')
+                .attr('x', 0)
+                .attr('y', y - 4) // centering height
+                .attr('width', width)
+                .attr('height', 8)
+                .attr('fill', color)
+                .attr('opacity', opacity)
+                .attr('pointer-events', 'none')
+            }
+          })
+        }
 
         // Grid Y Lines
         g.selectAll('.grid-y')
@@ -748,6 +965,553 @@ export function SyncedStrikeWorkspace({
             .attr('d', lineGen(indicatorData.ema50)!)
             .attr('fill', 'none').attr('stroke', '#FF3B60').attr('stroke-width', 1.2).style('opacity', 0.85)
         }
+
+        // Draw Mini Profile Overlays when overlay mode is enabled
+        if (isGexOverlayEnabled) {
+          // 1. Left Profile (GEX in 'gamma-vol' mode, Vanna in 'vanna-charm' mode) on the right edge
+          const visibleMaxGex = showAbsolute
+            ? (d3.max(leftProfileData, p => Math.max(p.endCallVal, Math.abs(p.endPutVal))) || 0.01)
+            : (d3.max(leftProfileData, p => Math.abs(p.endNetVal)) || 0.01)
+
+          leftProfileData.forEach(p => {
+            const y = yScale(p.strike)
+            if (y === undefined || y < 0 || y > chartHeight) return
+
+            const isGammaMode = displayMode === 'gamma-vol'
+            const maxBarWidth = width * 0.5
+
+            if (showAbsolute) {
+              // Call bar (top half of strike row)
+              const callVal = p.endCallVal
+              const callWidth = (callVal / visibleMaxGex) * maxBarWidth
+              const callColor = isGammaMode ? '#00ff66' : '#00e5ff'
+              if (callWidth > 1) {
+                g.append('rect')
+                  .attr('x', width - callWidth)
+                  .attr('y', y - 3.5)
+                  .attr('width', callWidth)
+                  .attr('height', 3)
+                  .attr('fill', callColor)
+                  .attr('opacity', isGammaMode ? 0.45 : 0.4)
+                  .attr('rx', 1)
+                  .attr('pointer-events', 'none')
+              }
+
+              // Put bar (bottom half of strike row)
+              const putVal = Math.abs(p.endPutVal)
+              const putWidth = (putVal / visibleMaxGex) * maxBarWidth
+              const putColor = isGammaMode ? '#ff3366' : '#ff00ff'
+              if (putWidth > 1) {
+                g.append('rect')
+                  .attr('x', width - putWidth)
+                  .attr('y', y + 0.5)
+                  .attr('width', putWidth)
+                  .attr('height', 3)
+                  .attr('fill', putColor)
+                  .attr('opacity', isGammaMode ? 0.45 : 0.4)
+                  .attr('rx', 1)
+                  .attr('pointer-events', 'none')
+              }
+            } else {
+              // Net Mode
+              const isPos = p.endNetVal >= 0
+              const color = isGammaMode 
+                ? (isPos ? '#00ff66' : '#ff3366') 
+                : (isPos ? '#00e5ff' : '#ff00ff')
+              
+              const absVal = Math.abs(p.endNetVal)
+              const barWidth = (absVal / visibleMaxGex) * maxBarWidth
+
+              if (barWidth > 1) {
+                g.append('rect')
+                  .attr('x', width - barWidth)
+                  .attr('y', y - 3)
+                  .attr('width', barWidth)
+                  .attr('height', 6)
+                  .attr('fill', color)
+                  .attr('opacity', isGammaMode ? 0.4 : 0.35)
+                  .attr('rx', 1.5)
+                  .attr('pointer-events', 'none')
+              }
+            }
+          })
+
+          // 2. Right Profile (Volume in 'gamma-vol' mode, Charm in 'vanna-charm' mode) on the left edge
+          {
+            const rightProfileData = rightProfileDataCombined.filter(p => p.strike >= yDomain[0] && p.strike <= yDomain[1])
+            const visibleMaxRight = showAbsolute
+              ? (d3.max(rightProfileData, p => Math.max(p.endCallVal, Math.abs(p.endPutVal))) || 0.01)
+              : (d3.max(rightProfileData, p => Math.abs(p.endNetVal)) || 0.01)
+            const isGammaMode = displayMode === 'gamma-vol'
+            const maxBarWidth = width * 0.5
+            
+            rightProfileData.forEach(p => {
+              const y = yScale(p.strike)
+              if (y === undefined || y < 0 || y > chartHeight) return
+
+              if (showAbsolute) {
+                // Call bar (top half of strike row)
+                const callVal = p.endCallVal
+                const callWidth = (callVal / visibleMaxRight) * maxBarWidth
+                const callColor = isGammaMode ? '#00ff66' : '#ffff00'
+                if (callWidth > 1) {
+                  g.append('rect')
+                    .attr('x', 0)
+                    .attr('y', y - 3.5)
+                    .attr('width', callWidth)
+                    .attr('height', 3)
+                    .attr('fill', callColor)
+                    .attr('opacity', isGammaMode ? 0.35 : 0.35)
+                    .attr('rx', 1)
+                    .attr('pointer-events', 'none')
+                }
+
+                // Put bar (bottom half of strike row)
+                const putVal = Math.abs(p.endPutVal)
+                const putWidth = (putVal / visibleMaxRight) * maxBarWidth
+                const putColor = isGammaMode ? '#ff3366' : '#ff5500'
+                if (putWidth > 1) {
+                  g.append('rect')
+                    .attr('x', 0)
+                    .attr('y', y + 0.5)
+                    .attr('width', putWidth)
+                    .attr('height', 3)
+                    .attr('fill', putColor)
+                    .attr('opacity', isGammaMode ? 0.35 : 0.35)
+                    .attr('rx', 1)
+                    .attr('pointer-events', 'none')
+                }
+              } else {
+                // Net Mode
+                const isPos = p.endNetVal >= 0
+                const color = isGammaMode
+                  ? '#00C8FF'
+                  : (isPos ? '#ffff00' : '#ff5500')
+                const absVal = Math.abs(p.endNetVal)
+                const barWidth = (absVal / visibleMaxRight) * maxBarWidth
+
+                if (barWidth > 1) {
+                  g.append('rect')
+                    .attr('x', 0)
+                    .attr('y', y - 3)
+                    .attr('width', barWidth)
+                    .attr('height', 6)
+                    .attr('fill', color)
+                    .attr('opacity', isGammaMode ? 0.25 : 0.3)
+                    .attr('rx', 1.5)
+                    .attr('pointer-events', 'none')
+                }
+              }
+            })
+          }
+
+          // Dynamic Pinning Magnetic Pull Vector / Gravity Well
+          if (maxGexStrike > 0 && (isGexOverlayEnabled || isCollapsed)) {
+            const magnetY = yScale(maxGexStrike)
+            const spotY = yScale(endSpotPrice)
+            
+            if (magnetY >= 0 && magnetY <= chartHeight) {
+              const isNegGexMagnet = maxGexVal < 0
+              const magnetColor = isNegGexMagnet ? '#ff3366' : '#00ff66'
+              const magnetLabel = isNegGexMagnet ? 'GRAVITY WELL' : 'GEX MAGNET'
+              const magnetShortLabel = isNegGexMagnet ? 'WELL' : 'PIN'
+
+              // Draw magnet line
+              g.append('line')
+                .attr('x1', 0)
+                .attr('x2', width)
+                .attr('y1', magnetY)
+                .attr('y2', magnetY)
+                .attr('stroke', magnetColor)
+                .attr('stroke-width', 1.5)
+                .attr('stroke-dasharray', '4,4')
+                .attr('opacity', 0.6)
+                .attr('class', 'animate-pulse-glow')
+
+              if (isCollapsed) {
+                // Compact text label for collapsed mode
+                g.append('text')
+                  .attr('x', 5)
+                  .attr('y', magnetY - 4)
+                  .attr('fill', magnetColor)
+                  .style('font-family', typography.fontMono)
+                  .style('font-size', '8px')
+                  .style('font-weight', 'bold')
+                  .text(`${magnetShortLabel}: ${maxGexStrike}`)
+              } else {
+                // Large Badge text container for expanded/fullscreen mode
+                g.append('rect')
+                  .attr('x', 10)
+                  .attr('y', magnetY - 18)
+                  .attr('width', 180)
+                  .attr('height', 15)
+                  .attr('fill', '#050507')
+                  .attr('stroke', magnetColor)
+                  .attr('stroke-opacity', 0.25)
+                  .attr('rx', 3)
+                  .attr('opacity', 0.85)
+
+                g.append('text')
+                  .attr('x', 16)
+                  .attr('y', magnetY - 7)
+                  .attr('fill', magnetColor)
+                  .style('font-family', typography.fontMono)
+                  .style('font-size', '8px')
+                  .style('font-weight', 'bold')
+                  .text(`${magnetLabel}: ${formatCurrency(maxGexStrike)} (${(Math.abs(maxGexVal)).toFixed(2)}B)`)
+              }
+
+              // Pull vector line between spot and magnet (if spot is within 3%)
+              if (Math.abs(endSpotPrice - maxGexStrike) / endSpotPrice < 0.03) {
+                g.append('line')
+                  .attr('x1', width * 0.15)
+                  .attr('x2', width * 0.15)
+                  .attr('y1', spotY)
+                  .attr('y2', magnetY)
+                  .attr('stroke', magnetColor)
+                  .attr('stroke-width', 1.5)
+                  .attr('stroke-dasharray', '2,2')
+                  .attr('opacity', 0.45)
+                  
+                const isBelow = endSpotPrice < maxGexStrike
+                g.append('text')
+                  .attr('x', width * 0.15 - 5)
+                  .attr('y', isBelow ? magnetY + 12 : magnetY - 4)
+                  .attr('fill', magnetColor)
+                  .style('font-size', '10px')
+                  .style('font-weight', 'bold')
+                  .text(isBelow ? '▲' : '▼')
+                  .style('opacity', 0.85)
+              }
+            }
+          }
+        }
+
+        // Draw Call Wall & Put Wall overlay lines if in fullscreen overlay mode
+        if (isGexOverlayEnabled && walls.callWall && walls.putWall) {
+          const callWallY = yScale(walls.callWall)
+          const putWallY = yScale(walls.putWall)
+
+          // Call Wall
+          if (callWallY >= 0 && callWallY <= chartHeight) {
+            g.append('line')
+              .attr('x1', 0)
+              .attr('x2', width)
+              .attr('y1', callWallY)
+              .attr('y2', callWallY)
+              .attr('stroke', '#FF3B60')
+              .attr('stroke-width', 1.2)
+              .attr('stroke-dasharray', '5,5')
+              .attr('opacity', 0.75)
+
+            g.append('rect')
+              .attr('x', width - 190)
+              .attr('y', callWallY - 18)
+              .attr('width', 180)
+              .attr('height', 15)
+              .attr('fill', '#050507')
+              .attr('stroke', '#FF3B60')
+              .attr('stroke-opacity', 0.25)
+              .attr('rx', 3)
+              .attr('opacity', 0.85)
+
+            g.append('text')
+              .attr('x', width - 184)
+              .attr('y', callWallY - 7)
+              .attr('fill', '#FF3B60')
+              .style('font-family', typography.fontMono)
+              .style('font-size', '8px')
+              .style('font-weight', 'bold')
+              .text(`CALL WALL: ${formatCurrency(walls.callWall)} (Touch: ${wallTouchProbabilities.callWallTouch}%)`)
+          }
+
+          // Put Wall
+          if (putWallY >= 0 && putWallY <= chartHeight) {
+            g.append('line')
+              .attr('x1', 0)
+              .attr('x2', width)
+              .attr('y1', putWallY)
+              .attr('y2', putWallY)
+              .attr('stroke', '#00C805')
+              .attr('stroke-width', 1.2)
+              .attr('stroke-dasharray', '5,5')
+              .attr('opacity', 0.75)
+
+            g.append('rect')
+              .attr('x', width - 190)
+              .attr('y', putWallY - 18)
+              .attr('width', 180)
+              .attr('height', 15)
+              .attr('fill', '#050507')
+              .attr('stroke', '#00C805')
+              .attr('stroke-opacity', 0.25)
+              .attr('rx', 3)
+              .attr('opacity', 0.85)
+
+            g.append('text')
+              .attr('x', width - 184)
+              .attr('y', putWallY - 7)
+              .attr('fill', '#00C805')
+              .style('font-family', typography.fontMono)
+              .style('font-size', '8px')
+              .style('font-weight', 'bold')
+              .text(`PUT WALL: ${formatCurrency(walls.putWall)} (Touch: ${wallTouchProbabilities.putWallTouch}%)`)
+          }
+        }
+
+        if (isGexOverlayEnabled) {
+          g.append('rect')
+            .attr('width', width)
+            .attr('height', chartHeight)
+            .attr('fill', 'transparent')
+            .on('mousemove', (event) => {
+              const [mx, my] = d3.pointer(event)
+              const price = yScale.invert(my)
+              const isLeftHalf = mx < width * 0.5
+
+              if (isLeftHalf) {
+                // Show Volume / Charm tooltip
+                const rightProfileData = rightProfileDataCombined.filter(p => p.strike >= yDomain[0] && p.strike <= yDomain[1])
+                const closest = rightProfileData.reduce((prev, curr) => {
+                  return Math.abs(curr.strike - price) < Math.abs(prev.strike - price) ? curr : prev
+                }, rightProfileData[0])
+
+                if (closest && tooltipRef.current && containerRef.current) {
+                  const containerRect = containerRef.current.getBoundingClientRect()
+                  const isVolMode = displayMode === 'gamma-vol'
+                  const symbol = market === 'INDIA' ? '₹' : '$'
+                  const formattedStrike = `${symbol}${closest.strike.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+                  const headerTitle = isVolMode
+                    ? 'Volume Profile'
+                    : (showAbsolute ? 'Charm Profile (ABS)' : 'Charm Profile (NET)')
+
+                  let htmlContent = `
+                    <div class="flex items-center justify-between border-b border-[#222]/40 pb-1.5 mb-1 flex-row gap-6">
+                      <span class="text-[10px] font-mono font-bold text-[#E5E5E5] uppercase tracking-wider">${headerTitle}</span>
+                      <span class="text-[10px] font-mono text-[#00C805] font-bold">Strike ${formattedStrike}</span>
+                    </div>
+                  `
+                  if (isVolMode) {
+                    const startText = closest.startNetVal.toLocaleString() + ' contracts'
+                    const endText = closest.endNetVal.toLocaleString() + ' contracts'
+                    const deltaVal = closest.endNetVal - closest.startNetVal
+                    const deltaText = (deltaVal >= 0 ? '+' : '') + deltaVal.toLocaleString() + ' contracts'
+
+                    if (isLive) {
+                      htmlContent += `
+                        <div class="flex items-center justify-between text-[10px] font-mono flex-row gap-6 mt-1">
+                          <span class="text-[#949494]">Volume</span>
+                          <span class="text-[#00C8FF] font-bold">${endText}</span>
+                        </div>
+                      `
+                    } else {
+                      htmlContent += `
+                        <div class="flex items-center justify-between text-[10px] font-mono flex-row gap-6 mt-1">
+                          <span class="text-[#949494]">Start Volume</span>
+                          <span class="text-[#949494]">${startText}</span>
+                        </div>
+                        <div class="flex items-center justify-between text-[10px] font-mono flex-row gap-6">
+                          <span class="text-[#949494]">End Volume</span>
+                          <span class="text-[#E5E5E5] font-bold">${endText}</span>
+                        </div>
+                        <div class="flex items-center justify-between text-[10px] font-mono border-t border-[#222]/20 pt-1.5 mt-0.5 flex-row gap-6">
+                          <span class="text-[#949494]">Change</span>
+                          <span class="font-bold ${deltaVal >= 0 ? 'text-[#00C805]' : 'text-[#FF3B60]'}">${deltaText}</span>
+                        </div>
+                      `
+                    }
+                  } else {
+                    if (showAbsolute) {
+                      if (isLive) {
+                        htmlContent += `
+                          <div class="flex items-center justify-between text-[10px] font-mono flex-row gap-6 mt-1">
+                            <span class="text-[#949494]">Call Charm</span>
+                            <span class="text-[#00C805] font-bold">${formatBillions(closest.endCallVal)}</span>
+                          </div>
+                          <div class="flex items-center justify-between text-[10px] font-mono flex-row gap-6">
+                            <span class="text-[#949494]">Put Charm</span>
+                            <span class="text-[#FF3B60] font-bold">${formatBillions(Math.abs(closest.endPutVal))}</span>
+                          </div>
+                        `
+                      } else {
+                        const deltaCall = closest.endCallVal - closest.startCallVal
+                        const deltaPut = Math.abs(closest.endPutVal) - Math.abs(closest.startPutVal)
+                        htmlContent += `
+                          <div class="flex items-center justify-between text-[10px] font-mono flex-row gap-6 mt-1">
+                            <span class="text-[#949494]">Start Call/Put</span>
+                            <span class="text-[#949494]">${formatBillions(closest.startCallVal)} / ${formatBillions(Math.abs(closest.startPutVal))}</span>
+                          </div>
+                          <div class="flex items-center justify-between text-[10px] font-mono flex-row gap-6">
+                            <span class="text-[#949494]">End Call/Put</span>
+                            <span class="text-[#E5E5E5]">${formatBillions(closest.endCallVal)} / ${formatBillions(Math.abs(closest.endPutVal))}</span>
+                          </div>
+                          <div class="flex items-center justify-between text-[10px] font-mono border-t border-[#222]/20 pt-1.5 mt-0.5 flex-row gap-6">
+                            <span class="text-[#949494]">Call Change</span>
+                            <span class="font-bold ${deltaCall >= 0 ? 'text-[#00C805]' : 'text-[#FF3B60]'}">${deltaCall >= 0 ? '+' : ''}${formatBillions(deltaCall)}</span>
+                          </div>
+                          <div class="flex items-center justify-between text-[10px] font-mono flex-row gap-6">
+                            <span class="text-[#949494]">Put Change</span>
+                            <span class="font-bold ${deltaPut >= 0 ? 'text-[#00C805]' : 'text-[#FF3B60]'}">${deltaPut >= 0 ? '+' : ''}${formatBillions(deltaPut)}</span>
+                          </div>
+                        `
+                      }
+                    } else {
+                      if (isLive) {
+                        htmlContent += `
+                          <div class="flex items-center justify-between text-[10px] font-mono flex-row gap-6 mt-1">
+                            <span class="text-[#949494]">Net Charm</span>
+                            <span class="font-bold ${closest.endNetVal >= 0 ? 'text-[#00C805]' : 'text-[#FF3B60]'}">${formatBillions(closest.endNetVal)}</span>
+                          </div>
+                        `
+                      } else {
+                        const deltaNet = closest.endNetVal - closest.startNetVal
+                        htmlContent += `
+                          <div class="flex items-center justify-between text-[10px] font-mono flex-row gap-6 mt-1">
+                            <span class="text-[#949494]">Start Net Charm</span>
+                            <span class="text-[#949494]">${formatBillions(closest.startNetVal)}</span>
+                          </div>
+                          <div class="flex items-center justify-between text-[10px] font-mono flex-row gap-6">
+                            <span class="text-[#949494]">End Net Charm</span>
+                            <span class="text-[#E5E5E5] font-bold">${formatBillions(closest.endNetVal)}</span>
+                          </div>
+                          <div class="flex items-center justify-between text-[10px] font-mono border-t border-[#222]/20 pt-1.5 mt-0.5 flex-row gap-6">
+                            <span class="text-[#949494]">Change</span>
+                            <span class="font-bold ${deltaNet >= 0 ? 'text-[#00C805]' : 'text-[#FF3B60]'}">${deltaNet >= 0 ? '+' : ''}${formatBillions(deltaNet)}</span>
+                          </div>
+                        `
+                      }
+                    }
+                  }
+                  tooltipRef.current.innerHTML = htmlContent
+                  tooltipRef.current.style.opacity = '1'
+
+                  const relX = event.clientX - containerRect.left
+                  const relY = event.clientY - containerRect.top
+
+                  if (relX > containerRect.width - 280) {
+                    tooltipRef.current.style.left = `${relX - 14}px`
+                    tooltipRef.current.style.transform = 'translateX(-100%)'
+                  } else {
+                    tooltipRef.current.style.left = `${relX + 14}px`
+                    tooltipRef.current.style.transform = 'none'
+                  }
+
+                  if (relY < 120) {
+                    tooltipRef.current.style.top = `${relY + 20}px`
+                  } else if (relY > containerRect.height - 120) {
+                    tooltipRef.current.style.top = `${relY - 120}px`
+                  } else {
+                    tooltipRef.current.style.top = `${relY - 50}px`
+                  }
+                }
+              } else {
+                // Show GEX / Vanna tooltip
+                const closest = leftProfileData.reduce((prev, curr) => {
+                  return Math.abs(curr.strike - price) < Math.abs(prev.strike - price) ? curr : prev
+                }, leftProfileData[0])
+
+                if (closest && tooltipRef.current && containerRef.current) {
+                  const containerRect = containerRef.current.getBoundingClientRect()
+                  const isGamma = displayMode === 'gamma-vol'
+                  const greekLabel = isGamma ? 'GEX' : 'Vanna'
+                  const symbol = market === 'INDIA' ? '₹' : '$'
+                  const formattedStrike = `${symbol}${closest.strike.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+                  const headerTitle = isGamma
+                    ? (showAbsolute ? 'GEX Profile (ABS)' : 'GEX Profile (NET)')
+                    : (showAbsolute ? 'Vanna Profile (ABS)' : 'Vanna Profile (NET)')
+
+                  let htmlContent = `
+                    <div class="flex items-center justify-between border-b border-[#222]/40 pb-1.5 mb-1 flex-row gap-6">
+                      <span class="text-[10px] font-mono font-bold text-[#E5E5E5] uppercase tracking-wider">${headerTitle}</span>
+                      <span class="text-[10px] font-mono text-[#00C805] font-bold">Strike ${formattedStrike}</span>
+                    </div>
+                  `
+                  if (showAbsolute) {
+                    if (isLive) {
+                      htmlContent += `
+                        <div class="flex items-center justify-between text-[10px] font-mono flex-row gap-6 mt-1">
+                          <span class="text-[#949494]">Call ${greekLabel}</span>
+                          <span class="text-[#00C805] font-bold">${formatBillions(closest.endCallVal)}</span>
+                        </div>
+                        <div class="flex items-center justify-between text-[10px] font-mono flex-row gap-6">
+                          <span class="text-[#949494]">Put ${greekLabel}</span>
+                          <span class="text-[#FF3B60] font-bold">${formatBillions(Math.abs(closest.endPutVal))}</span>
+                        </div>
+                      `
+                    } else {
+                      const deltaCall = closest.endCallVal - closest.startCallVal
+                      const deltaPut = Math.abs(closest.endPutVal) - Math.abs(closest.startPutVal)
+                      htmlContent += `
+                        <div class="flex items-center justify-between text-[10px] font-mono flex-row gap-6 mt-1">
+                          <span class="text-[#949494]">Start Call/Put</span>
+                          <span class="text-[#949494]">${formatBillions(closest.startCallVal)} / ${formatBillions(Math.abs(closest.startPutVal))}</span>
+                        </div>
+                        <div class="flex items-center justify-between text-[10px] font-mono flex-row gap-6">
+                          <span class="text-[#949494]">End Call/Put</span>
+                          <span class="text-[#E5E5E5]">${formatBillions(closest.endCallVal)} / ${formatBillions(Math.abs(closest.endPutVal))}</span>
+                        </div>
+                        <div class="flex items-center justify-between text-[10px] font-mono border-t border-[#222]/20 pt-1.5 mt-0.5 flex-row gap-6">
+                          <span class="text-[#949494]">Call Change</span>
+                          <span class="font-bold ${deltaCall >= 0 ? 'text-[#00C805]' : 'text-[#FF3B60]'}">${deltaCall >= 0 ? '+' : ''}${formatBillions(deltaCall)}</span>
+                        </div>
+                        <div class="flex items-center justify-between text-[10px] font-mono flex-row gap-6">
+                          <span class="text-[#949494]">Put Change</span>
+                          <span class="font-bold ${deltaPut >= 0 ? 'text-[#00C805]' : 'text-[#FF3B60]'}">${deltaPut >= 0 ? '+' : ''}${formatBillions(deltaPut)}</span>
+                        </div>
+                      `
+                    }
+                  } else {
+                    if (isLive) {
+                      htmlContent += `
+                        <div class="flex items-center justify-between text-[10px] font-mono flex-row gap-6 mt-1">
+                          <span class="text-[#949494]">Net ${greekLabel}</span>
+                          <span class="font-bold ${closest.endNetVal >= 0 ? 'text-[#00C805]' : 'text-[#FF3B60]'}">${formatBillions(closest.endNetVal)}</span>
+                        </div>
+                      `
+                    } else {
+                      const deltaNet = closest.endNetVal - closest.startNetVal
+                      htmlContent += `
+                        <div class="flex items-center justify-between text-[10px] font-mono flex-row gap-6 mt-1">
+                          <span class="text-[#949494]">Start Net ${greekLabel}</span>
+                          <span class="text-[#949494]">${formatBillions(closest.startNetVal)}</span>
+                        </div>
+                        <div class="flex items-center justify-between text-[10px] font-mono flex-row gap-6">
+                          <span class="text-[#949494]">End Net ${greekLabel}</span>
+                          <span class="text-[#E5E5E5] font-bold">${formatBillions(closest.endNetVal)}</span>
+                        </div>
+                        <div class="flex items-center justify-between text-[10px] font-mono border-t border-[#222]/20 pt-1.5 mt-0.5 flex-row gap-6">
+                          <span class="text-[#949494]">Change</span>
+                          <span class="font-bold ${deltaNet >= 0 ? 'text-[#00C805]' : 'text-[#FF3B60]'}">${deltaNet >= 0 ? '+' : ''}${formatBillions(deltaNet)}</span>
+                        </div>
+                      `
+                    }
+                  }
+                  tooltipRef.current.innerHTML = htmlContent
+                  tooltipRef.current.style.opacity = '1'
+
+                  const relX = event.clientX - containerRect.left
+                  const relY = event.clientY - containerRect.top
+
+                  if (relX > containerRect.width - 280) {
+                    tooltipRef.current.style.left = `${relX - 14}px`
+                    tooltipRef.current.style.transform = 'translateX(-100%)'
+                  } else {
+                    tooltipRef.current.style.left = `${relX + 14}px`
+                    tooltipRef.current.style.transform = 'none'
+                  }
+
+                  if (relY < 120) {
+                    tooltipRef.current.style.top = `${relY + 20}px`
+                  } else if (relY > containerRect.height - 120) {
+                    tooltipRef.current.style.top = `${relY - 120}px`
+                  } else {
+                    tooltipRef.current.style.top = `${relY - 50}px`
+                  }
+                }
+              }
+            })
+            .on('mouseleave', hideCrosshairs)
+        }
       }
 
       // Y Axis on the RIGHT side of the Candlestick chart (Always rendered to show Strikes)
@@ -758,7 +1522,7 @@ export function SyncedStrikeWorkspace({
       yAxisG.selectAll('text').attr('fill', '#B5B5B5').style('font-family', typography.fontMono).style('font-size', '9px').attr('dx', '3px')
 
       // X Axis (Time) with dynamic step sizing and TradingView style day transitions
-      if (!isCollapsed) {
+      if (!isCollapsed || isGexOverlayEnabled) {
         const xScale = d3.scaleBand()
           .domain(visibleCandlesData.map((_, i) => i.toString()))
           .range([0, width])
@@ -836,6 +1600,16 @@ export function SyncedStrikeWorkspace({
 
         const xAxis = d3.axisBottom(xScale).tickValues(xTicks).tickFormat(tickFormatter);
         const xAxisG = g.append('g').attr('transform', `translate(0,${chartHeight})`).call(xAxis);
+        
+        // Add solid background rect to cover bleeding wicks
+        xAxisG.insert('rect', ':first-child')
+          .attr('x', -margin.left)
+          .attr('y', 0)
+          .attr('width', width + margin.left + margin.right)
+          .attr('height', margin.bottom)
+          .attr('fill', '#000000')
+          .style('cursor', 'ew-resize');
+
         xAxisG.selectAll('line').attr('stroke', 'none');
         xAxisG.selectAll('path').attr('stroke', '#1A1A1A');
 
@@ -855,7 +1629,7 @@ export function SyncedStrikeWorkspace({
     }
 
     // ─── 2. LEFT PROFILE CHART (GEX/VEX) ───
-    {
+    if (!isGexOverlayEnabled && gexSvg) {
       const currentMargin = isRotated ? marginRotated : margin
       const chartWidth = gexWidth - currentMargin.left - currentMargin.right
       const chartHeight = gexHeight - currentMargin.top - currentMargin.bottom
@@ -1199,6 +1973,30 @@ export function SyncedStrikeWorkspace({
         }
       }
 
+      // GEX Magnet / Gravity Well Line
+      if (maxGexStrike > 0) {
+        const magnetY = yScale(maxGexStrike)
+        const isNegGexMagnet = maxGexVal < 0
+        const magnetColor = isNegGexMagnet ? '#ff3366' : '#00ff66'
+        
+        if (isRotated) {
+          const magnetX = strikeScale(maxGexStrike)
+          if (magnetX >= 0 && magnetX <= chartWidth) {
+            g.append('line')
+              .attr('x1', magnetX).attr('x2', magnetX)
+              .attr('y1', 0).attr('y2', chartHeight)
+              .attr('stroke', magnetColor).attr('stroke-width', 1).attr('stroke-dasharray', '3,3').style('opacity', 0.6)
+          }
+        } else {
+          if (magnetY >= 0 && magnetY <= chartHeight) {
+            g.append('line')
+              .attr('x1', 0).attr('x2', chartWidth)
+              .attr('y1', magnetY).attr('y2', magnetY)
+              .attr('stroke', magnetColor).attr('stroke-width', 1).attr('stroke-dasharray', '3,3').style('opacity', 0.6)
+          }
+        }
+      }
+
       // Gamma Flip / Zero Cross Line (Only relevant in Gamma Mode)
       if (displayMode === 'gamma-vol' && endZeroGamma) {
         if (isRotated) {
@@ -1383,7 +2181,7 @@ export function SyncedStrikeWorkspace({
     }
 
     // ─── 3. RIGHT PROFILE CHART (Volume/Charm) ───
-    {
+    if (!isGexOverlayEnabled && volSvg) {
       const currentMargin = isRotated ? marginRotated : margin
       const chartWidth = volWidth - currentMargin.left - currentMargin.right
       const chartHeight = volHeight - currentMargin.top - currentMargin.bottom
@@ -1393,7 +2191,7 @@ export function SyncedStrikeWorkspace({
       const rightProfileData = rightProfileDataCombined.filter(p => p.strike >= yDomain[0] && p.strike <= yDomain[1])
 
       const isVolMode = displayMode === 'gamma-vol'
-      const isSymmetric = displayMode === 'vanna-charm'
+      const isSymmetric = displayMode === 'vanna-charm' || showAbsolute
 
       // Ticker-aware scale for all right-chart modes
       // Volume: 0 → tickerRightMax (contracts)
@@ -1477,8 +2275,8 @@ export function SyncedStrikeWorkspace({
           const barWidth = dynamicBarWidthRight
           const barX = x - barWidth / 2
 
-          if (showAbsolute && !isVolMode) {
-            // Absolute Mode for Charm
+          if (showAbsolute) {
+            // Absolute Mode for Charm / Volume
             if (!isLive) {
               // Start Call bar
               const startCallHeight = Math.abs(exposureScale(p.startCallVal) - exposureScale(0))
@@ -1586,8 +2384,8 @@ export function SyncedStrikeWorkspace({
           const y = yScale(p.strike)
           if (y === undefined || y < 0 || y > chartHeight) return
 
-          if (showAbsolute && !isVolMode) {
-            // Absolute Mode for Charm
+          if (showAbsolute) {
+            // Absolute Mode for Charm / Volume
             if (!isLive) {
               // Start Call bar
               const startCallWidth = Math.abs(xScale(p.startCallVal) - xScale(0))
@@ -1740,6 +2538,30 @@ export function SyncedStrikeWorkspace({
             .attr('x1', 0).attr('x2', chartWidth)
             .attr('y1', spotY).attr('y2', spotY)
             .attr('stroke', colors.accent.amber).attr('stroke-width', 1).style('opacity', 0.8)
+        }
+      }
+
+      // GEX Magnet / Gravity Well Line
+      if (maxGexStrike > 0) {
+        const magnetY = yScale(maxGexStrike)
+        const isNegGexMagnet = maxGexVal < 0
+        const magnetColor = isNegGexMagnet ? '#ff3366' : '#00ff66'
+        
+        if (isRotated) {
+          const magnetX = strikeScale(maxGexStrike)
+          if (magnetX >= 0 && magnetX <= chartWidth) {
+            g.append('line')
+              .attr('x1', magnetX).attr('x2', magnetX)
+              .attr('y1', 0).attr('y2', chartHeight)
+              .attr('stroke', magnetColor).attr('stroke-width', 1).attr('stroke-dasharray', '3,3').style('opacity', 0.6)
+          }
+        } else {
+          if (magnetY >= 0 && magnetY <= chartHeight) {
+            g.append('line')
+              .attr('x1', 0).attr('x2', chartWidth)
+              .attr('y1', magnetY).attr('y2', magnetY)
+              .attr('stroke', magnetColor).attr('stroke-width', 1).attr('stroke-dasharray', '3,3').style('opacity', 0.6)
+          }
         }
       }
 
@@ -1948,7 +2770,7 @@ export function SyncedStrikeWorkspace({
         .on('mouseleave', hideCrosshairs)
     }
 
-  }, [dimensions, yDomain, visibleCandlesData, indicatorData, startGexProfile, endGexProfile, startVolProfile, endVolProfile, startVannaProfile, endVannaProfile, startCharmProfile, endCharmProfile, endSpotPrice, endZeroGamma, market, ticker, displayMode, isCandlesCollapsed, isLive, showAbsolute, isRotated, tickerGexMax, tickerRightMax])
+  }, [dimensions, yDomain, visibleCandlesData, indicatorData, startGexProfile, endGexProfile, startVolProfile, endVolProfile, startVannaProfile, endVannaProfile, startCharmProfile, endCharmProfile, endSpotPrice, endZeroGamma, market, ticker, displayMode, isCandlesCollapsed, isLive, showAbsolute, isRotated, tickerGexMax, tickerRightMax, isGexOverlayEnabled, walls, wallTouchProbabilities])
 
   return (
     <div
@@ -1974,6 +2796,37 @@ export function SyncedStrikeWorkspace({
         })}
         {loadingHistory && (
           <div className="w-2.5 h-2.5 border border-transparent border-t-terminal-green rounded-full animate-spin ml-1" />
+        )}
+
+        {availableExpiries && selectedExpiries && onSelectedExpiriesChange && onExpiryModeChange && (
+          <>
+            {/* Column divider line */}
+            <div className="w-[1px] h-3.5 bg-[#222] mx-1" />
+
+            {/* Expiry Selector Popover */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  className="px-2 py-0.5 rounded text-[10px] font-mono transition-all font-bold bg-transparent text-[#777] border border-transparent hover:text-white flex items-center gap-1"
+                  title="Select Expirations"
+                  type="button"
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>EXP: {expiryMode.toUpperCase()}</span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-0 bg-black border border-[#222] z-50">
+                <ExpirySelector
+                  availableExpiries={availableExpiries}
+                  mode={expiryMode as any}
+                  onModeChange={onExpiryModeChange as any}
+                  selectedExpiries={selectedExpiries}
+                  onSelectedExpiriesChange={onSelectedExpiriesChange}
+                  optionData={endOptionData}
+                />
+              </PopoverContent>
+            </Popover>
+          </>
         )}
 
         {/* Column divider line */}
@@ -2005,6 +2858,20 @@ export function SyncedStrikeWorkspace({
           type="button"
         >
           <RotateCw className="w-3.5 h-3.5" />
+        </button>
+
+        {/* Column divider line */}
+        <div className="w-[1px] h-3.5 bg-[#222] mx-1" />
+
+        {/* GEX Overlay Full Screen Toggle Button */}
+        <button
+          onClick={toggleFullscreen}
+          className={`p-0.5 rounded hover:bg-[#111] transition-colors flex items-center justify-center ${isGexOverlayEnabled ? 'text-terminal-green' : 'text-[#777] hover:text-white'
+            }`}
+          title={isGexOverlayEnabled ? "Exit Overlay Full Screen" : "Enter GEX Overlay (Full Screen)"}
+          type="button"
+        >
+          <Layers className="w-3.5 h-3.5" />
         </button>
       </div>
 
@@ -2072,7 +2939,7 @@ export function SyncedStrikeWorkspace({
       </div>
 
       {/* Candlestick SVG with Wheel zoom, drag events and reset double click */}
-      <div className="h-full relative flex-shrink-0" style={{ width: isCandlesCollapsed ? '75px' : `${dimensions.width * 0.5}px` }}>
+      <div className="h-full relative flex-shrink-0" style={{ width: isGexOverlayEnabled ? '100%' : (isCandlesCollapsed ? '75px' : `${dimensions.width * 0.5}px`) }}>
         <svg
           ref={candleSvgRef}
           className={`h-full w-full ${isCandlesCollapsed ? 'cursor-ns-resize' : 'cursor-crosshair'}`}
@@ -2086,39 +2953,41 @@ export function SyncedStrikeWorkspace({
         )}
       </div>
 
-      {isRotated ? (
-        <div className="flex-1 flex flex-col min-w-0 h-full border-l border-[#15151A]">
-          <svg
-            ref={gexSvgRef}
-            className="w-full h-1/2 cursor-grab active:cursor-grabbing border-b border-[#15151A]"
-            onMouseDown={handleProfileMouseDown}
-            onDoubleClick={handleProfileDoubleClick}
-          />
-          <svg
-            ref={volSvgRef}
-            className="w-full h-1/2 cursor-grab active:cursor-grabbing"
-            onMouseDown={handleProfileMouseDown}
-            onDoubleClick={handleProfileDoubleClick}
-          />
-        </div>
-      ) : (
-        <>
-          {/* GEX/VEX Profile SVG */}
-          <svg
-            ref={gexSvgRef}
-            className="h-full cursor-grab active:cursor-grabbing border-l border-[#15151A]"
-            onMouseDown={handleProfileMouseDown}
-            onDoubleClick={handleProfileDoubleClick}
-          />
+      {!isGexOverlayEnabled && (
+        isRotated ? (
+          <div className="flex-1 flex flex-col min-w-0 h-full border-l border-[#15151A]">
+            <svg
+              ref={gexSvgRef}
+              className="w-full h-1/2 cursor-grab active:cursor-grabbing border-b border-[#15151A]"
+              onMouseDown={handleProfileMouseDown}
+              onDoubleClick={handleProfileDoubleClick}
+            />
+            <svg
+              ref={volSvgRef}
+              className="w-full h-1/2 cursor-grab active:cursor-grabbing"
+              onMouseDown={handleProfileMouseDown}
+              onDoubleClick={handleProfileDoubleClick}
+            />
+          </div>
+        ) : (
+          <>
+            {/* GEX/VEX Profile SVG */}
+            <svg
+              ref={gexSvgRef}
+              className="h-full cursor-grab active:cursor-grabbing border-l border-[#15151A]"
+              onMouseDown={handleProfileMouseDown}
+              onDoubleClick={handleProfileDoubleClick}
+            />
 
-          {/* Volume/CEX Profile SVG */}
-          <svg
-            ref={volSvgRef}
-            className="h-full cursor-grab active:cursor-grabbing border-l border-[#15151A]"
-            onMouseDown={handleProfileMouseDown}
-            onDoubleClick={handleProfileDoubleClick}
-          />
-        </>
+            {/* Volume/CEX Profile SVG */}
+            <svg
+              ref={volSvgRef}
+              className="h-full cursor-grab active:cursor-grabbing border-l border-[#15151A]"
+              onMouseDown={handleProfileMouseDown}
+              onDoubleClick={handleProfileDoubleClick}
+            />
+          </>
+        )
       )}
 
       {/* Sync Tooltip */}
