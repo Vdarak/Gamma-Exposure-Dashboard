@@ -1846,7 +1846,7 @@ export function SyncedStrikeWorkspace({
         .on('mouseleave', hideCrosshairs)
     }
 
-  }, [dimensions, yDomain, visibleCandlesData, indicatorData, startGexProfile, endGexProfile, startVolProfile, endVolProfile, startVannaProfile, endVannaProfile, startCharmProfile, endCharmProfile, endSpotPrice, endZeroGamma, market, ticker, displayMode, isCandlesCollapsed, isLive, showAbsolute, isRotated])
+  }, [dimensions, yDomain, visibleCandlesData, indicatorData, startGexProfile, endGexProfile, startVolProfile, endVolProfile, startVannaProfile, endVannaProfile, startCharmProfile, endCharmProfile, endSpotPrice, endZeroGamma, market, ticker, displayMode, isCandlesCollapsed, isLive, showAbsolute, isRotated, tickerGexMax, tickerRightMax])
 
   return (
     <div
