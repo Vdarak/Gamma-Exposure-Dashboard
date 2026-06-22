@@ -488,12 +488,26 @@ export async function sendAIChatMessage(
   optionData?: any[]
 ): Promise<{ text: string; tradeLogged?: JournalTrade }> {
   try {
+    const minimizedOptionData = optionData
+      ? optionData.map((opt: any) => ({
+          strike: opt.strike,
+          type: opt.type || opt.option_type || 'C',
+          expiration: opt.expiration,
+          gamma: opt.gamma || 0,
+          open_interest: opt.open_interest || opt.openInterest || 0,
+          delta: opt.delta || 0,
+          theta: opt.theta || 0,
+          vega: opt.vega || 0,
+          impliedVolatility: opt.iv || opt.impliedVolatility || opt.implied_volatility || 0,
+        }))
+      : undefined;
+
     const response = await fetch(`${BACKEND_URL}/api/analyst/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ message, history, ticker, livePrice, uiContext, is0DteMode, optionData })
+      body: JSON.stringify({ message, history, ticker, livePrice, uiContext, is0DteMode, optionData: minimizedOptionData })
     })
     if (!response.ok) throw new Error('Failed to communicate with AI Analyst')
     return await response.json()
