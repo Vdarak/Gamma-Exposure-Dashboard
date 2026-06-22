@@ -20,11 +20,26 @@ function formatCompact(num: number): string {
   return num.toString()
 }
 
+function formatMillions(num: number): string {
+  const val = Math.abs(num)
+  const sign = num >= 0 ? '+' : '−'
+  return `${sign}${(val / 1000000).toFixed(0)}M`
+}
+
+// Kept for tooltips (works on raw dollar values)
 function formatBillions(num: number): string {
   const val = Math.abs(num)
   if (val >= 1000000000) return `${num >= 0 ? '+' : '−'}${(val / 1000000000).toFixed(1)}B`
-  if (val >= 1000000) return `${num >= 0 ? '+' : '−'}${(val / 1000000).toFixed(1)}M`
+  if (val >= 1000000) return `${num >= 0 ? '+' : '−'}${(val / 1000000).toFixed(0)}M`
   return `${num >= 0 ? '+' : '−'}${val.toFixed(0)}`
+}
+
+// Axis formatter: domain values are in billions (0–2), output shows “+200M” style
+function formatAxisM(domainVal: number): string {
+  if (domainVal === 0) return '0'
+  const sign = domainVal > 0 ? '+' : '−'
+  const absM = Math.round(Math.abs(domainVal) * 1000)
+  return `${sign}${absM}M`
 }
 
 interface SyncedStrikeWorkspaceProps {
@@ -784,20 +799,11 @@ export function SyncedStrikeWorkspace({
 
       const leftProfileData = leftProfileDataCombined.filter(p => p.strike >= yDomain[0] && p.strike <= yDomain[1])
 
-      let maxVal = 1
-      if (showAbsolute) {
-        maxVal = (d3.max(leftProfileData.map(p => Math.max(
-          Math.abs(p.startCallVal), Math.abs(p.endCallVal),
-          Math.abs(p.startPutVal), Math.abs(p.endPutVal)
-        ))) || 1) * 1.1
-      } else {
-        maxVal = (d3.max(leftProfileData.map(p => Math.max(
-          Math.abs(p.startNetVal), Math.abs(p.endNetVal)
-        ))) || 1) * 1.1
-      }
+      // Fixed scale: ±2B so axis stays constant regardless of current data
+      const fixedMaxVal = 2  // 2 = 2 × 1e9 dollars (values are already in billions)
 
       const xScale = d3.scaleLinear()
-        .domain([-maxVal, maxVal])
+        .domain([-fixedMaxVal, fixedMaxVal])
         .range([0, chartWidth])
 
       const strikeScale = d3.scaleLinear()
@@ -805,7 +811,7 @@ export function SyncedStrikeWorkspace({
         .range([0, chartWidth])
 
       const exposureScale = d3.scaleLinear()
-        .domain([-maxVal, maxVal])
+        .domain([-fixedMaxVal, fixedMaxVal])
         .range([chartHeight, 0])
 
       // Append definitions for striped patterns
@@ -1158,15 +1164,19 @@ export function SyncedStrikeWorkspace({
         xAxisG.selectAll('path').attr('stroke', '#1A1A1A')
         xAxisG.selectAll('text').attr('fill', '#949494').style('font-family', typography.fontSans).style('font-size', '9px').attr('dy', '10px')
 
-        // Y Axis represents Exposure
-        const yAxis = d3.axisLeft(exposureScale).ticks(3).tickFormat(d => formatBillions(d as number))
+        // Y Axis represents Exposure (fixed M-scale ticks)
+        const yAxis = d3.axisLeft(exposureScale)
+          .tickValues([-2, -1, 0, 1, 2])
+          .tickFormat(d => formatAxisM(d as number))
         const yAxisG = g.append('g').call(yAxis)
         yAxisG.selectAll('line').attr('stroke', '#222')
         yAxisG.selectAll('path').attr('stroke', 'none')
         yAxisG.selectAll('text').attr('fill', '#B5B5B5').style('font-family', typography.fontMono).style('font-size', '9px').attr('dx', '-3px')
       } else {
-        // X Axis represents Exposure
-        const xAxis = d3.axisBottom(xScale).ticks(3).tickFormat(d => formatBillions(d as number))
+        // X Axis represents Exposure (fixed M-scale ticks)
+        const xAxis = d3.axisBottom(xScale)
+          .tickValues([-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2])
+          .tickFormat(d => formatAxisM(d as number))
         const xAxisG = g.append('g').attr('transform', `translate(0,${chartHeight})`).call(xAxis)
         xAxisG.selectAll('line').attr('stroke', 'none')
         xAxisG.selectAll('path').attr('stroke', '#1A1A1A')
@@ -1274,20 +1284,21 @@ export function SyncedStrikeWorkspace({
       const isVolMode = displayMode === 'gamma-vol'
       const isSymmetric = displayMode === 'vanna-charm'
       
+      // Fixed scale for GEX-style (symmetric), dynamic for Volume (contracts)
+      // isSymmetric = vanna-charm mode (±2B fixed)
+      // isVolMode = volume mode (dynamic 0→max)
       let maxVal = 1
-      if (showAbsolute && !isVolMode) {
-        maxVal = (d3.max(rightProfileData.map(p => Math.max(
-          Math.abs(p.startCallVal), Math.abs(p.endCallVal),
-          Math.abs(p.startPutVal), Math.abs(p.endPutVal)
-        ))) || 1) * 1.1
-      } else {
+      if (!isSymmetric) {
+        // Volume: dynamic domain based on data
         maxVal = (d3.max(rightProfileData.map(p => Math.max(
           Math.abs(p.startNetVal), Math.abs(p.endNetVal)
         ))) || 1) * 1.1
       }
+      // fixedMaxVal for symmetric (Charm/Vanna) — same as left profile
+      const fixedRightMaxVal = 2
 
       const xScale = d3.scaleLinear()
-        .domain(isSymmetric ? [-maxVal, maxVal] : [0, maxVal])
+        .domain(isSymmetric ? [-fixedRightMaxVal, fixedRightMaxVal] : [0, maxVal])
         .range([0, chartWidth])
 
       const strikeScale = d3.scaleLinear()
@@ -1295,7 +1306,7 @@ export function SyncedStrikeWorkspace({
         .range([0, chartWidth])
 
       const exposureScale = d3.scaleLinear()
-        .domain(isSymmetric ? [-maxVal, maxVal] : [0, maxVal])
+        .domain(isSymmetric ? [-fixedRightMaxVal, fixedRightMaxVal] : [0, maxVal])
         .range([chartHeight, 0])
 
       // Append definitions for striped patterns
@@ -1639,14 +1650,22 @@ export function SyncedStrikeWorkspace({
         xAxisG.selectAll('text').attr('fill', '#949494').style('font-family', typography.fontSans).style('font-size', '9px').attr('dy', '10px')
 
         // Y Axis represents Exposure
-        const yAxis = d3.axisLeft(exposureScale).ticks(3).tickFormat(d => isSymmetric ? formatBillions(d as number) : formatCompact(d as number))
+        const yAxis = isSymmetric
+          ? d3.axisLeft(exposureScale)
+              .tickValues([-2, -1, 0, 1, 2])
+              .tickFormat(d => formatAxisM(d as number))
+          : d3.axisLeft(exposureScale).ticks(3).tickFormat(d => formatCompact(d as number))
         const yAxisG = g.append('g').call(yAxis)
         yAxisG.selectAll('line').attr('stroke', '#222')
         yAxisG.selectAll('path').attr('stroke', 'none')
         yAxisG.selectAll('text').attr('fill', '#B5B5B5').style('font-family', typography.fontMono).style('font-size', '9px').attr('dx', '-3px')
       } else {
         // X Axis represents Exposure
-        const xAxis = d3.axisBottom(xScale).ticks(3).tickFormat(d => isSymmetric ? formatBillions(d as number) : formatCompact(d as number))
+        const xAxis = isSymmetric
+          ? d3.axisBottom(xScale)
+              .tickValues([-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2])
+              .tickFormat(d => formatAxisM(d as number))
+          : d3.axisBottom(xScale).ticks(3).tickFormat(d => formatCompact(d as number))
         const xAxisG = g.append('g').attr('transform', `translate(0,${chartHeight})`).call(xAxis)
         xAxisG.selectAll('line').attr('stroke', 'none')
         xAxisG.selectAll('path').attr('stroke', '#1A1A1A')
