@@ -484,7 +484,8 @@ export async function sendAIChatMessage(
   ticker: string = 'SPX',
   livePrice?: number,
   uiContext?: any,
-  is0DteMode?: boolean
+  is0DteMode?: boolean,
+  optionData?: any[]
 ): Promise<{ text: string; tradeLogged?: JournalTrade }> {
   try {
     const response = await fetch(`${BACKEND_URL}/api/analyst/chat`, {
@@ -492,7 +493,7 @@ export async function sendAIChatMessage(
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ message, history, ticker, livePrice, uiContext, is0DteMode })
+      body: JSON.stringify({ message, history, ticker, livePrice, uiContext, is0DteMode, optionData })
     })
     if (!response.ok) throw new Error('Failed to communicate with AI Analyst')
     return await response.json()
@@ -609,9 +610,13 @@ export async function getGarchForecast(ticker: string): Promise<GarchForecastDat
 /**
  * Fetch Quantum Tunneling wall breakthrough probabilities
  */
-export async function getQuantumTunneling(ticker: string): Promise<QuantumTunnelingData> {
+export async function getQuantumTunneling(ticker: string, expiries?: string[]): Promise<QuantumTunnelingData> {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/quant/quantum-tunneling?ticker=${ticker}`)
+    let url = `${BACKEND_URL}/api/quant/quantum-tunneling?ticker=${ticker}`
+    if (expiries && expiries.length > 0) {
+      url += `&expiries=${encodeURIComponent(expiries.join(','))}`
+    }
+    const response = await fetch(url)
     if (!response.ok) throw new Error(`Failed to fetch quantum tunneling for ${ticker}`)
     return await response.json()
   } catch (error) {

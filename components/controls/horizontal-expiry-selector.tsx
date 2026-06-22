@@ -81,7 +81,7 @@ export function HorizontalExpirySelector({
       const parts = expStr.split('-')
       const expUTC = Date.UTC(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10))
       const today = new Date()
-      const todayUTC = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
+      const todayUTC = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
       return Math.max(0, Math.round((expUTC - todayUTC) / 86400000))
     }
 

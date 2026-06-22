@@ -6,9 +6,11 @@ import { colors } from '@/lib/design-tokens'
 
 interface QuantumTunnelingGaugeProps {
   ticker: string
+  activeExpiries: string[]
+  expiryMode: string
 }
 
-export function QuantumTunnelingGauge({ ticker }: QuantumTunnelingGaugeProps) {
+export function QuantumTunnelingGauge({ ticker, activeExpiries, expiryMode }: QuantumTunnelingGaugeProps) {
   const [data, setData] = useState<QuantumTunnelingData | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -19,7 +21,7 @@ export function QuantumTunnelingGauge({ ticker }: QuantumTunnelingGaugeProps) {
       setIsLoading(true)
       setError(null)
       try {
-        const res = await getQuantumTunneling(ticker)
+        const res = await getQuantumTunneling(ticker, activeExpiries)
         if (active) {
           if (res.success) {
             setData(res)
@@ -37,7 +39,7 @@ export function QuantumTunnelingGauge({ ticker }: QuantumTunnelingGaugeProps) {
     return () => {
       active = false
     }
-  }, [ticker])
+  }, [ticker, activeExpiries])
 
   const renderMeter = (prob: number) => {
     const totalBars = 20
@@ -161,9 +163,42 @@ export function QuantumTunnelingGauge({ ticker }: QuantumTunnelingGaugeProps) {
           </div>
 
           {/* Theoretical explanation footer */}
-          <div className="bg-[#0A0A0C] border border-[#141416] rounded p-3 text-[9px] font-mono text-[#555] leading-relaxed">
-            <span className="text-[#B5B5B5] font-bold uppercase block mb-1">💡 Schrödinger Transmission Physics:</span>
-            Modeling strike GEX open interest concentrations as potential barriers $U$. A high positive GEX wall represents a tall stabilizing barrier, suppressing volatility and leading to mean-reversion. Negative GEX walls act as vacuum states that accelerate price tunneling through the level.
+          <div className="bg-[#0A0A0C] border border-[#141416] rounded p-4 text-[10px] font-mono text-[#777] leading-relaxed flex flex-col gap-3">
+            <div>
+              <span className="text-[#00D4FF] font-bold uppercase block mb-1">⚛️ Schrödinger Barrier Wave Equations</span>
+              <p className="mb-2">
+                We model price boundaries as potential energy barriers $U(x)$. The transmission probability $T$ represents the probability of the spot price "tunneling" through major dealer open interest walls:
+              </p>
+              <div className="bg-black/40 border border-[#141416] rounded p-2.5 my-2 text-center text-[#E5E5E5] flex flex-col items-center gap-1.5 font-sans">
+                <div className="flex flex-col items-center">
+                  <span className="text-xs font-mono font-semibold text-[#00C805]">Calls (Positive GEX Barrier):</span>
+                  <span className="font-mono text-[11px] text-gray-400">P(Breakthrough) = e<sup>-2.5 · √U · d</sup></span>
+                </div>
+                <div className="flex flex-col items-center mt-1">
+                  <span className="text-xs font-mono font-semibold text-[#FF3B60]">Puts (Negative GEX Vacuum):</span>
+                  <span className="font-mono text-[11px] text-gray-400">P(Breakthrough) = 0.85 · e<sup>-1.5 · d</sup></span>
+                </div>
+                <span className="text-[9px] text-[#555] font-mono mt-1">U = Barrier Strength (GEX / Avg GEX) | d = % Distance to Strike</span>
+              </div>
+            </div>
+            <div className="border-t border-[#141416] pt-2 flex flex-col gap-1.5">
+              <span className="text-[#B5B5B5] font-semibold uppercase block">Selected Expiries Context:</span>
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                <span className="bg-[#141416] text-[#E5E5E5] border border-[#222] px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider">
+                  Mode: {expiryMode}
+                </span>
+                {activeExpiries.slice(0, 5).map(exp => (
+                  <span key={exp} className="bg-black text-terminal-green border border-terminal-green/20 px-2 py-0.5 rounded text-[9px]">
+                    {exp}
+                  </span>
+                ))}
+                {activeExpiries.length > 5 && (
+                  <span className="bg-black text-[#555] border border-[#141416] px-2 py-0.5 rounded text-[9px]">
+                    +{activeExpiries.length - 5} more
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -379,7 +379,7 @@ export async function getProbabilityMap(ticker: string, targetExpiry?: string): 
 /**
  * 3. Quantum Tunneling wall barrier breakthroughs
  */
-export async function getQuantumTunneling(ticker: string): Promise<any> {
+export async function getQuantumTunneling(ticker: string, expiries?: string[]): Promise<any> {
   try {
     const snapshot = await getCurrentData(ticker.toUpperCase());
     if (!snapshot || !snapshot.options || snapshot.options.length === 0) {
@@ -388,10 +388,21 @@ export async function getQuantumTunneling(ticker: string): Promise<any> {
 
     const spot = snapshot.spotPrice;
     
+    let optionsToProcess = snapshot.options;
+    if (expiries && expiries.length > 0) {
+      const filtered = snapshot.options.filter(opt => {
+        const dateStr = opt.expiration.toISOString().split('T')[0];
+        return expiries.includes(dateStr);
+      });
+      if (filtered.length > 0) {
+        optionsToProcess = filtered;
+      }
+    }
+
     // Group GEX by strikes to find largest walls
     const strikeGexMap = new Map<number, { callGex: number; putGex: number; totalGex: number }>();
     
-    snapshot.options.forEach(opt => {
+    optionsToProcess.forEach(opt => {
       const strike = opt.strike;
       if (!strikeGexMap.has(strike)) {
         strikeGexMap.set(strike, { callGex: 0, putGex: 0, totalGex: 0 });

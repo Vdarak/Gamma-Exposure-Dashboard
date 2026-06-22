@@ -25,7 +25,7 @@ export function getOpexDte(): number {
   const compareOpex = Date.UTC(thisMonthOpex.getUTCFullYear(), thisMonthOpex.getUTCMonth(), thisMonthOpex.getUTCDate())
   
   let targetOpex = thisMonthOpex
-  if (compareToday >= compareOpex) {
+  if (compareToday > compareOpex) {
     const nextMonth = (month + 1) % 12
     const nextYear = month === 11 ? year + 1 : year
     targetOpex = getThirdFriday(nextYear, nextMonth)
@@ -94,7 +94,7 @@ export function ExpirySelector({
       const parts = expStr.split('-')
       const expUTC = Date.UTC(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10))
       const today = new Date()
-      const todayUTC = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
+      const todayUTC = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
       return Math.max(0, Math.round((expUTC - todayUTC) / 86400000))
     }
 

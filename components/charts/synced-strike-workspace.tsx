@@ -394,9 +394,9 @@ export function SyncedStrikeWorkspace({
     ])
     const peak = Math.max(...vals, 0.01) // at least 10M headroom
     // Round up to a "clean" value: next multiple of 200M (0.2 in billion-scale)
-    const padded = peak * 1.25
+    const limit = peak / 0.75
     const step = 0.2 // 200M
-    return Math.ceil(padded / step) * step
+    return Math.ceil(limit / step) * step
   }, [leftProfileDataCombined])
 
   // Right chart: ticker-aware max for Volume (contracts) AND Vanna/Charm (billion-scale)
@@ -409,10 +409,10 @@ export function SyncedStrikeWorkspace({
         Math.abs(p.startNetVal), Math.abs(p.endNetVal),
       ])
       const peak = Math.max(...vals, 1)
-      const padded = peak * 1.25
+      const limit = peak / 0.75
       // Round to a clean step: 1k, 5k, 10k, 50k, 100k, etc.
-      const magnitudeStep = Math.pow(10, Math.floor(Math.log10(padded))) / 2
-      return Math.ceil(padded / magnitudeStep) * magnitudeStep
+      const magnitudeStep = Math.pow(10, Math.floor(Math.log10(limit))) / 2 || 1
+      return Math.ceil(limit / magnitudeStep) * magnitudeStep
     }
     // Charm/Vanna: same billion-scale as GEX
     const vals = rightProfileDataCombined.flatMap(p => [
@@ -421,9 +421,9 @@ export function SyncedStrikeWorkspace({
       Math.abs(p.startPutVal), Math.abs(p.endPutVal),
     ])
     const peak = Math.max(...vals, 0.01)
-    const padded = peak * 1.25
+    const limit = peak / 0.75
     const step = 0.2 // 200M in billion-scale
-    return Math.ceil(padded / step) * step
+    return Math.ceil(limit / step) * step
   }, [rightProfileDataCombined, displayMode])
 
   // Helper to reset to fully zoomed out state

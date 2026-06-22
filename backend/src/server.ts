@@ -250,7 +250,7 @@ app.get('/api/analyze', async (req: Request, res: Response) => {
  */
 app.post('/api/analyst/chat', async (req: Request, res: Response) => {
   try {
-    const { message, history, ticker, livePrice, uiContext, is0DteMode } = req.body;
+    const { message, history, ticker, livePrice, uiContext, is0DteMode, optionData } = req.body;
     if (!message || typeof message !== 'string') {
       return res.status(400).json({ error: 'Message is required' });
     }
@@ -262,7 +262,8 @@ app.post('/api/analyst/chat', async (req: Request, res: Response) => {
       activeTicker,
       typeof livePrice === 'number' ? livePrice : undefined,
       uiContext,
-      !!is0DteMode
+      !!is0DteMode,
+      optionData
     );
     res.json({
       success: true,
@@ -683,11 +684,12 @@ app.get('/api/quant/garch-forecast', async (req: Request, res: Response) => {
  */
 app.get('/api/quant/quantum-tunneling', async (req: Request, res: Response) => {
   try {
-    const { ticker } = req.query;
+    const { ticker, expiries } = req.query;
     if (!ticker || typeof ticker !== 'string') {
       return res.status(400).json({ error: 'Ticker parameter is required' });
     }
-    const data = await getQuantumTunneling(ticker);
+    const expiriesArray = typeof expiries === 'string' && expiries ? expiries.split(',') : undefined;
+    const data = await getQuantumTunneling(ticker, expiriesArray);
     res.json(data);
   } catch (error: any) {
     console.error('Error in /api/quant/quantum-tunneling:', error);

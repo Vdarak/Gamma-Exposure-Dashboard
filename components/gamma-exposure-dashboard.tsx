@@ -32,6 +32,7 @@ import { ProbabilityMapChart } from "./charts/probability-map-chart"
 import { GarchForecastChart } from "./charts/garch-forecast-chart"
 import { QuantumTunnelingGauge } from "./charts/quantum-tunneling-gauge"
 import { CotFlowChart } from "./charts/cot-flow-chart"
+import { GitaQuote } from "./layout/gita-quote"
 
 // UI components
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -193,7 +194,7 @@ export function GammaExposureDashboard() {
       const parts = expStr.split('-')
       const expUTC = Date.UTC(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10))
       const today = new Date()
-      const todayUTC = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
+      const todayUTC = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
       return Math.max(0, Math.round((expUTC - todayUTC) / 86400000))
     }
 
@@ -663,8 +664,8 @@ export function GammaExposureDashboard() {
 
       {/* ─── MAIN WORKSPACE AND CONTENT GRID ─── */}
       <main className="flex-1 flex flex-col min-w-0 pb-16 md:pb-0 overflow-hidden">
-        {/* Terminal Header (Hidden inside Journal, Flow, and Quantum Tunneling tabs) */}
-        {activeSidebarTab !== 'journal' && activeSidebarTab !== 'flow' && !(activeSidebarTab === 'quant' && activeTab === 'quantum-tunnel') && (
+        {/* Terminal Header (Hidden inside Journal and Flow tabs) */}
+        {activeSidebarTab !== 'journal' && activeSidebarTab !== 'flow' && (
           <TerminalHeader
             ticker={ticker}
             spotPrice={spotPrice}
@@ -1026,7 +1027,13 @@ export function GammaExposureDashboard() {
 
                   {/* ==================== 3. Quant Pricing sub-tabs ==================== */}
                   {activeSidebarTab === 'quant' && activeTab === 'probability-map' && (
-                    <div className="flex-1 flex flex-col min-h-0">
+                    <div 
+                      className="flex-1 flex flex-col min-h-0"
+                      data-ai-context={JSON.stringify({
+                        component: "Probability Map Chart",
+                        promptTemplate: "Analyze the Breeden-Litzenberger implied probability density function (PDF) moments (mean, stdDev, skewness, kurtosis) across different DTE slices on this 3D map."
+                      })}
+                    >
                       <ProbabilityMapChart
                         ticker={ticker}
                         optionData={optionData}
@@ -1036,13 +1043,25 @@ export function GammaExposureDashboard() {
                     </div>
                   )}
                   {activeSidebarTab === 'quant' && activeTab === 'garch-forecast' && (
-                    <div className="flex-1 flex flex-col min-h-0">
+                    <div 
+                      className="flex-1 flex flex-col min-h-0"
+                      data-ai-context={JSON.stringify({
+                        component: "GARCH Volatility Forecast Chart",
+                        promptTemplate: "Analyze the GARCH(1,1) volatility term structure forecast versus option implied volatilities for this ticker."
+                      })}
+                    >
                       <GarchForecastChart ticker={ticker} />
                     </div>
                   )}
                   {activeSidebarTab === 'quant' && activeTab === 'quantum-tunnel' && (
-                    <div className="flex-1 flex flex-col min-h-0 p-4 gap-4 overflow-y-auto terminal-scrollbar">
-                      <QuantumTunnelingGauge ticker={ticker} />
+                    <div 
+                      className="flex-1 flex flex-col min-h-0 p-4 gap-4 overflow-y-auto terminal-scrollbar"
+                      data-ai-context={JSON.stringify({
+                        component: "Quantum Tunneling Gauge",
+                        promptTemplate: "Explain the quantum barrier breakthrough and tunneling probability calculations for the call/put walls based on Schrödinger wave equation modeling."
+                      })}
+                    >
+                      <QuantumTunnelingGauge ticker={ticker} activeExpiries={activeExpiries} expiryMode={expiryMode} />
                       <div className="flex-shrink-0 bg-[#070709] border border-[#141416] rounded-lg p-3 flex flex-col gap-3">
                         <div className="flex items-center justify-between border-b border-[#141416] pb-2 flex-shrink-0">
                           <div>
@@ -1069,7 +1088,13 @@ export function GammaExposureDashboard() {
                     </div>
                   )}
                   {activeSidebarTab === 'quant' && activeTab === 'cot-positions' && (
-                    <div className="flex-1 flex flex-col min-h-0">
+                    <div 
+                      className="flex-1 flex flex-col min-h-0"
+                      data-ai-context={JSON.stringify({
+                        component: "COT Flow Chart",
+                        promptTemplate: "Analyze the Commitment of Traders (COT) long/short institutional positioning dynamics and Net GEX flow trend."
+                      })}
+                    >
                       <CotFlowChart />
                     </div>
                   )}
@@ -1083,6 +1108,7 @@ export function GammaExposureDashboard() {
             <AIAnalystPanel
               isOpen={isAIPanelOpen}
               onClose={() => setIsAIPanelOpen(false)}
+              optionData={activeOptionData}
               ticker={ticker}
               livePrice={spotPrice ?? undefined}
               timeframe="Intraday"
@@ -1104,6 +1130,11 @@ export function GammaExposureDashboard() {
               onClearUiContext={() => setUiContext(null)}
             />
           )}
+        </div>
+
+        {/* Bhagvad Gita Financial Shlokas Banner */}
+        <div className="p-3 bg-[#020203] border-t border-[#141416] flex-shrink-0">
+          <GitaQuote />
         </div>
       </main>
 

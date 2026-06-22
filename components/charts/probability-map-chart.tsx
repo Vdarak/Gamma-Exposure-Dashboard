@@ -224,53 +224,97 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
 
     // Sort expiries chronologically
     const sortedExpiries = [...data.expiries].sort((a, b) => a.daysToExpiry - b.daysToExpiry)
+    const maxDte = d3.max(sortedExpiries, d => d.daysToExpiry) || 90
 
-    // Scales
-    const xScale = d3.scaleBand()
-      .domain(sortedExpiries.map(d => d.expiration))
+    // Scales - Continuous Linear Scale for DTE
+    const xScale = d3.scaleLinear()
+      .domain([0, maxDte])
       .range([0, width])
-      .padding(0.04)
 
     // Y scale matches Stock Price offset %: spanning -40% to +30%
     const yScale = d3.scaleLinear()
       .domain([-40, 30])
       .range([height, 0])
 
-    // Build flat array of cells for D3 rendering
-    const cells: any[] = []
-    sortedExpiries.forEach(exp => {
-      const maxDensity = d3.max(exp.pdf, p => p.density) || 1
-      exp.pdf.forEach(p => {
-        // filter strikes to fit within the -40% to +30% domain
-        if (p.pctOffset >= -40 && p.pctOffset <= 30) {
-          cells.push({
-            expiry: exp.expiration,
-            dte: exp.daysToExpiry,
-            pctOffset: p.pctOffset,
-            strike: p.strike,
-            density: p.density,
-            normalizedDensity: maxDensity > 0 ? p.density / maxDensity : 0
-          })
+    // Helper to query density at a given pctOffset for a specific expiry
+    const getDensityAtOffset = (exp: any, pct: number) => {
+      const pdf = exp.pdf;
+      if (pdf.length === 0) return 0;
+      
+      let closest = pdf[0];
+      let minDiff = Math.abs(pdf[0].pctOffset - pct);
+      for (let i = 1; i < pdf.length; i++) {
+        const diff = Math.abs(pdf[i].pctOffset - pct);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closest = pdf[i];
         }
-      })
-    })
+      }
+      return closest.density;
+    }
+
+    // Grid dimension settings
+    const numCols = 80
+    const numRows = 70
+    const cellWidth = width / numCols
+    const cellHeight = height / numRows
+
+    // Generate flat grid cell array with bilinear DTE interpolation
+    const cells: any[] = []
+    for (let col = 0; col < numCols; col++) {
+      const dte = (col / (numCols - 1)) * maxDte;
+      
+      const colCells: any[] = []
+      for (let row = 0; row < numRows; row++) {
+        const pctOffset = -40 + (row / (numRows - 1)) * 70;
+        
+        let density = 0;
+        if (dte <= sortedExpiries[0].daysToExpiry) {
+          density = getDensityAtOffset(sortedExpiries[0], pctOffset);
+        } else if (dte >= sortedExpiries[sortedExpiries.length - 1].daysToExpiry) {
+          density = getDensityAtOffset(sortedExpiries[sortedExpiries.length - 1], pctOffset);
+        } else {
+          const i = sortedExpiries.findIndex((exp, idx) => {
+            return exp.daysToExpiry <= dte && sortedExpiries[idx + 1].daysToExpiry >= dte;
+          });
+          if (i !== -1) {
+            const expA = sortedExpiries[i];
+            const expB = sortedExpiries[i + 1];
+            const t = (dte - expA.daysToExpiry) / (expB.daysToExpiry - expA.daysToExpiry || 1);
+            const densA = getDensityAtOffset(expA, pctOffset);
+            const densB = getDensityAtOffset(expB, pctOffset);
+            density = densA + t * (densB - densA);
+          }
+        }
+        colCells.push({ dte, pctOffset, density });
+      }
+      
+      const peakDensity = d3.max(colCells, c => c.density) || 1;
+      colCells.forEach(cell => {
+        const strike = spotPrice * (1 + cell.pctOffset / 100);
+        cells.push({
+          dte: cell.dte,
+          pctOffset: cell.pctOffset,
+          strike,
+          density: cell.density,
+          normalizedDensity: peakDensity > 0 ? cell.density / peakDensity : 0
+        });
+      });
+    }
 
     // Sequential color scale matching "Inferno" (purple -> orange -> yellow/white)
     const colorScale = d3.scaleSequential(d3.interpolateInferno)
-      .domain([0, 1]) // relative normalized peak density
+      .domain([0, 1])
 
-    // Height of each rect in the column (120 points mapped to height)
-    const cellHeight = Math.max(1, (height / 120))
-
-    // Draw Heatmap cells
+    // Draw Heatmap cells with 0.2px gap
     g.selectAll('.cell')
       .data(cells)
       .join('rect')
       .attr('class', 'cell')
-      .attr('x', d => xScale(d.expiry)!)
+      .attr('x', d => xScale(d.dte))
       .attr('y', d => yScale(d.pctOffset) - cellHeight)
-      .attr('width', xScale.bandwidth())
-      .attr('height', cellHeight + 0.6) // slight overlap to remove black pixel rows
+      .attr('width', Math.max(0.5, cellWidth - 0.2))
+      .attr('height', Math.max(0.5, cellHeight - 0.2))
       .attr('fill', d => colorScale(d.normalizedDensity))
       .on('mousemove', (event, d) => {
         if (!tooltipRef.current || !containerRef3D.current) return
@@ -278,7 +322,7 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
         
         tooltipRef.current.innerHTML = `
           <div style="font-family:${typography.fontSans};font-size:11px;color:${colors.text.primary};font-weight:600">
-            ${new Date(d.expiry).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })} (${d.dte} DTE)
+            Maturity Horizon: ${d.dte.toFixed(1)} Days to Expiry (Linear Interpolated)
           </div>
           <div style="font-family:${typography.fontMono};font-size:10px;color:${colors.accent.amber};margin-top:3px">
             Strike Level: $${d.strike.toFixed(1)} (${d.pctOffset >= 0 ? '+' : ''}${d.pctOffset.toFixed(1)}%)
@@ -317,18 +361,13 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
     }
 
     // Axes
-    const xAxis = d3.axisBottom(xScale).tickFormat(d => {
-      const date = new Date(d)
-      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
-    })
+    const xAxis = d3.axisBottom(xScale).ticks(8).tickFormat(d => `${d} DTE`)
     const xAxisG = g.append('g').attr('transform', `translate(0,${height})`).call(xAxis)
     xAxisG.select('.domain').attr('stroke', '#1A1A1E')
     xAxisG.selectAll('.tick text')
       .attr('fill', colors.text.muted)
       .style('font-family', typography.fontMono)
       .style('font-size', '8.5px')
-      .attr('transform', 'rotate(-15)')
-      .attr('text-anchor', 'end')
     xAxisG.selectAll('.tick line').attr('stroke', '#1A1A1E')
 
     const yAxis = d3.axisLeft(yScale).tickValues([-40, -25, -10, 0, 15, 30]).tickFormat(d => {
@@ -343,7 +382,7 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
       .style('font-size', '9px')
     yAxisG.selectAll('.tick line').attr('stroke', '#1A1A1E')
 
-  }, [data, dims3D])
+  }, [data, dims3D, spotPrice])
 
   // Format available expiry dates for select dropdown
   const dropdownExpiries = useMemo(() => {
@@ -390,15 +429,24 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
               <p className="text-[9px] text-[#555] mt-0.5">Breeden-Litzenberger Risk-Neutral Probability distribution</p>
             </div>
             {dropdownExpiries.length > 0 && (
-              <select
-                value={selectedExpiry}
-                onChange={(e) => setSelectedExpiry(e.target.value)}
-                className="bg-black border border-[#1A1A1E] text-[10px] font-mono text-[#E5E5E5] rounded px-2 py-0.5 focus:outline-none focus:border-[#444]"
-              >
-                {dropdownExpiries.map(exp => (
-                  <option key={exp.value} value={exp.value}>{exp.label}</option>
-                ))}
-              </select>
+              <div className="flex items-center gap-1.5 overflow-x-auto max-w-[240px] md:max-w-[320px] scrollbar-none pr-1">
+                {dropdownExpiries.map(exp => {
+                  const active = exp.value === selectedExpiry;
+                  return (
+                    <button
+                      key={exp.value}
+                      onClick={() => setSelectedExpiry(exp.value)}
+                      className={`px-2 py-0.5 rounded text-[9px] font-mono font-semibold transition-all border shrink-0 ${
+                        active
+                          ? 'bg-terminal-green/10 text-terminal-green border-terminal-green/30'
+                          : 'bg-black text-[#666] border-[#1C202E] hover:text-[#949494] hover:border-[#2B3045]'
+                      }`}
+                    >
+                      {exp.label}
+                    </button>
+                  );
+                })}
+              </div>
             )}
           </div>
 

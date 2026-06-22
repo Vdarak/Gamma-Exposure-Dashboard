@@ -25,6 +25,7 @@ interface AIAnalystPanelProps {
   on0DteModeChange?: (val: boolean) => void
   uiContext?: any
   onClearUiContext?: () => void
+  optionData?: any[]
 }
 
 const DEFAULT_WELCOME = `Hello! I'm your **GEX Terminal AI Analyst**.
@@ -59,6 +60,7 @@ export function AIAnalystPanel({
   on0DteModeChange,
   uiContext,
   onClearUiContext,
+  optionData,
 }: AIAnalystPanelProps) {
   const welcome = welcomeMessage ?? DEFAULT_WELCOME
 
@@ -106,7 +108,8 @@ export function AIAnalystPanel({
         ticker,
         livePrice,
         uiContext,
-        is0DteMode
+        is0DteMode,
+        optionData
       )
 
       const modelMsg: ChatMessage = {

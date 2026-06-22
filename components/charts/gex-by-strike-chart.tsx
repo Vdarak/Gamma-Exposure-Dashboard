@@ -245,7 +245,7 @@ export function GEXByStrikeChart({
         return idx !== -1 ? Math.abs(endPutGEX[idx]) : 0
       })) || 0
 
-      const maxVal = Math.max(maxStartCall, maxEndCall, maxStartPut, maxEndPut) * 1.15 || 1
+      const maxVal = Math.max(maxStartCall, maxEndCall, maxStartPut, maxEndPut) / 0.75 || 1
       return [-maxVal, maxVal]
     } else {
       let maxNet = 1
@@ -280,7 +280,7 @@ export function GEXByStrikeChart({
         })) || 0
         maxNet = Math.max(mStart, mEnd)
       }
-      const maxVal = (maxNet || 1) * 1.15
+      const maxVal = (maxNet || 1) / 0.75
       return [-maxVal, maxVal]
     }
   }, [scrollableStrikes, activeZoom, atmStrike, showAbsoluteGEX, greekMode, startCallGEX, endCallGEX, startPutGEX, endPutGEX, startGammaValues, endGammaValues, startVannaValues, endVannaValues, startCharmValues, endCharmValues])

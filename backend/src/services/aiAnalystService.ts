@@ -187,7 +187,8 @@ Rules: No generic intro. Start directly with "## 0DTE Gamma Regime". Cite actual
     ticker: string = 'SPX',
     livePrice?: number,
     uiContext?: any,
-    is0DteMode?: boolean
+    is0DteMode?: boolean,
+    optionData?: any[]
   ): Promise<{ text: string; tradeLogged?: JournalTrade }> {
     if (!this.isEnabled()) {
       return { text: "AI Analyst is not configured. Please add GEMINI_API_KEY to your environment variables." };
@@ -208,9 +209,15 @@ Rules: No generic intro. Start directly with "## 0DTE Gamma Regime". Cite actual
       };
 
       try {
-        const snap = await getCurrentData(ticker.toUpperCase());
-        if (snap && snap.options && snap.options.length > 0) {
-          const spot = snap.spotPrice;
+        let snap: any = null;
+        if (!optionData || optionData.length === 0) {
+          snap = await getCurrentData(ticker.toUpperCase());
+        }
+        
+        const optionsToProcess = (optionData && optionData.length > 0) ? optionData : (snap?.options || []);
+        const spot = (optionData && optionData.length > 0) ? (livePrice || 0) : (snap?.spotPrice || 0);
+
+        if (optionsToProcess.length > 0) {
           if (!livePrice) {
             unifiedContextPayload.spotPrice = spot;
           }
@@ -219,7 +226,7 @@ Rules: No generic intro. Start directly with "## 0DTE Gamma Regime". Cite actual
           const expiryGex = new Map<string, number>();
           const localMap = new Map<number, { netGex: number; dte: number; callOI: number; putOI: number }>();
 
-          for (const opt of snap.options) {
+          for (const opt of optionsToProcess) {
             const expStr = (opt.expiration instanceof Date ? opt.expiration : new Date(String(opt.expiration))).toISOString().split('T')[0];
             const dte = Math.max(0, Math.round((new Date(expStr + 'T00:00:00Z').getTime() - new Date(todayStr + 'T00:00:00Z').getTime()) / 86400000));
             const strike = parseFloat(String(opt.strike));
@@ -309,23 +316,23 @@ Rules: No generic intro. Start directly with "## 0DTE Gamma Regime". Cite actual
 
           // Front expiry ATM IV
           const frontExpiry = expiriesSorted[0];
-          const frontAtmOptions = snap.options.filter(o => 
+          const frontAtmOptions = optionsToProcess.filter((o: any) => 
             parseFloat(String(o.strike)) === atmStrike && 
             (o.expiration instanceof Date ? o.expiration : new Date(String(o.expiration))).toISOString().split('T')[0] === frontExpiry
           );
           if (frontAtmOptions.length > 0) {
-            atmIvFrontMonth = (frontAtmOptions.reduce((sum, o) => sum + (o.impliedVolatility || 0), 0) / frontAtmOptions.length) * 100;
+            atmIvFrontMonth = (frontAtmOptions.reduce((sum: number, o: any) => sum + (o.impliedVolatility || 0), 0) / frontAtmOptions.length) * 100;
           }
 
           // Expiry term structure slope (compare near-term vs. far-term ATM IV)
           if (expiriesSorted.length > 1) {
             const farExpiry = expiriesSorted[expiriesSorted.length - 1];
-            const farAtmOptions = snap.options.filter(o => 
+            const farAtmOptions = optionsToProcess.filter((o: any) => 
               parseFloat(String(o.strike)) === atmStrike && 
               (o.expiration instanceof Date ? o.expiration : new Date(String(o.expiration))).toISOString().split('T')[0] === farExpiry
             );
             if (farAtmOptions.length > 0) {
-              const farAtmIv = (farAtmOptions.reduce((sum, o) => sum + (o.impliedVolatility || 0), 0) / farAtmOptions.length) * 100;
+              const farAtmIv = (farAtmOptions.reduce((sum: number, o: any) => sum + (o.impliedVolatility || 0), 0) / farAtmOptions.length) * 100;
               termStructureSlope = farAtmIv > atmIvFrontMonth ? 'Contango' : 'Backwardation';
             }
           }
@@ -347,12 +354,12 @@ Rules: No generic intro. Start directly with "## 0DTE Gamma Regime". Cite actual
               Math.abs(curr - callStrike) < Math.abs(closest - callStrike) ? curr : closest, uniqueStrikes[0]
             );
 
-            const putOpts = snap.options.filter(o => 
+            const putOpts = optionsToProcess.filter((o: any) => 
               parseFloat(String(o.strike)) === closestPutStrike && 
               o.type === 'P' && 
               (o.expiration instanceof Date ? o.expiration : new Date(String(o.expiration))).toISOString().split('T')[0] === targetExpiry
             );
-            const callOpts = snap.options.filter(o => 
+            const callOpts = optionsToProcess.filter((o: any) => 
               parseFloat(String(o.strike)) === closestCallStrike && 
               o.type === 'C' && 
               (o.expiration instanceof Date ? o.expiration : new Date(String(o.expiration))).toISOString().split('T')[0] === targetExpiry
