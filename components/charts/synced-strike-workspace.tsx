@@ -383,6 +383,49 @@ export function SyncedStrikeWorkspace({
     enrichedStartOptionData, enrichedEndOptionData
   ])
 
+  // ─── Ticker-aware stable scale ───────────────────────────────────────────
+  // Compute the max GEX/Vanna across the FULL (unfiltered) profile so the axis
+  // stays constant while panning/zooming, but adapts to each ticker's magnitude.
+  const tickerGexMax = useMemo(() => {
+    const vals = leftProfileDataCombined.flatMap(p => [
+      Math.abs(p.startNetVal), Math.abs(p.endNetVal),
+      Math.abs(p.startCallVal), Math.abs(p.endCallVal),
+      Math.abs(p.startPutVal), Math.abs(p.endPutVal),
+    ])
+    const peak = Math.max(...vals, 0.01) // at least 10M headroom
+    // Round up to a "clean" value: next multiple of 200M (0.2 in billion-scale)
+    const padded = peak * 1.25
+    const step = 0.2 // 200M
+    return Math.ceil(padded / step) * step
+  }, [leftProfileDataCombined])
+
+  // Right chart: ticker-aware max for Volume (contracts) AND Vanna/Charm (billion-scale)
+  // Returns a single number representing the domain ceiling for the current display mode.
+  const tickerRightMax = useMemo(() => {
+    const isVolMode = displayMode === 'gamma-vol'
+    if (isVolMode) {
+      // Volume: raw contract counts — scan all net volume values
+      const vals = rightProfileDataCombined.flatMap(p => [
+        Math.abs(p.startNetVal), Math.abs(p.endNetVal),
+      ])
+      const peak = Math.max(...vals, 1)
+      const padded = peak * 1.25
+      // Round to a clean step: 1k, 5k, 10k, 50k, 100k, etc.
+      const magnitudeStep = Math.pow(10, Math.floor(Math.log10(padded))) / 2
+      return Math.ceil(padded / magnitudeStep) * magnitudeStep
+    }
+    // Charm/Vanna: same billion-scale as GEX
+    const vals = rightProfileDataCombined.flatMap(p => [
+      Math.abs(p.startNetVal), Math.abs(p.endNetVal),
+      Math.abs(p.startCallVal), Math.abs(p.endCallVal),
+      Math.abs(p.startPutVal), Math.abs(p.endPutVal),
+    ])
+    const peak = Math.max(...vals, 0.01)
+    const padded = peak * 1.25
+    const step = 0.2 // 200M in billion-scale
+    return Math.ceil(padded / step) * step
+  }, [rightProfileDataCombined, displayMode])
+
   // Helper to reset to fully zoomed out state
   const resetToFullyZoomedOut = () => {
     const allStrikes = Array.from(new Set([
@@ -799,11 +842,11 @@ export function SyncedStrikeWorkspace({
 
       const leftProfileData = leftProfileDataCombined.filter(p => p.strike >= yDomain[0] && p.strike <= yDomain[1])
 
-      // Fixed scale: ±2B so axis stays constant regardless of current data
-      const fixedMaxVal = 2  // 2 = 2 × 1e9 dollars (values are already in billions)
+      // Ticker-aware scale: max GEX across all strikes + 25% headroom, rounded to 200M
+      const leftMax = tickerGexMax
 
       const xScale = d3.scaleLinear()
-        .domain([-fixedMaxVal, fixedMaxVal])
+        .domain([-leftMax, leftMax])
         .range([0, chartWidth])
 
       const strikeScale = d3.scaleLinear()
@@ -811,7 +854,7 @@ export function SyncedStrikeWorkspace({
         .range([0, chartWidth])
 
       const exposureScale = d3.scaleLinear()
-        .domain([-fixedMaxVal, fixedMaxVal])
+        .domain([-leftMax, leftMax])
         .range([chartHeight, 0])
 
       // Append definitions for striped patterns
@@ -1164,18 +1207,28 @@ export function SyncedStrikeWorkspace({
         xAxisG.selectAll('path').attr('stroke', '#1A1A1A')
         xAxisG.selectAll('text').attr('fill', '#949494').style('font-family', typography.fontSans).style('font-size', '9px').attr('dy', '10px')
 
-        // Y Axis represents Exposure (fixed M-scale ticks)
+        // Y Axis — dynamic M-scale ticks from ticker-aware leftMax
+        const nSteps = 4
+        const stepSize = leftMax / nSteps
+        const yTickVals = Array.from({ length: nSteps * 2 + 1 }, (_, i) =>
+          parseFloat(((i - nSteps) * stepSize).toFixed(4))
+        )
         const yAxis = d3.axisLeft(exposureScale)
-          .tickValues([-2, -1, 0, 1, 2])
+          .tickValues(yTickVals)
           .tickFormat(d => formatAxisM(d as number))
         const yAxisG = g.append('g').call(yAxis)
         yAxisG.selectAll('line').attr('stroke', '#222')
         yAxisG.selectAll('path').attr('stroke', 'none')
         yAxisG.selectAll('text').attr('fill', '#B5B5B5').style('font-family', typography.fontMono).style('font-size', '9px').attr('dx', '-3px')
       } else {
-        // X Axis represents Exposure (fixed M-scale ticks)
+        // X Axis — dynamic M-scale ticks from ticker-aware leftMax
+        const nSteps = 4
+        const stepSize = leftMax / nSteps
+        const xTickVals = Array.from({ length: nSteps * 2 + 1 }, (_, i) =>
+          parseFloat(((i - nSteps) * stepSize).toFixed(4))
+        )
         const xAxis = d3.axisBottom(xScale)
-          .tickValues([-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2])
+          .tickValues(xTickVals)
           .tickFormat(d => formatAxisM(d as number))
         const xAxisG = g.append('g').attr('transform', `translate(0,${chartHeight})`).call(xAxis)
         xAxisG.selectAll('line').attr('stroke', 'none')
@@ -1284,21 +1337,13 @@ export function SyncedStrikeWorkspace({
       const isVolMode = displayMode === 'gamma-vol'
       const isSymmetric = displayMode === 'vanna-charm'
       
-      // Fixed scale for GEX-style (symmetric), dynamic for Volume (contracts)
-      // isSymmetric = vanna-charm mode (±2B fixed)
-      // isVolMode = volume mode (dynamic 0→max)
-      let maxVal = 1
-      if (!isSymmetric) {
-        // Volume: dynamic domain based on data
-        maxVal = (d3.max(rightProfileData.map(p => Math.max(
-          Math.abs(p.startNetVal), Math.abs(p.endNetVal)
-        ))) || 1) * 1.1
-      }
-      // fixedMaxVal for symmetric (Charm/Vanna) — same as left profile
-      const fixedRightMaxVal = 2
+      // Ticker-aware scale for all right-chart modes
+      // Volume: 0 → tickerRightMax (contracts)
+      // Vanna/Charm: ±tickerRightMax (billion-scale)
+      const rightMax = tickerRightMax
 
       const xScale = d3.scaleLinear()
-        .domain(isSymmetric ? [-fixedRightMaxVal, fixedRightMaxVal] : [0, maxVal])
+        .domain(isSymmetric ? [-rightMax, rightMax] : [0, rightMax])
         .range([0, chartWidth])
 
       const strikeScale = d3.scaleLinear()
@@ -1306,7 +1351,7 @@ export function SyncedStrikeWorkspace({
         .range([0, chartWidth])
 
       const exposureScale = d3.scaleLinear()
-        .domain(isSymmetric ? [-fixedRightMaxVal, fixedRightMaxVal] : [0, maxVal])
+        .domain(isSymmetric ? [-rightMax, rightMax] : [0, rightMax])
         .range([chartHeight, 0])
 
       // Append definitions for striped patterns
@@ -1649,23 +1694,41 @@ export function SyncedStrikeWorkspace({
         xAxisG.selectAll('path').attr('stroke', '#1A1A1A')
         xAxisG.selectAll('text').attr('fill', '#949494').style('font-family', typography.fontSans).style('font-size', '9px').attr('dy', '10px')
 
-        // Y Axis represents Exposure
-        const yAxis = isSymmetric
-          ? d3.axisLeft(exposureScale)
-              .tickValues([-2, -1, 0, 1, 2])
+        // Y Axis represents Exposure — ticker-aware ticks
+        const yAxis = (() => {
+          if (isSymmetric) {
+            // Charm/Vanna: ±M scale ticks evenly spaced up to rightMax
+            const nSteps = 4
+            const stepSize = rightMax / nSteps
+            const tickVals = Array.from({ length: nSteps * 2 + 1 }, (_, i) =>
+              parseFloat(((i - nSteps) * stepSize).toFixed(4))
+            )
+            return d3.axisLeft(exposureScale)
+              .tickValues(tickVals)
               .tickFormat(d => formatAxisM(d as number))
-          : d3.axisLeft(exposureScale).ticks(3).tickFormat(d => formatCompact(d as number))
+          }
+          // Volume mode: compact contract counts
+          return d3.axisLeft(exposureScale).ticks(4).tickFormat(d => formatCompact(d as number))
+        })()
         const yAxisG = g.append('g').call(yAxis)
         yAxisG.selectAll('line').attr('stroke', '#222')
         yAxisG.selectAll('path').attr('stroke', 'none')
         yAxisG.selectAll('text').attr('fill', '#B5B5B5').style('font-family', typography.fontMono).style('font-size', '9px').attr('dx', '-3px')
       } else {
-        // X Axis represents Exposure
-        const xAxis = isSymmetric
-          ? d3.axisBottom(xScale)
-              .tickValues([-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2])
+        // X Axis represents Exposure — ticker-aware ticks
+        const xAxis = (() => {
+          if (isSymmetric) {
+            const nSteps = 4
+            const stepSize = rightMax / nSteps
+            const tickVals = Array.from({ length: nSteps * 2 + 1 }, (_, i) =>
+              parseFloat(((i - nSteps) * stepSize).toFixed(4))
+            )
+            return d3.axisBottom(xScale)
+              .tickValues(tickVals)
               .tickFormat(d => formatAxisM(d as number))
-          : d3.axisBottom(xScale).ticks(3).tickFormat(d => formatCompact(d as number))
+          }
+          return d3.axisBottom(xScale).ticks(4).tickFormat(d => formatCompact(d as number))
+        })()
         const xAxisG = g.append('g').attr('transform', `translate(0,${chartHeight})`).call(xAxis)
         xAxisG.selectAll('line').attr('stroke', 'none')
         xAxisG.selectAll('path').attr('stroke', '#1A1A1A')
