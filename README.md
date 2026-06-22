@@ -58,6 +58,7 @@ A comprehensive, modular documentation system is provided in the `docs/` folder 
   * [DuckDB Backtest Engine](docs/features/backtester.md)
   * [Trading Journal](docs/features/trading_journal.md)
   * [AI Analyst Agent](docs/features/ai_analyst.md)
+  * [Quant Pricing & Risk Suite](docs/features/quant_pricing.md)
 
 ---
 

@@ -90,6 +90,7 @@ This project is separated into a Next.js frontend at the root and an Express.js 
 * **[features/backtester.md](features/backtester.md)**: DuckDB database, strategy parsing, simulator engine, result plots.
 * **[features/trading_journal.md](features/trading_journal.md)**: Calendar heatmaps, analytics dashboards, journal trade logs.
 * **[features/ai_analyst.md](features/ai_analyst.md)**: AI trade logger, context building, Gemini chat logic.
+* **[features/quant_pricing.md](features/quant_pricing.md)**: Breeden-Litzenberger implied probability density mapping, GARCH(1,1) volatility forecasting, Quantum Tunneling wall barrier breakthroughs, and CFTC COT macro positioning.
 
 ---
 

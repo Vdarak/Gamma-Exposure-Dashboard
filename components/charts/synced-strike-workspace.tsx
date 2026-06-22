@@ -481,27 +481,7 @@ export function SyncedStrikeWorkspace({
     }
   }, [dragState, endSpotPrice, dimensions.height, candles.length, isRotated, dimensions.width])
 
-  // Native non-passive wheel event listener to prevent main page scrolling while zooming
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
 
-    const handleWheelNative = (event: WheelEvent) => {
-      event.preventDefault() // Prevents parent/page from scrolling
-      
-      const zoomFactor = event.deltaY < 0 ? -3 : 3
-      setXRange(prevRange => {
-        const [startIdx, endIdx] = prevRange
-        const currentSpan = endIdx - startIdx
-        const newSpan = Math.max(10, Math.min(candles.length, currentSpan + zoomFactor))
-        const newStart = Math.max(0, endIdx - newSpan)
-        return [newStart, endIdx]
-      })
-    }
-
-    el.addEventListener('wheel', handleWheelNative, { passive: false })
-    return () => el.removeEventListener('wheel', handleWheelNative)
-  }, [candles.length])
 
   // Mouse down on chart wrapper
   const handleMouseDown = (event: React.MouseEvent<SVGSVGElement>) => {
@@ -878,12 +858,17 @@ export function SyncedStrikeWorkspace({
           .attr('stroke', '#222').attr('stroke-width', 1)
       }
 
+      // Use static doubled bar thickness / width to keep it clean and robust
+      const dynamicBarThickness = 14
+      const dynamicBarWidth = 14
+      const dynamicBarOffset = 7
+
       // Draw bars
       leftProfileData.forEach(p => {
         if (isRotated) {
           const x = strikeScale(p.strike)
           if (x === undefined || x < 0 || x > chartWidth) return
-          const barWidth = 5
+          const barWidth = dynamicBarWidth
           const barX = x - barWidth / 2
 
           if (showAbsolute) {
@@ -893,16 +878,16 @@ export function SyncedStrikeWorkspace({
               g.append('rect')
                 .attr('x', barX).attr('y', exposureScale(p.startCallVal))
                 .attr('width', barWidth).attr('height', Math.max(1, startCallHeight))
-                .attr('fill', 'rgba(0, 200, 5, 0.35)')
-                .attr('stroke', '#00C805').attr('stroke-opacity', 0.35).attr('stroke-width', 0.5).attr('rx', 1)
+                .attr('fill', 'rgba(0, 200, 5, 0.3)')
+                .attr('stroke', '#00C805').attr('stroke-opacity', 0.3).attr('stroke-width', 0.5).attr('rx', 1)
 
               // Start Put bar (Solid red, 35% opacity)
               const startPutHeight = Math.abs(exposureScale(p.startPutVal) - exposureScale(0))
               g.append('rect')
                 .attr('x', barX).attr('y', exposureScale(0))
                 .attr('width', barWidth).attr('height', Math.max(1, startPutHeight))
-                .attr('fill', 'rgba(255, 59, 96, 0.35)')
-                .attr('stroke', '#FF3B60').attr('stroke-opacity', 0.35).attr('stroke-width', 0.5).attr('rx', 1)
+                .attr('fill', 'rgba(255, 59, 96, 0.3)')
+                .attr('stroke', '#FF3B60').attr('stroke-opacity', 0.3).attr('stroke-width', 0.5).attr('rx', 1)
             }
 
             // End Call bar (Solid green, 80% opacity)
@@ -910,16 +895,16 @@ export function SyncedStrikeWorkspace({
             g.append('rect')
               .attr('x', barX).attr('y', exposureScale(p.endCallVal))
               .attr('width', barWidth).attr('height', Math.max(1, endCallHeight))
-              .attr('fill', 'rgba(0, 200, 5, 0.8)')
-              .attr('stroke', '#00C805').attr('stroke-opacity', 0.8).attr('stroke-width', 0.5).attr('rx', 1)
+              .attr('fill', 'rgba(0, 200, 5, 0.65)')
+              .attr('stroke', '#00C805').attr('stroke-opacity', 0.65).attr('stroke-width', 0.5).attr('rx', 1)
 
             // End Put bar (Solid red, 80% opacity)
             const endPutHeight = Math.abs(exposureScale(p.endPutVal) - exposureScale(0))
             g.append('rect')
               .attr('x', barX).attr('y', exposureScale(0))
               .attr('width', barWidth).attr('height', Math.max(1, endPutHeight))
-              .attr('fill', 'rgba(255, 59, 96, 0.8)')
-              .attr('stroke', '#FF3B60').attr('stroke-opacity', 0.8).attr('stroke-width', 0.5).attr('rx', 1)
+              .attr('fill', 'rgba(255, 59, 96, 0.65)')
+              .attr('stroke', '#FF3B60').attr('stroke-opacity', 0.65).attr('stroke-width', 0.5).attr('rx', 1)
 
             if (!isLive) {
               // Delta Call change bar
@@ -960,9 +945,9 @@ export function SyncedStrikeWorkspace({
               g.append('rect')
                 .attr('x', barX).attr('y', startY)
                 .attr('width', barWidth).attr('height', Math.max(1, startHeight))
-                .attr('fill', startVal >= 0 ? 'rgba(0, 200, 5, 0.35)' : 'rgba(255, 59, 96, 0.35)')
+                .attr('fill', startVal >= 0 ? 'rgba(0, 200, 5, 0.3)' : 'rgba(255, 59, 96, 0.3)')
                 .attr('stroke', startVal >= 0 ? '#00C805' : '#FF3B60')
-                .attr('stroke-opacity', 0.35).attr('stroke-width', 0.5).attr('rx', 1)
+                .attr('stroke-opacity', 0.3).attr('stroke-width', 0.5).attr('rx', 1)
             }
 
             const endHeight = Math.abs(exposureScale(endVal) - exposureScale(0))
@@ -970,9 +955,9 @@ export function SyncedStrikeWorkspace({
             g.append('rect')
               .attr('x', barX).attr('y', endY)
               .attr('width', barWidth).attr('height', Math.max(1, endHeight))
-              .attr('fill', endVal >= 0 ? 'rgba(0, 200, 5, 0.8)' : 'rgba(255, 59, 96, 0.8)')
+              .attr('fill', endVal >= 0 ? 'rgba(0, 200, 5, 0.65)' : 'rgba(255, 59, 96, 0.65)')
               .attr('stroke', endVal >= 0 ? '#00C805' : '#FF3B60')
-              .attr('stroke-opacity', 0.8).attr('stroke-width', 0.5).attr('rx', 1)
+              .attr('stroke-opacity', 0.65).attr('stroke-width', 0.5).attr('rx', 1)
 
             if (!isLive && Math.abs(delta) > 1e-5) {
               const deltaHeight = Math.abs(exposureScale(endVal) - exposureScale(startVal))
@@ -996,24 +981,24 @@ export function SyncedStrikeWorkspace({
               // Start Call bar (Solid green, 35% opacity)
               const startCallWidth = Math.abs(xScale(p.startCallVal) - xScale(0))
               g.append('rect')
-                .attr('x', xScale(0)).attr('y', y - 2)
+                .attr('x', xScale(0)).attr('y', y - dynamicBarOffset)
                 .attr('width', Math.max(1, startCallWidth))
-                .attr('height', 5)
-                .attr('fill', 'rgba(0, 200, 5, 0.35)')
+                .attr('height', dynamicBarThickness)
+                .attr('fill', 'rgba(0, 200, 5, 0.3)')
                 .attr('stroke', '#00C805')
-                .attr('stroke-opacity', 0.35)
+                .attr('stroke-opacity', 0.3)
                 .attr('stroke-width', 0.5)
                 .attr('rx', 1)
 
               // Start Put bar (Solid red, 35% opacity)
               const startPutWidth = Math.abs(xScale(p.startPutVal) - xScale(0))
               g.append('rect')
-                .attr('x', xScale(p.startPutVal)).attr('y', y - 2)
+                .attr('x', xScale(p.startPutVal)).attr('y', y - dynamicBarOffset)
                 .attr('width', Math.max(1, startPutWidth))
-                .attr('height', 5)
-                .attr('fill', 'rgba(255, 59, 96, 0.35)')
+                .attr('height', dynamicBarThickness)
+                .attr('fill', 'rgba(255, 59, 96, 0.3)')
                 .attr('stroke', '#FF3B60')
-                .attr('stroke-opacity', 0.35)
+                .attr('stroke-opacity', 0.3)
                 .attr('stroke-width', 0.5)
                 .attr('rx', 1)
             }
@@ -1021,24 +1006,24 @@ export function SyncedStrikeWorkspace({
             // End Call bar (Solid green, 80% opacity)
             const endCallWidth = Math.abs(xScale(p.endCallVal) - xScale(0))
             g.append('rect')
-              .attr('x', xScale(0)).attr('y', y - 2)
+              .attr('x', xScale(0)).attr('y', y - dynamicBarOffset)
               .attr('width', Math.max(1, endCallWidth))
-              .attr('height', 5)
-              .attr('fill', 'rgba(0, 200, 5, 0.8)')
+              .attr('height', dynamicBarThickness)
+              .attr('fill', 'rgba(0, 200, 5, 0.65)')
               .attr('stroke', '#00C805')
-              .attr('stroke-opacity', 0.8)
+              .attr('stroke-opacity', 0.65)
               .attr('stroke-width', 0.5)
               .attr('rx', 1)
 
             // End Put bar (Solid red, 80% opacity)
             const endPutWidth = Math.abs(xScale(p.endPutVal) - xScale(0))
             g.append('rect')
-              .attr('x', xScale(p.endPutVal)).attr('y', y - 2)
+              .attr('x', xScale(p.endPutVal)).attr('y', y - dynamicBarOffset)
               .attr('width', Math.max(1, endPutWidth))
-              .attr('height', 5)
-              .attr('fill', 'rgba(255, 59, 96, 0.8)')
+              .attr('height', dynamicBarThickness)
+              .attr('fill', 'rgba(255, 59, 96, 0.65)')
               .attr('stroke', '#FF3B60')
-              .attr('stroke-opacity', 0.8)
+              .attr('stroke-opacity', 0.65)
               .attr('stroke-width', 0.5)
               .attr('rx', 1)
 
@@ -1049,9 +1034,9 @@ export function SyncedStrikeWorkspace({
                 const deltaWidth = Math.abs(xScale(p.endCallVal) - xScale(p.startCallVal))
                 const deltaX = xScale(Math.min(p.startCallVal, p.endCallVal))
                 g.append('rect')
-                  .attr('x', deltaX).attr('y', y - 2)
+                  .attr('x', deltaX).attr('y', y - dynamicBarOffset)
                   .attr('width', Math.max(1, deltaWidth))
-                  .attr('height', 5)
+                  .attr('height', dynamicBarThickness)
                   .attr('fill', deltaCall >= 0 ? 'url(#increase-stripes-left)' : 'url(#decrease-stripes-left)')
                   .attr('stroke', deltaCall >= 0 ? '#00C805' : '#FF3B60')
                   .attr('stroke-opacity', 0.95)
@@ -1065,9 +1050,9 @@ export function SyncedStrikeWorkspace({
               const deltaPutX = xScale(Math.min(p.startPutVal, p.endPutVal))
               if (Math.abs(deltaPutRaw) > 1e-5) {
                 g.append('rect')
-                  .attr('x', deltaPutX).attr('y', y - 2)
+                  .attr('x', deltaPutX).attr('y', y - dynamicBarOffset)
                   .attr('width', Math.max(1, deltaPutWidth))
-                  .attr('height', 5)
+                  .attr('height', dynamicBarThickness)
                   .attr('fill', deltaPutRaw >= 0 ? 'url(#increase-stripes-left)' : 'url(#decrease-stripes-left)')
                   .attr('stroke', deltaPutRaw >= 0 ? '#00C805' : '#FF3B60')
                   .attr('stroke-opacity', 0.95)
@@ -1085,12 +1070,12 @@ export function SyncedStrikeWorkspace({
               const startWidth = Math.abs(xScale(startVal) - xScale(0))
               const startX = startVal >= 0 ? xScale(0) : xScale(startVal)
               g.append('rect')
-                .attr('x', startX).attr('y', y - 2)
+                .attr('x', startX).attr('y', y - dynamicBarOffset)
                 .attr('width', Math.max(1, startWidth))
-                .attr('height', 5)
-                .attr('fill', startVal >= 0 ? 'rgba(0, 200, 5, 0.35)' : 'rgba(255, 59, 96, 0.35)')
+                .attr('height', dynamicBarThickness)
+                .attr('fill', startVal >= 0 ? 'rgba(0, 200, 5, 0.3)' : 'rgba(255, 59, 96, 0.3)')
                 .attr('stroke', startVal >= 0 ? '#00C805' : '#FF3B60')
-                .attr('stroke-opacity', 0.35)
+                .attr('stroke-opacity', 0.3)
                 .attr('stroke-width', 0.5)
                 .attr('rx', 1)
             }
@@ -1098,12 +1083,12 @@ export function SyncedStrikeWorkspace({
             const endWidth = Math.abs(xScale(endVal) - xScale(0))
             const endX = endVal >= 0 ? xScale(0) : xScale(endVal)
             g.append('rect')
-              .attr('x', endX).attr('y', y - 2)
+              .attr('x', endX).attr('y', y - dynamicBarOffset)
               .attr('width', Math.max(1, endWidth))
-              .attr('height', 5)
-              .attr('fill', endVal >= 0 ? 'rgba(0, 200, 5, 0.8)' : 'rgba(255, 59, 96, 0.8)')
+              .attr('height', dynamicBarThickness)
+              .attr('fill', endVal >= 0 ? 'rgba(0, 200, 5, 0.65)' : 'rgba(255, 59, 96, 0.65)')
               .attr('stroke', endVal >= 0 ? '#00C805' : '#FF3B60')
-              .attr('stroke-opacity', 0.8)
+              .attr('stroke-opacity', 0.65)
               .attr('stroke-width', 0.5)
               .attr('rx', 1)
 
@@ -1111,9 +1096,9 @@ export function SyncedStrikeWorkspace({
               const deltaWidth = Math.abs(xScale(endVal) - xScale(startVal))
               const deltaX = xScale(Math.min(startVal, endVal))
               g.append('rect')
-                .attr('x', deltaX).attr('y', y - 2)
+                .attr('x', deltaX).attr('y', y - dynamicBarOffset)
                 .attr('width', Math.max(1, deltaWidth))
-                .attr('height', 5)
+                .attr('height', dynamicBarThickness)
                 .attr('fill', delta >= 0 ? 'url(#increase-stripes-left)' : 'url(#decrease-stripes-left)')
                 .attr('stroke', delta >= 0 ? '#00C805' : '#FF3B60')
                 .attr('stroke-opacity', 0.95)
@@ -1365,12 +1350,17 @@ export function SyncedStrikeWorkspace({
         }
       }
 
+      // Use static doubled bar thickness / width to keep it clean and robust
+      const dynamicBarThicknessRight = 14
+      const dynamicBarWidthRight = 14
+      const dynamicBarOffsetRight = 7
+
       // Draw horizontal or vertical bars
       rightProfileData.forEach(p => {
         if (isRotated) {
           const x = strikeScale(p.strike)
           if (x === undefined || x < 0 || x > chartWidth) return
-          const barWidth = 5
+          const barWidth = dynamicBarWidthRight
           const barX = x - barWidth / 2
 
           if (showAbsolute && !isVolMode) {
@@ -1381,16 +1371,16 @@ export function SyncedStrikeWorkspace({
               g.append('rect')
                 .attr('x', barX).attr('y', exposureScale(p.startCallVal))
                 .attr('width', barWidth).attr('height', Math.max(1, startCallHeight))
-                .attr('fill', 'rgba(0, 200, 5, 0.35)')
-                .attr('stroke', '#00C805').attr('stroke-opacity', 0.35).attr('stroke-width', 0.5).attr('rx', 1)
+                .attr('fill', 'rgba(0, 200, 5, 0.3)')
+                .attr('stroke', '#00C805').attr('stroke-opacity', 0.3).attr('stroke-width', 0.5).attr('rx', 1)
 
               // Start Put bar
               const startPutHeight = Math.abs(exposureScale(p.startPutVal) - exposureScale(0))
               g.append('rect')
                 .attr('x', barX).attr('y', exposureScale(0))
                 .attr('width', barWidth).attr('height', Math.max(1, startPutHeight))
-                .attr('fill', 'rgba(255, 59, 96, 0.35)')
-                .attr('stroke', '#FF3B60').attr('stroke-opacity', 0.35).attr('stroke-width', 0.5).attr('rx', 1)
+                .attr('fill', 'rgba(255, 59, 96, 0.3)')
+                .attr('stroke', '#FF3B60').attr('stroke-opacity', 0.3).attr('stroke-width', 0.5).attr('rx', 1)
             }
 
             // End Call bar
@@ -1398,16 +1388,16 @@ export function SyncedStrikeWorkspace({
             g.append('rect')
               .attr('x', barX).attr('y', exposureScale(p.endCallVal))
               .attr('width', barWidth).attr('height', Math.max(1, endCallHeight))
-              .attr('fill', 'rgba(0, 200, 5, 0.8)')
-              .attr('stroke', '#00C805').attr('stroke-opacity', 0.8).attr('stroke-width', 0.5).attr('rx', 1)
+              .attr('fill', 'rgba(0, 200, 5, 0.65)')
+              .attr('stroke', '#00C805').attr('stroke-opacity', 0.65).attr('stroke-width', 0.5).attr('rx', 1)
 
             // End Put bar
             const endPutHeight = Math.abs(exposureScale(p.endPutVal) - exposureScale(0))
             g.append('rect')
               .attr('x', barX).attr('y', exposureScale(0))
               .attr('width', barWidth).attr('height', Math.max(1, endPutHeight))
-              .attr('fill', 'rgba(255, 59, 96, 0.8)')
-              .attr('stroke', '#FF3B60').attr('stroke-opacity', 0.8).attr('stroke-width', 0.5).attr('rx', 1)
+              .attr('fill', 'rgba(255, 59, 96, 0.65)')
+              .attr('stroke', '#FF3B60').attr('stroke-opacity', 0.65).attr('stroke-width', 0.5).attr('rx', 1)
 
             if (!isLive) {
               // Delta Call
@@ -1449,10 +1439,10 @@ export function SyncedStrikeWorkspace({
                 .attr('x', barX).attr('y', startY)
                 .attr('width', barWidth).attr('height', Math.max(1, startHeight))
                 .attr('fill', isSymmetric 
-                  ? (startVal >= 0 ? 'rgba(0, 200, 5, 0.35)' : 'rgba(255, 59, 96, 0.35)') 
-                  : 'rgba(0, 200, 255, 0.35)')
+                  ? (startVal >= 0 ? 'rgba(0, 200, 5, 0.3)' : 'rgba(255, 59, 96, 0.3)') 
+                  : 'rgba(0, 200, 255, 0.3)')
                 .attr('stroke', isSymmetric ? (startVal >= 0 ? '#00C805' : '#FF3B60') : '#00C8FF')
-                .attr('stroke-opacity', 0.35).attr('stroke-width', 0.5).attr('rx', 1)
+                .attr('stroke-opacity', 0.3).attr('stroke-width', 0.5).attr('rx', 1)
             }
 
             const endHeight = Math.abs(exposureScale(endVal) - exposureScale(0))
@@ -1461,10 +1451,10 @@ export function SyncedStrikeWorkspace({
               .attr('x', barX).attr('y', endY)
               .attr('width', barWidth).attr('height', Math.max(1, endHeight))
               .attr('fill', isSymmetric 
-                ? (endVal >= 0 ? 'rgba(0, 200, 5, 0.8)' : 'rgba(255, 59, 96, 0.8)') 
-                : 'rgba(0, 200, 255, 0.8)')
+                ? (endVal >= 0 ? 'rgba(0, 200, 5, 0.65)' : 'rgba(255, 59, 96, 0.65)') 
+                : 'rgba(0, 200, 255, 0.65)')
               .attr('stroke', isSymmetric ? (endVal >= 0 ? '#00C805' : '#FF3B60') : '#00C8FF')
-              .attr('stroke-opacity', 0.8).attr('stroke-width', 0.5).attr('rx', 1)
+              .attr('stroke-opacity', 0.65).attr('stroke-width', 0.5).attr('rx', 1)
 
             if (!isLive && Math.abs(delta) > 1e-5) {
               const deltaHeight = Math.abs(exposureScale(endVal) - exposureScale(startVal))
@@ -1488,24 +1478,24 @@ export function SyncedStrikeWorkspace({
               // Start Call bar
               const startCallWidth = Math.abs(xScale(p.startCallVal) - xScale(0))
               g.append('rect')
-                .attr('x', xScale(0)).attr('y', y - 2)
+                .attr('x', xScale(0)).attr('y', y - dynamicBarOffsetRight)
                 .attr('width', Math.max(1, startCallWidth))
-                .attr('height', 5)
-                .attr('fill', 'rgba(0, 200, 5, 0.35)')
+                .attr('height', dynamicBarThicknessRight)
+                .attr('fill', 'rgba(0, 200, 5, 0.3)')
                 .attr('stroke', '#00C805')
-                .attr('stroke-opacity', 0.35)
+                .attr('stroke-opacity', 0.3)
                 .attr('stroke-width', 0.5)
                 .attr('rx', 1)
 
               // Start Put bar
               const startPutWidth = Math.abs(xScale(p.startPutVal) - xScale(0))
               g.append('rect')
-                .attr('x', xScale(p.startPutVal)).attr('y', y - 2)
+                .attr('x', xScale(p.startPutVal)).attr('y', y - dynamicBarOffsetRight)
                 .attr('width', Math.max(1, startPutWidth))
-                .attr('height', 5)
-                .attr('fill', 'rgba(255, 59, 96, 0.35)')
+                .attr('height', dynamicBarThicknessRight)
+                .attr('fill', 'rgba(255, 59, 96, 0.3)')
                 .attr('stroke', '#FF3B60')
-                .attr('stroke-opacity', 0.35)
+                .attr('stroke-opacity', 0.3)
                 .attr('stroke-width', 0.5)
                 .attr('rx', 1)
             }
@@ -1513,24 +1503,24 @@ export function SyncedStrikeWorkspace({
             // End Call bar
             const endCallWidth = Math.abs(xScale(p.endCallVal) - xScale(0))
             g.append('rect')
-              .attr('x', xScale(0)).attr('y', y - 2)
+              .attr('x', xScale(0)).attr('y', y - dynamicBarOffsetRight)
               .attr('width', Math.max(1, endCallWidth))
-              .attr('height', 5)
-              .attr('fill', 'rgba(0, 200, 5, 0.8)')
+              .attr('height', dynamicBarThicknessRight)
+              .attr('fill', 'rgba(0, 200, 5, 0.65)')
               .attr('stroke', '#00C805')
-              .attr('stroke-opacity', 0.8)
+              .attr('stroke-opacity', 0.65)
               .attr('stroke-width', 0.5)
               .attr('rx', 1)
 
             // End Put bar
             const endPutWidth = Math.abs(xScale(p.endPutVal) - xScale(0))
             g.append('rect')
-              .attr('x', xScale(p.endPutVal)).attr('y', y - 2)
+              .attr('x', xScale(p.endPutVal)).attr('y', y - dynamicBarOffsetRight)
               .attr('width', Math.max(1, endPutWidth))
-              .attr('height', 5)
-              .attr('fill', 'rgba(255, 59, 96, 0.8)')
+              .attr('height', dynamicBarThicknessRight)
+              .attr('fill', 'rgba(255, 59, 96, 0.65)')
               .attr('stroke', '#FF3B60')
-              .attr('stroke-opacity', 0.8)
+              .attr('stroke-opacity', 0.65)
               .attr('stroke-width', 0.5)
               .attr('rx', 1)
 
@@ -1541,9 +1531,9 @@ export function SyncedStrikeWorkspace({
                 const deltaWidth = Math.abs(xScale(p.endCallVal) - xScale(p.startCallVal))
                 const deltaX = xScale(Math.min(p.startCallVal, p.endCallVal))
                 g.append('rect')
-                  .attr('x', deltaX).attr('y', y - 2)
+                  .attr('x', deltaX).attr('y', y - dynamicBarOffsetRight)
                   .attr('width', Math.max(1, deltaWidth))
-                  .attr('height', 5)
+                  .attr('height', dynamicBarThicknessRight)
                   .attr('fill', deltaCall >= 0 ? 'url(#increase-stripes-right)' : 'url(#decrease-stripes-right)')
                   .attr('stroke', deltaCall >= 0 ? '#00C805' : '#FF3B60')
                   .attr('stroke-opacity', 0.95)
@@ -1557,9 +1547,9 @@ export function SyncedStrikeWorkspace({
               const deltaPutX = xScale(Math.min(p.startPutVal, p.endPutVal))
               if (Math.abs(deltaPutRaw) > 1e-5) {
                 g.append('rect')
-                  .attr('x', deltaPutX).attr('y', y - 2)
+                  .attr('x', deltaPutX).attr('y', y - dynamicBarOffsetRight)
                   .attr('width', Math.max(1, deltaPutWidth))
-                  .attr('height', 5)
+                  .attr('height', dynamicBarThicknessRight)
                   .attr('fill', deltaPutRaw >= 0 ? 'url(#increase-stripes-right)' : 'url(#decrease-stripes-right)')
                   .attr('stroke', deltaPutRaw >= 0 ? '#00C805' : '#FF3B60')
                   .attr('stroke-opacity', 0.95)
@@ -1577,14 +1567,14 @@ export function SyncedStrikeWorkspace({
               const startWidth = Math.abs(xScale(startVal) - xScale(0))
               const startX = isSymmetric ? (startVal >= 0 ? xScale(0) : xScale(startVal)) : xScale(0)
               g.append('rect')
-                .attr('x', startX).attr('y', y - 2)
+                .attr('x', startX).attr('y', y - dynamicBarOffsetRight)
                 .attr('width', Math.max(1, startWidth))
-                .attr('height', 5)
+                .attr('height', dynamicBarThicknessRight)
                 .attr('fill', isSymmetric 
-                  ? (startVal >= 0 ? 'rgba(0, 200, 5, 0.35)' : 'rgba(255, 59, 96, 0.35)') 
-                  : 'rgba(0, 200, 255, 0.35)')
+                  ? (startVal >= 0 ? 'rgba(0, 200, 5, 0.3)' : 'rgba(255, 59, 96, 0.3)') 
+                  : 'rgba(0, 200, 255, 0.3)')
                 .attr('stroke', isSymmetric ? (startVal >= 0 ? '#00C805' : '#FF3B60') : '#00C8FF')
-                .attr('stroke-opacity', 0.35)
+                .attr('stroke-opacity', 0.3)
                 .attr('stroke-width', 0.5)
                 .attr('rx', 1)
             }
@@ -1592,14 +1582,14 @@ export function SyncedStrikeWorkspace({
             const endWidth = Math.abs(xScale(endVal) - xScale(0))
             const endX = isSymmetric ? (endVal >= 0 ? xScale(0) : xScale(endVal)) : xScale(0)
             g.append('rect')
-              .attr('x', endX).attr('y', y - 2)
+              .attr('x', endX).attr('y', y - dynamicBarOffsetRight)
               .attr('width', Math.max(1, endWidth))
-              .attr('height', 5)
+              .attr('height', dynamicBarThicknessRight)
               .attr('fill', isSymmetric 
-                ? (endVal >= 0 ? 'rgba(0, 200, 5, 0.8)' : 'rgba(255, 59, 96, 0.8)') 
-                : 'rgba(0, 200, 255, 0.8)')
+                ? (endVal >= 0 ? 'rgba(0, 200, 5, 0.65)' : 'rgba(255, 59, 96, 0.65)') 
+                : 'rgba(0, 200, 255, 0.65)')
               .attr('stroke', isSymmetric ? (endVal >= 0 ? '#00C805' : '#FF3B60') : '#00C8FF')
-              .attr('stroke-opacity', 0.8)
+              .attr('stroke-opacity', 0.65)
               .attr('stroke-width', 0.5)
               .attr('rx', 1)
 
@@ -1607,9 +1597,9 @@ export function SyncedStrikeWorkspace({
               const deltaWidth = Math.abs(xScale(endVal) - xScale(startVal))
               const deltaX = xScale(Math.min(startVal, endVal))
               g.append('rect')
-                .attr('x', deltaX).attr('y', y - 2)
+                .attr('x', deltaX).attr('y', y - dynamicBarOffsetRight)
                 .attr('width', Math.max(1, deltaWidth))
-                .attr('height', 5)
+                .attr('height', dynamicBarThicknessRight)
                 .attr('fill', delta >= 0 ? 'url(#increase-stripes-right)' : 'url(#decrease-stripes-right)')
                 .attr('stroke', delta >= 0 ? '#00C805' : '#FF3B60')
                 .attr('stroke-opacity', 0.95)

@@ -113,3 +113,26 @@ SELECT
 FROM option_snapshots s
 JOIN option_data o ON s.id = o.snapshot_id;
 ```
+
+### 5. `cot_positions`
+Holds weekly Commitments of Traders institutional positioning metrics.
+* `id` (`SERIAL PRIMARY KEY`): Unique row identifier.
+* `ticker` (`VARCHAR(10) NOT NULL`): Watched macro assets like `SPX`, `NDX`, `GLD`, `SLV`, `USO`, `TNX`, `DXY`, `IWM`.
+* `report_date` (`DATE NOT NULL`): The CFTC report date.
+* `open_interest` (`INTEGER NOT NULL DEFAULT 0`): Combined contract Open Interest.
+* `noncomm_long`, `noncomm_short` (`INTEGER NOT NULL`): Large Speculator / Funds positioning.
+* `comm_long`, `comm_short` (`INTEGER NOT NULL`): Commercial / Dealer Hedger positioning.
+* `retail_long`, `retail_short` (`INTEGER NOT NULL`): Retail / Small Speculator positioning.
+* `UNIQUE(ticker, report_date)` constraint handles duplicate collection runs.
+
+---
+
+## 🌾 Commitment of Traders (COT) Macro Ingestor (`cotIngestionService.ts`)
+
+The COT Ingestor collects institutional positioning reports published weekly by the CFTC:
+
+1. **Scraping Trigger (`Saturdays at 4:00 AM UTC`)**: Weekly cron job retrieves the raw text data feed from `https://www.cftc.gov/dea/newcot/deafut.txt`.
+2. **Historical Seeding**: If the database lacks historical reports, the service fetches archive ZIP files for years 2025 and 2026 (`deacot2025.zip` / `deacot2026.zip`) directly from the CFTC archives, extracts them using `adm-zip`, and feeds them into the PG pool.
+3. **Data Mapping**: Normalizes CFTC market names to unified macro indexes (e.g. `E-MINI S&P 500 - CHICAGO MERCANTILE EXCHANGE` maps to `SPX`).
+4. **Calculations**: Compares current position weights against prior weeks to compute signed weekly changes (`positioningStats.changes`) for speculative, retail, and commercial hedgers.
+

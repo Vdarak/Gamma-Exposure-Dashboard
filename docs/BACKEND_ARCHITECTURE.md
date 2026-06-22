@@ -73,4 +73,8 @@ Automated tasks are scheduled using `node-cron`:
 | `/api/journal/trades/:id`| `DELETE`| None | `journalService.ts` -> `deleteTrade()` | Deletes a trade from the journal |
 | `/api/journal/settings/:key`| `GET` | None | `journalService.ts` -> `getSetting()` | Gets configuration setting value by key |
 | `/api/journal/settings/:key`| `PUT` | `{ value }` | `journalService.ts` -> `updateSetting()` | Updates configuration setting value by key |
-| `/api/collect-now` | `POST` | None | `dataCollector.ts` | Triggers immediate scraper scrape for all tickers |
+| `/api/quant/probability-map`| `GET` | `ticker`, `expiration` (optional) | `quantEngineService.ts` -> `getProbabilityMap()` | Solves Breeden-Litzenberger risk-neutral terminal price PDF |
+| `/api/quant/garch-forecast` | `GET` | `ticker` | `quantEngineService.ts` -> `getGarchForecast()` | Computes MLE grid-search GARCH(1,1) volatility forecast |
+| `/api/quant/quantum-tunneling`| `GET`| `ticker` | `quantEngineService.ts` -> `getQuantumTunneling()` | Computes quantum tunneling wall barrier breakthrough stats |
+| `/api/quant/cot-flow`       | `GET` | `ticker` (optional) | `quantEngineService.ts` -> `getHistoricalCot()` | Retrieves weekly CFTC Commitments of Traders positions |
+| `/api/collect-now`          | `POST`| None | `dataCollector.ts` | Triggers immediate scraper scrape for all tickers |

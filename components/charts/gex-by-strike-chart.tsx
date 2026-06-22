@@ -291,7 +291,7 @@ export function GEXByStrikeChart({
 
     const atmIndex = [...scrollableStrikes].reverse().findIndex(s => s === atmStrike)
     if (atmIndex !== -1) {
-      const barHeight = 22
+      const barHeight = 44
       const margin = HORIZONTAL_MARGINS
       const yPos = margin.top + atmIndex * barHeight
       const containerHeight = scrollContainerRef.current.clientHeight || 500
@@ -313,7 +313,7 @@ export function GEXByStrikeChart({
   }, [])
 
   // Fixed height per bar for perfect readability & scrolling
-  const barHeight = 22
+  const barHeight = 44
   const chartHeight = scrollableStrikes.length * barHeight
 
   // Color helper functions
@@ -376,7 +376,7 @@ export function GEXByStrikeChart({
     const yScale = d3.scaleBand()
       .domain([...scrollableStrikes].reverse().map(String))
       .range([0, chartHeight])
-      .padding(0.15)
+      .padding(0.02)
 
     const xScale = d3.scaleLinear().domain(xDomain).range([0, width])
 
@@ -838,7 +838,7 @@ export function GEXByStrikeChart({
     const yScale = d3.scaleBand()
       .domain([...scrollableStrikes].reverse().map(String))
       .range([0, chartHeight])
-      .padding(0.15)
+      .padding(0.02)
 
     const maxVol = Math.max(d3.max(startVolumeValues) || 0, d3.max(endVolumeValues) || 0, 1) * 1.15
     const xScale = d3.scaleLinear().domain([0, maxVol]).range([0, width])

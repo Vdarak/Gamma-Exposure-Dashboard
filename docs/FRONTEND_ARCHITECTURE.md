@@ -97,9 +97,40 @@ Below is the nested component organization of the dashboard:
       │    │         ├── [TradeForm](../components/trading-journal/trade-form.tsx) (Trade editor modal)
       │    │         └── [TradeDetail](../components/trading-journal/trade-detail.tsx) (Deep dive and screenshot visualizer)
       │    │
-      │    └── Tab: "IV Surface"
-      │         └── [IvSurfaceChart](../components/charts/iv-surface-chart.tsx) (3D Volatility Skew plot via Plotly)
+      │    ├── Tab: "IV Surface"
+      │    │    └── [IvSurfaceChart](../components/charts/iv-surface-chart.tsx) (3D Volatility Skew plot via Plotly)
+      │    │
+      │    └── Tab: "Quant Pricing" (Active tab: quant)
+      │         ├── [ProbabilityMapChart](../components/charts/probability-map-chart.tsx) (Implied terminal PDF solver)
+      │         ├── [GarchForecastChart](../components/charts/garch-forecast-chart.tsx) (MLE forecast conditional volatility)
+      │         ├── [QuantumTunnelingGauge](../components/charts/quantum-tunneling-gauge.tsx) (Quantum tunneling wall transmission gauge)
+      │         └── [CotFlowChart](../components/charts/cot-flow-chart.tsx) (Weekly macro COT positioning tracker with D3 tooltip changes)
       │
       ├── [EnhancedTimeMachine](../components/enhanced-time-machine.tsx) (Mounted at screen footer; controls timeline play, speed, and dates)
       └── [AIChatPanel](../components/AIChatPanel.tsx) (Sidebar slide-out terminal for conversations with the AI agent)
 ```
+
+---
+
+## 🎨 UI & UX Layout Refinements
+
+To optimize vertical and horizontal viewport spacing, several layout enhancements have been implemented:
+
+### 1. Watchlist Ticker Dropdown
+* The Watchlist card has been removed from the sidebar. Instead, hovering over the top-left active ticker symbol inside the `<TerminalHeader>` triggers an absolute hover dropdown listing all watchlist tickers with their active price. Selecting a ticker updates the global active symbol state.
+
+### 2. Full-Width Charts Workspace
+* With the removal of the sidebar, the GEX distribution sub-tab layout wrapper is adjusted to a single vertical column (`flex flex-col w-full`). The **Synced Strike Workspace** and **Option Chain Grid** now occupy the full horizontal width of the screen.
+
+### 3. Redesigned Horizontal Expiry Selector
+* **Row Restructuring**: Expiry selector cards inside `horizontal-expiry-selector.tsx` present information in two rows:
+  * **Row 1**: Displays DTE (left-aligned) and the formatted Date (right-aligned).
+  * **Row 2**: Displays Call and Put GEX values at the extremes.
+* **Compact Card Dimensions**: Height is set to `h-[44px]` with `min-w-[110px]` card width and `py-1.5` padding. The outer scrollable wrapper uses `h-[54px]`, giving ample vertical clearance.
+* **Wheel Scroll Redirect**: A custom `useEffect` wheel event listener on the wrapper redirects vertical mouse wheel scrolls to horizontal scrolls, making navigation easy.
+
+### 4. compact Chart Viewports
+* **GARCH Chart**: Restricted to `h-[450px]` inside `garch-forecast-chart.tsx` to keep it clean and prevent it from stretching to fill the remaining screen height.
+* **COT Flow Tooltip**: Weekly change bars are moved from a static container into a dynamic D3 hover tooltip overlay that shows the report date and weekly change bar graphs next to the mouse cursor.
+* **ResizeObserver Mount Fix**: Added ResizeObserver triggers on conditional states in both GARCH and 3D PDF maps to ensure they stretch cleanly to container dimensions when mounted.
+
