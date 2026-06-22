@@ -93,7 +93,8 @@ app.use(cors({
   },
   credentials: true,
 }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // Add request logging (only for non-health/non-polling endpoints to reduce log spam)
 app.use((req, res, next) => {
