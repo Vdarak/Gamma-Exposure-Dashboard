@@ -1061,7 +1061,14 @@ export function GammaExposureDashboard() {
                         promptTemplate: "Explain the quantum barrier breakthrough and tunneling probability calculations for the call/put walls based on Schrödinger wave equation modeling."
                       })}
                     >
-                      <QuantumTunnelingGauge ticker={ticker} activeExpiries={activeExpiries} expiryMode={expiryMode} />
+                      <QuantumTunnelingGauge 
+                        ticker={ticker} 
+                        activeExpiries={activeExpiries} 
+                        expiryMode={expiryMode} 
+                        optionData={activeOptionData}
+                        spotPrice={spotPrice}
+                        pricingMethod={pricingMethod}
+                      />
                       <div className="flex-shrink-0 bg-[#070709] border border-[#141416] rounded-lg p-3 flex flex-col gap-3">
                         <div className="flex items-center justify-between border-b border-[#141416] pb-2 flex-shrink-0">
                           <div>

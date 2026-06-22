@@ -410,7 +410,7 @@ export async function getQuantumTunneling(ticker: string, expiries?: string[]): 
       
       const spotSq = spot * spot;
       const gamma = opt.gamma ?? 0;
-      const gexValue = (opt.type === 'C' ? 1 : -1) * spotSq * gamma * opt.openInterest * 100 / 1e9; // in Billions
+      const gexValue = (opt.type === 'C' ? 1 : -1) * spotSq * gamma * opt.openInterest / 1e9; // in Billions
 
       const entry = strikeGexMap.get(strike)!;
       if (opt.type === 'C') entry.callGex += gexValue;
