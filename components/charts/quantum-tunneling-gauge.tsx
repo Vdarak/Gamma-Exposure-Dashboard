@@ -310,7 +310,7 @@ export function QuantumTunnelingGauge({
             
           </div>
         </div>
-      )}}
+      )}
     </div>
   )
 }

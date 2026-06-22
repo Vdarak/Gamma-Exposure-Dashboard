@@ -172,23 +172,31 @@ export function ExpectedMoveChart({ data, ticker, spotPrice, selectedExpiry }: E
         if (!d || !tooltipRef.current || !containerRef.current) return
 
         const rect = containerRef.current.getBoundingClientRect()
+        const tooltipWidth = 260
+        const xOffset = event.clientX - rect.left + 15
+        const leftPos = xOffset + tooltipWidth > dims.width ? event.clientX - rect.left - tooltipWidth - 15 : xOffset;
+
         tooltipRef.current.innerHTML = `
-          <div style="font-family:${typography.fontSans};font-size:12px;color:${colors.text.primary};font-weight:600">
-            ${d.date.toLocaleDateString('en-CA')}
+          <div class="flex items-center justify-between border-b border-[#141416]/80 pb-1.5 mb-1.5">
+            <span class="text-[10px] font-mono font-bold text-[#E5E5E5] uppercase tracking-wider">Expected Move Range</span>
+            <span class="text-[9px] font-mono text-[#777]">${d.date.toLocaleDateString('en-CA')}</span>
           </div>
-          <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.accent.green};margin-top:2px">
-            Upper: ${d.upper.toFixed(2)} (${d.upperPct > 0 ? '+' : ''}${d.upperPct}%)
+          <div class="flex items-center justify-between text-[10px] font-mono py-0.5">
+            <span class="text-[#777] uppercase">Upper Bound (16Δ)</span>
+            <span class="text-[#00C805] font-bold">${d.upper.toFixed(2)} (${d.upperPct > 0 ? '+' : ''}${d.upperPct}%)</span>
           </div>
-          <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.accent.red}">
-            Lower: ${d.lower.toFixed(2)} (${d.lowerPct > 0 ? '+' : ''}${d.lowerPct}%)
+          <div class="flex items-center justify-between text-[10px] font-mono py-0.5">
+            <span class="text-[#777] uppercase">Lower Bound (16Δ)</span>
+            <span class="text-[#FF3B60] font-bold">${d.lower.toFixed(2)} (${d.lowerPct > 0 ? '+' : ''}${d.lowerPct}%)</span>
           </div>
-          <div style="font-family:${typography.fontMono};font-size:11px;color:${colors.accent.amber};margin-top:2px">
-            Spot: ${spotPrice.toFixed(2)}
+          <div class="flex items-center justify-between text-[10px] font-mono py-0.5 border-t border-[#141416]/80 mt-1 pt-1.5">
+            <span class="text-[#777] uppercase">Spot Price</span>
+            <span class="text-[#FFB200] font-bold">${spotPrice.toFixed(2)}</span>
           </div>
         `
         tooltipRef.current.style.opacity = '1'
-        tooltipRef.current.style.left = `${event.clientX - rect.left + 14}px`
-        tooltipRef.current.style.top = `${event.clientY - rect.top - 40}px`
+        tooltipRef.current.style.left = `${leftPos}px`
+        tooltipRef.current.style.top = `${event.clientY - rect.top - 55}px`
       })
       .on('mouseleave', () => {
         if (tooltipRef.current) tooltipRef.current.style.opacity = '0'
@@ -248,8 +256,8 @@ export function ExpectedMoveChart({ data, ticker, spotPrice, selectedExpiry }: E
       <svg ref={svgRef} className="w-full h-full" />
       <div
         ref={tooltipRef}
-        className="absolute pointer-events-none z-50 px-3 py-2 rounded border transition-opacity duration-100"
-        style={{ opacity: 0, backgroundColor: '#111111', borderColor: '#1A1A1A' }}
+        className="absolute pointer-events-none opacity-0 bg-[#070709]/95 border border-[#141416]/90 rounded p-3 flex flex-col gap-1.5 shadow-2xl z-50 min-w-[260px] transition-opacity duration-100 text-[#D4D4D8]"
+        style={{ opacity: 0 }}
       />
     </div>
   )

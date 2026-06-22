@@ -26,6 +26,7 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
   const containerRef2D = useRef<HTMLDivElement>(null)
   const containerRef3D = useRef<HTMLDivElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
+  const densityScrollRef = useRef<HTMLDivElement>(null)
 
   const [dims2D, setDims2D] = useState({ width: 400, height: 260 })
   const [dims3D, setDims3D] = useState({ width: 800, height: 400 })
@@ -89,6 +90,21 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
     observer.observe(containerRef3D.current)
     return () => observer.disconnect()
   }, [data])
+
+  // Map vertical wheel scroll to horizontal scrolling for density curves expiries selector
+  useEffect(() => {
+    const el = densityScrollRef.current
+    if (!el) return
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.deltaY === 0) return
+      e.preventDefault()
+      el.scrollLeft += e.deltaY * 0.8
+    }
+
+    el.addEventListener("wheel", handleWheel, { passive: false })
+    return () => el.removeEventListener("wheel", handleWheel)
+  }, [dropdownExpiries])
 
   // Find active 2D PDF data based on dropdown selection
   const active2DPdf = useMemo(() => {
@@ -457,7 +473,10 @@ export function ProbabilityMapChart({ ticker, optionData, spotPrice, futureExpir
               <p className="text-[9px] text-[#555] mt-0.5">Breeden-Litzenberger Risk-Neutral Probability distribution</p>
             </div>
             {dropdownExpiries.length > 0 && (
-              <div className="flex items-center gap-1.5 overflow-x-auto max-w-[240px] md:max-w-[320px] scrollbar-none pr-1">
+              <div 
+                ref={densityScrollRef}
+                className="flex items-center gap-1.5 overflow-x-auto max-w-[240px] md:max-w-[320px] scrollbar-none pr-1"
+              >
                 {dropdownExpiries.map(exp => {
                   const active = exp.value === selectedExpiry;
                   return (

@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, useEffect } from "react"
+import { useMemo, useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ChevronDown, ChevronUp } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -113,6 +113,22 @@ export function OptionChain({
   onStrikesCountChange 
 }: OptionChainProps) {
   const [selectedStrike, setSelectedStrike] = useState<number | null>(null)
+  const expiryScrollRef = useRef<HTMLDivElement>(null)
+
+  // Map vertical wheel scroll to horizontal scrolling
+  useEffect(() => {
+    const el = expiryScrollRef.current
+    if (!el) return
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.deltaY === 0) return
+      e.preventDefault()
+      el.scrollLeft += e.deltaY * 0.8
+    }
+
+    el.addEventListener("wheel", handleWheel, { passive: false })
+    return () => el.removeEventListener("wheel", handleWheel)
+  }, [availableExpiries])
 
   // Synchronize parent selected expiry if invalid or empty
   useEffect(() => {
@@ -289,6 +305,7 @@ export function OptionChain({
       {availableExpiries && availableExpiries.length > 0 && (
         <div className="flex items-center pb-1">
           <div 
+            ref={expiryScrollRef}
             className="flex-1 flex gap-1.5 overflow-x-auto whitespace-nowrap py-2 px-2.5 bg-black/40 border border-[#1A1A1D] rounded scroll-smooth"
             style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
           >
