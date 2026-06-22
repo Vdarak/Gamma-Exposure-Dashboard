@@ -200,145 +200,158 @@ export async function getProbabilityMap(ticker: string, targetExpiry?: string): 
       expiries = Array.from(expiryMap.keys()).sort();
     }
 
-    // Choose target expiration: either specified, or closest to 30 days
+    // Choose target expiration: either specified, or closest to closest DTE
     const activeExpiry = targetExpiry && expiries.includes(targetExpiry)
       ? targetExpiry
-      : expiries[0]; // default to closest expiry
+      : expiries[0];
 
-    const optionsForExpiry = expiryMap.get(activeExpiry)!;
-    
-    // Sort options by strike
-    optionsForExpiry.sort((a, b) => a.strike - b.strike);
-
-    // Get time to expiration (T) and risk free rate
-    const today = new Date();
-    const expiryDate = new Date(activeExpiry);
-    const T = Math.max(1e-5, (expiryDate.getTime() - today.getTime()) / (1000 * 365 * 24 * 60 * 60));
-    
-    // Fetch rate
+    // Fetch rate once
     const rateResult = await pool.query("SELECT rate FROM interest_rates WHERE rate_key = 'US_RISK_FREE'");
     const r = rateResult.rows.length > 0 ? parseFloat(rateResult.rows[0].rate) : 0.0525;
+    const today = new Date();
 
-    // Linear/Cubic interpolation of IV across strikes
-    // Build a dense strike grid: 120 points from 80% to 120% of spot price
-    const strikesGrid: number[] = [];
-    const minStrike = spot * 0.82;
-    const maxStrike = spot * 1.18;
-    const gridPoints = 120;
-    const dK = (maxStrike - minStrike) / (gridPoints - 1);
-    
-    for (let i = 0; i < gridPoints; i++) {
-      strikesGrid.push(minStrike + i * dK);
-    }
+    const expiriesData = [];
 
-    // Clean original market points
-    const marketStrikes = optionsForExpiry.map(o => o.strike);
-    const marketIVs = optionsForExpiry.map(o => o.impliedVolatility);
+    for (const exp of expiries) {
+      const optionsForExpiry = expiryMap.get(exp)!;
+      if (!optionsForExpiry || optionsForExpiry.length === 0) continue;
 
-    // Simple robust linear interpolator for IV smile
-    const getInterpolatedIV = (k: number): number => {
-      if (k <= marketStrikes[0]) return marketIVs[0];
-      if (k >= marketStrikes[marketStrikes.length - 1]) return marketIVs[marketIVs.length - 1];
+      // Sort options by strike
+      optionsForExpiry.sort((a, b) => a.strike - b.strike);
+
+      // Get time to expiration (T)
+      const expiryDate = new Date(exp);
+      const T = Math.max(1e-5, (expiryDate.getTime() - today.getTime()) / (1000 * 365 * 24 * 60 * 60));
+
+      // Build a dense strike grid: 120 points from 60% to 130% of spot price (-40% to +30%)
+      const strikesGrid: number[] = [];
+      const minStrike = spot * 0.58;
+      const maxStrike = spot * 1.32;
+      const gridPoints = 120;
+      const dK = (maxStrike - minStrike) / (gridPoints - 1);
       
-      // Binary search to find adjacent strikes
-      let low = 0;
-      let high = marketStrikes.length - 1;
-      while (high - low > 1) {
-        const mid = Math.floor((low + high) / 2);
-        if (marketStrikes[mid] < k) low = mid;
-        else high = mid;
+      for (let i = 0; i < gridPoints; i++) {
+        strikesGrid.push(minStrike + i * dK);
+      }
+
+      // Clean original market strikes & IVs
+      const marketStrikes = optionsForExpiry.map(o => o.strike);
+      const marketIVs = optionsForExpiry.map(o => o.impliedVolatility || o.implied_volatility || 0.2);
+
+      // Linear interpolator for IV
+      const getInterpolatedIV = (k: number): number => {
+        if (marketStrikes.length === 0) return 0.2;
+        if (k <= marketStrikes[0]) return marketIVs[0];
+        if (k >= marketStrikes[marketStrikes.length - 1]) return marketIVs[marketIVs.length - 1];
+        
+        let low = 0;
+        let high = marketStrikes.length - 1;
+        while (high - low > 1) {
+          const mid = Math.floor((low + high) / 2);
+          if (marketStrikes[mid] < k) low = mid;
+          else high = mid;
+        }
+        
+        const k0 = marketStrikes[low];
+        const k1 = marketStrikes[high];
+        const iv0 = marketIVs[low];
+        const iv1 = marketIVs[high];
+        
+        return iv0 + ((k - k0) / (k1 - k0)) * (iv1 - iv0);
+      };
+
+      // Calculate call prices
+      const callPrices = strikesGrid.map(k => {
+        const iv = getInterpolatedIV(k);
+        return bsCallPrice(spot, k, T, r, iv);
+      });
+
+      // Numerical second derivative for PDF
+      const pdf: { strike: number; density: number; cumulative: number; pctOffset: number }[] = [];
+      let cumulativeSum = 0;
+
+      pdf.push({ strike: strikesGrid[0], density: 0, cumulative: 0, pctOffset: ((strikesGrid[0] - spot) / spot) * 100 });
+
+      for (let i = 1; i < gridPoints - 1; i++) {
+        const cPrev = callPrices[i - 1];
+        const cCurr = callPrices[i];
+        const cNext = callPrices[i + 1];
+        
+        let d2C = (cNext - 2 * cCurr + cPrev) / (dK * dK);
+        if (d2C < 0) d2C = 0;
+
+        const density = Math.exp(r * T) * d2C;
+        cumulativeSum += density * dK;
+        
+        pdf.push({
+          strike: strikesGrid[i],
+          density,
+          cumulative: cumulativeSum,
+          pctOffset: ((strikesGrid[i] - spot) / spot) * 100
+        });
       }
       
-      const k0 = marketStrikes[low];
-      const k1 = marketStrikes[high];
-      const iv0 = marketIVs[low];
-      const iv1 = marketIVs[high];
-      
-      // Interpolate
-      return iv0 + ((k - k0) / (k1 - k0)) * (iv1 - iv0);
-    };
+      pdf.push({ strike: strikesGrid[gridPoints - 1], density: 0, cumulative: cumulativeSum, pctOffset: ((strikesGrid[gridPoints - 1] - spot) / spot) * 100 });
 
-    // Calculate call prices on strikes grid
-    const callPrices = strikesGrid.map(k => {
-      const iv = getInterpolatedIV(k);
-      return bsCallPrice(spot, k, T, r, iv);
-    });
-
-    // 2. Numerical second derivative: f(K) = exp(r*T) * (C(K+dK) - 2C(K) + C(K-dK)) / dK^2
-    const pdf: { strike: number; density: number; cumulative: number }[] = [];
-    let cumulativeSum = 0;
-
-    // First and last bounds are set to 0 density
-    pdf.push({ strike: strikesGrid[0], density: 0, cumulative: 0 });
-
-    for (let i = 1; i < gridPoints - 1; i++) {
-      const cPrev = callPrices[i - 1];
-      const cCurr = callPrices[i];
-      const cNext = callPrices[i + 1];
-      
-      // Second derivative
-      let d2C = (cNext - 2 * cCurr + cPrev) / (dK * dK);
-      // Floor at 0 to avoid negative probability arbitrage violations
-      if (d2C < 0) d2C = 0;
-
-      const density = Math.exp(r * T) * d2C;
-      cumulativeSum += density * dK;
-      
-      pdf.push({
-        strike: strikesGrid[i],
-        density,
-        cumulative: cumulativeSum
-      });
-    }
-    
-    pdf.push({ strike: strikesGrid[gridPoints - 1], density: 0, cumulative: cumulativeSum });
-
-    // Normalize so that total probability integrates to 1.0
-    const totalMass = pdf.reduce((acc, p) => acc + p.density * dK, 0);
-    if (totalMass > 0) {
-      let cumulative = 0;
-      pdf.forEach(p => {
-        p.density = p.density / totalMass;
-        cumulative += p.density * dK;
-        p.cumulative = Math.min(1.0, cumulative);
-      });
-    }
-
-    // 3. Statistical moments calculation
-    let mean = 0;
-    pdf.forEach(p => {
-      mean += p.strike * p.density * dK;
-    });
-
-    let variance = 0;
-    pdf.forEach(p => {
-      variance += Math.pow(p.strike - mean, 2) * p.density * dK;
-    });
-    const stdDev = Math.sqrt(variance);
-
-    let skewness = 0;
-    if (stdDev > 0) {
-      pdf.forEach(p => {
-        skewness += Math.pow((p.strike - mean) / stdDev, 3) * p.density * dK;
-      });
-    }
-
-    let kurtosis = 0;
-    if (variance > 0) {
-      pdf.forEach(p => {
-        kurtosis += Math.pow((p.strike - mean) / stdDev, 4) * p.density * dK;
-      });
-    }
-
-    // Pin Strike is the strike with the maximum probability density
-    let maxDensity = -1;
-    let pinStrike = spot;
-    pdf.forEach(p => {
-      if (p.density > maxDensity) {
-        maxDensity = p.density;
-        pinStrike = p.strike;
+      // Normalize PDF
+      const totalMass = pdf.reduce((acc, p) => acc + p.density * dK, 0);
+      if (totalMass > 0) {
+        let cumulative = 0;
+        pdf.forEach(p => {
+          p.density = p.density / totalMass;
+          cumulative += p.density * dK;
+          p.cumulative = Math.min(1.0, cumulative);
+        });
       }
-    });
+
+      // Statistical moments
+      let mean = 0;
+      pdf.forEach(p => {
+        mean += p.strike * p.density * dK;
+      });
+
+      let variance = 0;
+      pdf.forEach(p => {
+        variance += Math.pow(p.strike - mean, 2) * p.density * dK;
+      });
+      const stdDev = Math.sqrt(variance);
+
+      let skewness = 0;
+      if (stdDev > 0) {
+        pdf.forEach(p => {
+          skewness += Math.pow((p.strike - mean) / stdDev, 3) * p.density * dK;
+        });
+      }
+
+      let kurtosis = 0;
+      if (variance > 0) {
+        pdf.forEach(p => {
+          kurtosis += Math.pow((p.strike - mean) / stdDev, 4) * p.density * dK;
+        });
+      }
+
+      let maxDensity = -1;
+      let pinStrike = spot;
+      pdf.forEach(p => {
+        if (p.density > maxDensity) {
+          maxDensity = p.density;
+          pinStrike = p.strike;
+        }
+      });
+
+      expiriesData.push({
+        expiration: exp,
+        daysToExpiry: Math.round(T * 365),
+        mean,
+        stdDev,
+        skewness,
+        kurtosis,
+        pinStrike,
+        pdf
+      });
+    }
+
+    const activeData = expiriesData.find(d => d.expiration === activeExpiry) || expiriesData[0];
 
     return {
       success: true,
@@ -346,12 +359,13 @@ export async function getProbabilityMap(ticker: string, targetExpiry?: string): 
       expiration: activeExpiry,
       availableExpiries: expiries,
       spotPrice: spot,
-      mean,
-      stdDev,
-      skewness,
-      kurtosis,
-      pinStrike,
-      pdf
+      mean: activeData?.mean || spot,
+      stdDev: activeData?.stdDev || 0,
+      skewness: activeData?.skewness || 0,
+      kurtosis: activeData?.kurtosis || 0,
+      pinStrike: activeData?.pinStrike || spot,
+      pdf: activeData?.pdf || [],
+      expiries: expiriesData
     };
   } catch (error: any) {
     console.error('❌ Breeden-Litzenberger solver error:', error.message);

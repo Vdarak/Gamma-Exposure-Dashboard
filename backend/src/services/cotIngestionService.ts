@@ -3,6 +3,7 @@ import { pool } from '../db/connection';
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import AdmZip from 'adm-zip';
 
 export interface CotPosition {
   ticker: string;
@@ -243,8 +244,9 @@ export async function ingestHistoricalCot(): Promise<boolean> {
           writer.on('error', (err) => reject(err));
         });
         
-        console.log(`Extracting ${year} ZIP file...`);
-        execSync(`unzip -o "${zipPath}" -d "${tempDir}"`);
+        console.log(`Extracting ${year} ZIP file via adm-zip...`);
+        const zip = new AdmZip(zipPath);
+        zip.extractAllTo(tempDir, true);
         
         const txtPath = path.join(tempDir, 'annual.txt');
         if (!fs.existsSync(txtPath)) {

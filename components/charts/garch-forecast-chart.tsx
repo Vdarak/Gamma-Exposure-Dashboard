@@ -57,7 +57,7 @@ export function GarchForecastChart({ ticker }: GarchForecastChartProps) {
     })
     observer.observe(containerRef.current)
     return () => observer.disconnect()
-  }, [])
+  }, [data])
 
   // D3 Chart rendering
   useEffect(() => {
@@ -180,7 +180,7 @@ export function GarchForecastChart({ ticker }: GarchForecastChartProps) {
 
     // Legend
     const legend = g.append('g').attr('transform', `translate(${width - 160}, 10)`)
-    
+
     legend.append('line')
       .attr('x1', 0).attr('x2', 20)
       .attr('y1', 0).attr('y2', 0)
@@ -211,12 +211,12 @@ export function GarchForecastChart({ ticker }: GarchForecastChartProps) {
   const diffMessage = () => {
     if (!data || data.garchVolForecasts.length === 0 || data.optionTermStructure.length === 0) return null;
     const g30 = data.garchVolForecasts.find(f => f.horizonDays === 30)?.forecastedVol;
-    const iv30 = data.optionTermStructure.find(f => f.daysToExpiry >= 20 && f.daysToExpiry <= 40)?.averageIv 
+    const iv30 = data.optionTermStructure.find(f => f.daysToExpiry >= 20 && f.daysToExpiry <= 40)?.averageIv
       || data.optionTermStructure[Math.floor(data.optionTermStructure.length / 2)]?.averageIv;
-    
+
     if (!g30 || !iv30) return null;
     const diff = (iv30 - g30) * 100;
-    
+
     if (diff > 1.5) {
       return {
         text: `⚠️ IMPLIED VOL IS RICH (+${diff.toFixed(1)}% premium over GARCH). Options appear OVERPRICED. Sell/Short Volatility setup preferred.`,
@@ -238,7 +238,7 @@ export function GarchForecastChart({ ticker }: GarchForecastChartProps) {
   const tradeSignal = diffMessage();
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-[#070709] border border-[#141416] rounded-lg p-4">
+    <div className="w-full flex flex-col bg-[#020203] p-4 h-[450px]">
       {/* Header */}
       <div className="flex items-center justify-between mb-4 border-b border-[#141416] pb-3 flex-shrink-0">
         <div>

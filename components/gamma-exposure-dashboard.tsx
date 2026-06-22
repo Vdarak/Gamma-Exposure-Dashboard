@@ -10,7 +10,6 @@ import { TerminalHeader } from "./layout/terminal-header"
 
 // Chart components
 import { SyncedStrikeWorkspace } from "./charts/synced-strike-workspace"
-import { GEXByStrikeChart } from "./charts/gex-by-strike-chart"
 import { GradientChartsWorkspace } from "./charts/gradient-charts-workspace"
 import { GEXByExpirationChart } from "./charts/gex-by-expiration-chart"
 import { GEXSurfaceChart } from "./charts/gex-surface-chart"
@@ -23,6 +22,7 @@ import { PricingMethodToggle } from "./pricing-method-toggle"
 import { SessionTimer } from "./session-timer"
 import { FlowHistoricalView } from "./flow-historical-view"
 import { ExpirySelector, type ExpiryMode, getOpexDte } from "./controls/expiry-selector"
+import { HorizontalExpirySelector } from "./controls/horizontal-expiry-selector"
 import { TradingJournal } from "./trading-journal/trading-journal"
 import { OptionFlowDashboard } from "./option-flow-dashboard"
 import { BacktestDashboard } from "./algorithms/backtest-dashboard"
@@ -154,6 +154,17 @@ export function GammaExposureDashboard() {
     }
     return { price: null, pct: null }
   }, [ticker, spotPrice])
+
+  const watchlistData = useMemo(() => {
+    return watchlistTickers.map(t => {
+      const stats = getWatchlistItem(t)
+      return {
+        ticker: t,
+        price: stats.price,
+        pct: stats.pct,
+      }
+    })
+  }, [watchlistTickers, getWatchlistItem])
 
   // Derived date collections
   const todayUTC = useMemo(() => {
@@ -652,8 +663,8 @@ export function GammaExposureDashboard() {
 
       {/* ─── MAIN WORKSPACE AND CONTENT GRID ─── */}
       <main className="flex-1 flex flex-col min-w-0 pb-16 md:pb-0 overflow-hidden">
-        {/* Terminal Header (Hidden inside Journal and Flow tabs) */}
-        {activeSidebarTab !== 'journal' && activeSidebarTab !== 'flow' && (
+        {/* Terminal Header (Hidden inside Journal, Flow, and Quantum Tunneling tabs) */}
+        {activeSidebarTab !== 'journal' && activeSidebarTab !== 'flow' && !(activeSidebarTab === 'quant' && activeTab === 'quantum-tunnel') && (
           <TerminalHeader
             ticker={ticker}
             spotPrice={spotPrice}
@@ -667,6 +678,7 @@ export function GammaExposureDashboard() {
             gammaFlipLevel={gammaFlipLevel}
             isAIPanelOpen={isAIPanelOpen}
             onToggleAIPanel={() => setIsAIPanelOpen(v => !v)}
+            watchlist={watchlistData}
           />
         )}
 
@@ -725,8 +737,8 @@ export function GammaExposureDashboard() {
             {(activeSidebarTab === 'gex' || activeSidebarTab === 'flow' || activeSidebarTab === 'quant') && !isLoading && (
               <div className="flex-1 flex flex-col min-h-0">
                 {/* TOP WORKSPACE NAVIGATION TABS */}
-                <div className="border-b border-[#1A1A1E] bg-[#08080A] flex items-center px-4 py-2 justify-between select-none flex-shrink-0">
-                  <div className="flex items-center gap-1.5">
+                <div className="border-b border-[#1A1A1E] bg-[#08080A] flex items-center px-4 py-2 justify-between select-none flex-shrink-0 gap-4">
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
                     {SUB_TABS[activeSidebarTab]?.map(tab => {
                       const active = activeTab === tab.id
                       return (
@@ -745,26 +757,24 @@ export function GammaExposureDashboard() {
                     })}
                   </div>
 
-                  {/* Settings toggle (Only show for GEX Analytics tab) */}
-                  {activeSidebarTab === 'gex' && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-mono text-[#444] uppercase">Engine</span>
-                      <Select value={pricingMethod} onValueChange={(v) => handlePricingMethodChange(v as PricingMethod)}>
-                        <SelectTrigger className="w-28 h-6 text-[10px] bg-black border-[#1A1A1E]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="bg-black border-[#1A1A1E]">
-                          <SelectItem value="black-scholes">Black-Scholes</SelectItem>
-                          <SelectItem value="simplified">Constant IV</SelectItem>
-                        </SelectContent>
-                      </Select>
+                  {/* Horizontal Expiry Selector in the header */}
+                  {(activeSidebarTab === 'gex' || (activeSidebarTab === 'quant' && activeTab === 'quantum-tunnel')) && futureExpiries.length > 0 && (
+                    <div className="flex-1 min-w-0">
+                      <HorizontalExpirySelector
+                        availableExpiries={futureExpiries}
+                        mode={expiryMode}
+                        onModeChange={setExpiryMode}
+                        selectedExpiries={customSelectedExpiries}
+                        onSelectedExpiriesChange={setCustomSelectedExpiries}
+                        optionData={optionData}
+                      />
                     </div>
                   )}
                 </div>
 
                 {/* Workspace tab views with loading screen overlay */}
                 <div className={`flex-1 overflow-y-auto terminal-scrollbar relative ${
-                  activeSidebarTab === 'quant' && activeTab === 'cot-positions'
+                  activeSidebarTab === 'quant' && (activeTab === 'cot-positions' || activeTab === 'garch-forecast' || activeTab === 'probability-map')
                     ? 'p-0 space-y-0'
                     : 'p-4 space-y-4'
                 }`}>
@@ -788,9 +798,9 @@ export function GammaExposureDashboard() {
                         <>
                           {/* Distribution Sub-tab */}
                           {activeTab === 'distribution' && (
-                            <div className="flex flex-col lg:flex-row gap-4 min-h-0">
+                            <div className="flex flex-col gap-4 min-h-0 w-full">
                               {/* Main charts column */}
-                              <div className="flex-1 flex flex-col gap-4 min-w-0">
+                              <div className="w-full flex flex-col gap-4 min-w-0">
                                 {/* Session Range Slider */}
                                 <SessionTimer
                                   ticker={ticker}
@@ -809,7 +819,7 @@ export function GammaExposureDashboard() {
                                     promptTemplate: "Analyze the strike levels and GEX clusters on the Synced Strike Workspace chart."
                                   })}
                                 >
-                                  <div className="h-[1200px]">
+                                  <div className="h-[calc(100vh-220px)] min-h-[480px]">
                                     <SyncedStrikeWorkspace
                                       startOptionData={activeStartOptionData}
                                       endOptionData={activeEndOptionData}
@@ -868,117 +878,6 @@ export function GammaExposureDashboard() {
                                       onStrikesCountChange={setStrikesCount}
                                     />
                                   </ChartWrapper>
-                                </div>
-                              </div>
-
-                              {/* Sidebar Details / watchlist / expiry panel */}
-                              <div className="w-full lg:w-[280px] lg:flex-shrink-0 flex flex-col gap-4">
-                                {/* Spot Price Stats Board */}
-                                <div className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-3 select-text">
-                                  <div className="flex justify-between items-start">
-                                    <div>
-                                      <span className="text-[9px] font-mono text-[#555] uppercase block">Ticker</span>
-                                      <span className="text-xl font-mono font-black text-terminal-green tracking-tighter">{ticker}</span>
-                                    </div>
-                                    <div className="text-right">
-                                      <span className="text-[9px] font-mono text-[#555] uppercase block">Spot Price</span>
-                                      <span className="text-xl font-mono font-black text-[#E5E5E5] tracking-tighter">
-                                        ${spotPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                      </span>
-                                    </div>
-                                  </div>
-
-                                  <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-[#141416]">
-                                    <div>
-                                      <span className="text-[8px] font-mono text-[#444] uppercase block">Total Net GEX</span>
-                                      <span className={`text-xs font-mono font-bold ${totalGEX >= 0 ? 'text-terminal-green' : 'text-terminal-red'}`}>
-                                        {totalGEX >= 0 ? '+' : ''}{totalGEX.toFixed(2)} Bn
-                                      </span>
-                                    </div>
-                                    <div>
-                                      <span className="text-[8px] font-mono text-[#444] uppercase block">Gamma Flip</span>
-                                      <span className="text-xs font-mono font-bold text-terminal-magenta">
-                                        {findZeroGammaLevel(activeOptionData, spotPrice!) ? `$${Math.round(findZeroGammaLevel(activeOptionData, spotPrice!)!)}` : 'None'}
-                                      </span>
-                                    </div>
-                                  </div>
-
-                                  <div className="mt-3 text-[9px] font-mono text-[#444] flex justify-between border-t border-[#141416]/50 pt-2">
-                                    <span>LAST INGESTED:</span>
-                                    <span>{lastUpdated ? lastUpdated.toLocaleTimeString() : 'N/A'}</span>
-                                  </div>
-                                </div>
-
-                                {/* Custom Tickers / Watchlist */}
-                                <div className="bg-[#0A0A0C] border border-[#1A1A1E] rounded-lg p-3">
-                                  <div className="flex items-center justify-between mb-2">
-                                    <span className="text-[11px] font-mono font-bold text-[#E5E5E5]">WATCHLIST</span>
-                                    {market === 'USA' ? (
-                                      <span className="text-[9px] font-mono text-[#444] uppercase bg-[#141416] px-1.5 py-0.5 rounded">US (CBOE)</span>
-                                    ) : (
-                                      <span className="text-[9px] font-mono text-[#444] uppercase bg-[#141416] px-1.5 py-0.5 rounded">INDIA (NSE)</span>
-                                    )}
-                                  </div>
-
-                                  <div className="flex flex-col gap-1 max-h-[220px] overflow-y-auto pr-1 terminal-scrollbar">
-                                    {watchlistTickers.map(t => {
-                                      const active = ticker === t
-                                      const stats = getWatchlistItem(t)
-                                      const isUp = (stats && stats.pct !== null) ? stats.pct >= 0 : true
-                                      
-                                      if (!stats) return null
-                                      
-                                      return (
-                                        <div
-                                          key={t}
-                                          onClick={() => handleTickerSelect(t)}
-                                          className={`flex items-center justify-between p-2 rounded cursor-pointer transition-all duration-150 ${
-                                            active
-                                              ? 'bg-[#15151A] text-[#E5E5E5] border border-terminal-green/30'
-                                              : 'text-[#666] hover:bg-[#0E0E10] hover:text-[#888] border border-transparent'
-                                          }`}
-                                        >
-                                          <div className="flex items-center gap-2">
-                                            <span className="text-xs font-mono font-bold uppercase">{t}</span>
-                                            {customTickers.includes(t) && (
-                                              <button type="button" onClick={(e) => handleRemoveCustomTicker(t, e)} className="text-[9px] text-terminal-red/60 hover:text-terminal-red font-bold">×</button>
-                                            )}
-                                          </div>
-                                          <div className="flex items-center gap-1.5">
-                                            <span className="text-[10px] font-mono font-bold">
-                                              {stats.price !== null
-                                                ? stats.price.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
-                                                : '—'}
-                                            </span>
-                                            {stats.pct !== null ? (
-                                              <span className={`text-[9px] font-mono px-1 rounded text-center min-w-[42px] font-bold ${ isUp ? 'bg-terminal-green/10 text-terminal-green' : 'bg-terminal-red/10 text-terminal-red' }`}>
-                                                {stats.pct >= 0 ? '+' : ''}{stats.pct.toFixed(2)}%
-                                              </span>
-                                            ) : (
-                                              <span className="text-[9px] font-mono px-1 rounded text-center min-w-[42px] text-[#444] font-bold">
-                                                —
-                                              </span>
-                                            )}
-                                          </div>
-                                        </div>
-                                      )
-                                    })}
-                                  </div>
-                                </div>
-
-                                {/* Expiry Selector */}
-                                <div className="flex flex-col">
-                                  <div className="flex items-center gap-1.5 mb-1">
-                                    <span className="text-[11px] font-mono font-bold text-[#E5E5E5]">EXPIRATIONS</span>
-                                  </div>
-                                  <ExpirySelector
-                                    availableExpiries={futureExpiries}
-                                    mode={expiryMode}
-                                    onModeChange={setExpiryMode}
-                                    selectedExpiries={customSelectedExpiries}
-                                    onSelectedExpiriesChange={setCustomSelectedExpiries}
-                                    optionData={optionData}
-                                  />
                                 </div>
                               </div>
                             </div>
@@ -1094,22 +993,7 @@ export function GammaExposureDashboard() {
                                 </div>
                               </div>
 
-                              {/* Right side: Expiry Selector panel */}
-                              <div className="w-full lg:w-[250px] lg:flex-shrink-0 flex flex-col gap-3">
-                                <div className="flex flex-col">
-                                  <div className="flex items-center gap-1.5 mb-1">
-                                    <span className="text-[11px] font-mono font-bold text-[#E5E5E5]">EXPIRATIONS</span>
-                                  </div>
-                                  <ExpirySelector
-                                    availableExpiries={futureExpiries}
-                                    mode={expiryMode}
-                                    onModeChange={setExpiryMode}
-                                    selectedExpiries={customSelectedExpiries}
-                                    onSelectedExpiriesChange={setCustomSelectedExpiries}
-                                    optionData={optionData}
-                                  />
-                                </div>
-                              </div>
+                              {/* Expiry selector moved to header */}
                             </div>
                           )}
                         </>
@@ -1142,18 +1026,46 @@ export function GammaExposureDashboard() {
 
                   {/* ==================== 3. Quant Pricing sub-tabs ==================== */}
                   {activeSidebarTab === 'quant' && activeTab === 'probability-map' && (
-                    <div className="flex-1 flex flex-col min-h-0 p-4">
-                      <ProbabilityMapChart ticker={ticker} />
+                    <div className="flex-1 flex flex-col min-h-0">
+                      <ProbabilityMapChart
+                        ticker={ticker}
+                        optionData={optionData}
+                        spotPrice={spotPrice!}
+                        futureExpiries={futureExpiries}
+                      />
                     </div>
                   )}
                   {activeSidebarTab === 'quant' && activeTab === 'garch-forecast' && (
-                    <div className="flex-1 flex flex-col min-h-0 p-4">
+                    <div className="flex-1 flex flex-col min-h-0">
                       <GarchForecastChart ticker={ticker} />
                     </div>
                   )}
                   {activeSidebarTab === 'quant' && activeTab === 'quantum-tunnel' && (
-                    <div className="flex-1 flex flex-col min-h-0 p-4">
+                    <div className="flex-1 flex flex-col min-h-0 p-4 gap-4 overflow-y-auto terminal-scrollbar">
                       <QuantumTunnelingGauge ticker={ticker} />
+                      <div className="flex-shrink-0 bg-[#070709] border border-[#141416] rounded-lg p-3 flex flex-col gap-3">
+                        <div className="flex items-center justify-between border-b border-[#141416] pb-2 flex-shrink-0">
+                          <div>
+                            <h2 className="text-xs font-mono font-bold text-[#E5E5E5] tracking-wider uppercase">GEX & Volume Profile Reference</h2>
+                            <p className="text-[10px] font-mono text-[#555] mt-0.5">Strikes GEX and Volume distribution overlay</p>
+                          </div>
+                        </div>
+                        <div className="h-[550px] w-full">
+                          <SyncedStrikeWorkspace
+                            startOptionData={activeStartOptionData}
+                            endOptionData={activeEndOptionData}
+                            ticker={ticker}
+                            startSpotPrice={startSpotPrice ?? spotPrice!}
+                            endSpotPrice={endSpotPrice ?? spotPrice!}
+                            market={market}
+                            pricingMethod={pricingMethod}
+                            expiryMode={expiryMode}
+                            isLive={isLive}
+                            defaultRotated={true}
+                            defaultCandlesCollapsed={true}
+                          />
+                        </div>
+                      </div>
                     </div>
                   )}
                   {activeSidebarTab === 'quant' && activeTab === 'cot-positions' && (

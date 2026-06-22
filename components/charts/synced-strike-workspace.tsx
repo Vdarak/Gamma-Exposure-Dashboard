@@ -12,7 +12,7 @@ import {
   computeCharmByStrike,
   type PricingMethod
 } from "@/lib/calculations"
-import { ChevronsLeft, ChevronsRight, BarChart3, Settings2 } from "lucide-react"
+import { ChevronsLeft, ChevronsRight, BarChart3, Settings2, RotateCw } from "lucide-react"
 
 function formatCompact(num: number): string {
   if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`
@@ -37,6 +37,8 @@ interface SyncedStrikeWorkspaceProps {
   pricingMethod: PricingMethod
   expiryMode: string
   isLive: boolean
+  defaultRotated?: boolean
+  defaultCandlesCollapsed?: boolean
 }
 
 
@@ -50,6 +52,8 @@ export function SyncedStrikeWorkspace({
   pricingMethod,
   expiryMode,
   isLive,
+  defaultRotated,
+  defaultCandlesCollapsed,
 }: SyncedStrikeWorkspaceProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const candleSvgRef = useRef<SVGSVGElement>(null)
@@ -71,7 +75,7 @@ export function SyncedStrikeWorkspace({
   const [displayMode, setDisplayMode] = useState<'gamma-vol' | 'vanna-charm'>('gamma-vol')
 
   // Collapsible Candlestick panel state
-  const [isCandlesCollapsed, setIsCandlesCollapsed] = useState(false)
+  const [isCandlesCollapsed, setIsCandlesCollapsed] = useState(defaultCandlesCollapsed ?? false)
 
   // Risk-free rate information
   const [ratesInfo, setRatesInfo] = useState({
@@ -136,9 +140,12 @@ export function SyncedStrikeWorkspace({
     return () => { active = false }
   }, [ticker, timeframe])
 
+  const [isRotated, setIsRotated] = useState(defaultRotated ?? false)
+
   const [dragState, setDragState] = useState<{
     isDragging: boolean
     isPriceScale: boolean
+    isProfileDrag?: boolean
     startX: number
     startY: number
     initialYDomain: [number, number]
@@ -423,6 +430,7 @@ export function SyncedStrikeWorkspace({
 
     const handleMouseMoveGlobal = (event: MouseEvent) => {
       const deltaY = event.clientY - dragState.startY
+      const deltaX = event.clientX - dragState.startX
       
       if (dragState.isPriceScale) {
         // Dragging Price Scale (Y-axis): stretch/compress Y scale domain
@@ -435,24 +443,29 @@ export function SyncedStrikeWorkspace({
         const newHalfSpan = Math.max(endSpotPrice * 0.001, Math.min(endSpotPrice * 0.4, halfSpan * factor))
         setYDomain([center - newHalfSpan, center + newHalfSpan])
       } else {
-        // Dragging Chart Body: Pan horizontally (scroll timeline) and vertically (shift center)
-        const deltaX = event.clientX - dragState.startX
-        
-        // Pan Y (shifts domain up or down)
         const [minY, maxY] = dragState.initialYDomain
         const span = maxY - minY
-        const strikeDelta = (deltaY / dimensions.height) * span * 0.95
-        
-        // Pan X (scrolls candles timeline)
-        // Every 8 pixels of drag shifts 1 candle
-        const candleShift = Math.round(deltaX / 8)
-        const [startIdx, endIdx] = dragState.initialXRange
-        const maxShift = startIdx
-        const maxRightShift = candles.length - endIdx
-        const actualShift = Math.max(-maxRightShift, Math.min(maxShift, candleShift))
-        
-        setYDomain([minY + strikeDelta, maxY + strikeDelta])
-        setXRange([startIdx - actualShift, endIdx - actualShift])
+
+        if (isRotated && dragState.isProfileDrag) {
+          // Rotated mode profile drag: horizontal panning shifts the shared strike price domain
+          const strikeDelta = -(deltaX / dimensions.width) * span * 0.95
+          setYDomain([minY + strikeDelta, maxY + strikeDelta])
+        } else {
+          // Dragging Chart Body: Pan horizontally (scroll timeline) and vertically (shift center)
+          // Pan Y (shifts domain up or down)
+          const strikeDelta = (deltaY / dimensions.height) * span * 0.95
+          
+          // Pan X (scrolls candles timeline)
+          // Every 8 pixels of drag shifts 1 candle
+          const candleShift = Math.round(deltaX / 8)
+          const [startIdx, endIdx] = dragState.initialXRange
+          const maxShift = startIdx
+          const maxRightShift = candles.length - endIdx
+          const actualShift = Math.max(-maxRightShift, Math.min(maxShift, candleShift))
+          
+          setYDomain([minY + strikeDelta, maxY + strikeDelta])
+          setXRange([startIdx - actualShift, endIdx - actualShift])
+        }
       }
     }
 
@@ -466,7 +479,7 @@ export function SyncedStrikeWorkspace({
       window.removeEventListener('mousemove', handleMouseMoveGlobal)
       window.removeEventListener('mouseup', handleMouseUpGlobal)
     }
-  }, [dragState, endSpotPrice, dimensions.height, candles.length])
+  }, [dragState, endSpotPrice, dimensions.height, candles.length, isRotated, dimensions.width])
 
   // Native non-passive wheel event listener to prevent main page scrolling while zooming
   useEffect(() => {
@@ -502,6 +515,7 @@ export function SyncedStrikeWorkspace({
     setDragState({
       isDragging: true,
       isPriceScale,
+      isProfileDrag: false,
       startX: event.clientX,
       startY: event.clientY,
       initialYDomain: [...yDomain] as [number, number],
@@ -530,6 +544,7 @@ export function SyncedStrikeWorkspace({
     setDragState({
       isDragging: true,
       isPriceScale: false,
+      isProfileDrag: true,
       startX: event.clientX,
       startY: event.clientY,
       initialYDomain: [...yDomain] as [number, number],
@@ -545,11 +560,23 @@ export function SyncedStrikeWorkspace({
     const margin = isCollapsed
       ? { top: 20, right: 45, bottom: 40, left: 10 }
       : { top: 20, right: 45, bottom: 40, left: 15 }
+    const marginRotated = { top: 15, right: 40, bottom: 35, left: 55 }
     const chartHeight = dimensions.height - margin.top - margin.bottom
 
     const totalWidth = dimensions.width
     const candleWidth = isCollapsed ? 75 : totalWidth * 0.5
-    const profileWidth = isCollapsed ? (totalWidth - 75) / 2 : totalWidth * 0.25
+    
+    let gexWidth = isCollapsed ? (totalWidth - 75) / 2 : totalWidth * 0.25
+    let volWidth = isCollapsed ? (totalWidth - 75) / 2 : totalWidth * 0.25
+    let gexHeight = dimensions.height
+    let volHeight = dimensions.height
+
+    if (isRotated) {
+      gexWidth = isCollapsed ? (totalWidth - 75) : totalWidth * 0.5
+      volWidth = isCollapsed ? (totalWidth - 75) : totalWidth * 0.5
+      gexHeight = dimensions.height / 2
+      volHeight = dimensions.height / 2
+    }
 
     const candleSvg = d3.select(candleSvgRef.current)
     const gexSvg = d3.select(gexSvgRef.current)
@@ -563,8 +590,8 @@ export function SyncedStrikeWorkspace({
 
     // Dimensions
     candleSvg.attr('width', candleWidth).attr('height', dimensions.height)
-    gexSvg.attr('width', profileWidth).attr('height', dimensions.height)
-    volSvg.attr('width', profileWidth).attr('height', dimensions.height)
+    gexSvg.attr('width', gexWidth).attr('height', gexHeight)
+    volSvg.attr('width', volWidth).attr('height', volHeight)
 
     // Shared Y scale (Strike Price)
     const yScale = d3.scaleLinear()
@@ -769,8 +796,11 @@ export function SyncedStrikeWorkspace({
 
     // ─── 2. LEFT PROFILE CHART (GEX/VEX) ───
     {
-      const g = gexSvg.append('g').attr('transform', `translate(${margin.right},${margin.top})`)
-      const width = profileWidth - margin.right - margin.left
+      const currentMargin = isRotated ? marginRotated : margin
+      const chartWidth = gexWidth - currentMargin.left - currentMargin.right
+      const chartHeight = gexHeight - currentMargin.top - currentMargin.bottom
+
+      const g = gexSvg.append('g').attr('transform', `translate(${currentMargin.left},${currentMargin.top})`)
 
       const leftProfileData = leftProfileDataCombined.filter(p => p.strike >= yDomain[0] && p.strike <= yDomain[1])
 
@@ -788,7 +818,15 @@ export function SyncedStrikeWorkspace({
 
       const xScale = d3.scaleLinear()
         .domain([-maxVal, maxVal])
-        .range([0, width])
+        .range([0, chartWidth])
+
+      const strikeScale = d3.scaleLinear()
+        .domain(yDomain)
+        .range([0, chartWidth])
+
+      const exposureScale = d3.scaleLinear()
+        .domain([-maxVal, maxVal])
+        .range([chartHeight, 0])
 
       // Append definitions for striped patterns
       const defs = gexSvg.append('defs')
@@ -828,192 +866,344 @@ export function SyncedStrikeWorkspace({
         })
 
       // Zero-exposure center line
-      g.append('line')
-        .attr('x1', xScale(0)).attr('x2', xScale(0))
-        .attr('y1', 0).attr('y2', chartHeight)
-        .attr('stroke', '#222').attr('stroke-width', 1)
+      if (isRotated) {
+        g.append('line')
+          .attr('x1', 0).attr('x2', chartWidth)
+          .attr('y1', exposureScale(0)).attr('y2', exposureScale(0))
+          .attr('stroke', '#222').attr('stroke-width', 1)
+      } else {
+        g.append('line')
+          .attr('x1', xScale(0)).attr('x2', xScale(0))
+          .attr('y1', 0).attr('y2', chartHeight)
+          .attr('stroke', '#222').attr('stroke-width', 1)
+      }
 
-      // Draw horizontal bars
+      // Draw bars
       leftProfileData.forEach(p => {
-        const y = yScale(p.strike)
-        if (y === undefined || y < 0 || y > chartHeight) return
+        if (isRotated) {
+          const x = strikeScale(p.strike)
+          if (x === undefined || x < 0 || x > chartWidth) return
+          const barWidth = 5
+          const barX = x - barWidth / 2
 
-        if (showAbsolute) {
-          // Absolute Mode: Draw Call bars (green, right) and Put bars (red, left)
-          if (!isLive) {
-            // Start Call bar (Solid green, 35% opacity)
-            const startCallWidth = Math.abs(xScale(p.startCallVal) - xScale(0))
+          if (showAbsolute) {
+            if (!isLive) {
+              // Start Call bar (Solid green, 35% opacity)
+              const startCallHeight = Math.abs(exposureScale(p.startCallVal) - exposureScale(0))
+              g.append('rect')
+                .attr('x', barX).attr('y', exposureScale(p.startCallVal))
+                .attr('width', barWidth).attr('height', Math.max(1, startCallHeight))
+                .attr('fill', 'rgba(0, 200, 5, 0.35)')
+                .attr('stroke', '#00C805').attr('stroke-opacity', 0.35).attr('stroke-width', 0.5).attr('rx', 1)
+
+              // Start Put bar (Solid red, 35% opacity)
+              const startPutHeight = Math.abs(exposureScale(p.startPutVal) - exposureScale(0))
+              g.append('rect')
+                .attr('x', barX).attr('y', exposureScale(0))
+                .attr('width', barWidth).attr('height', Math.max(1, startPutHeight))
+                .attr('fill', 'rgba(255, 59, 96, 0.35)')
+                .attr('stroke', '#FF3B60').attr('stroke-opacity', 0.35).attr('stroke-width', 0.5).attr('rx', 1)
+            }
+
+            // End Call bar (Solid green, 80% opacity)
+            const endCallHeight = Math.abs(exposureScale(p.endCallVal) - exposureScale(0))
+            g.append('rect')
+              .attr('x', barX).attr('y', exposureScale(p.endCallVal))
+              .attr('width', barWidth).attr('height', Math.max(1, endCallHeight))
+              .attr('fill', 'rgba(0, 200, 5, 0.8)')
+              .attr('stroke', '#00C805').attr('stroke-opacity', 0.8).attr('stroke-width', 0.5).attr('rx', 1)
+
+            // End Put bar (Solid red, 80% opacity)
+            const endPutHeight = Math.abs(exposureScale(p.endPutVal) - exposureScale(0))
+            g.append('rect')
+              .attr('x', barX).attr('y', exposureScale(0))
+              .attr('width', barWidth).attr('height', Math.max(1, endPutHeight))
+              .attr('fill', 'rgba(255, 59, 96, 0.8)')
+              .attr('stroke', '#FF3B60').attr('stroke-opacity', 0.8).attr('stroke-width', 0.5).attr('rx', 1)
+
+            if (!isLive) {
+              // Delta Call change bar
+              const deltaCall = p.endCallVal - p.startCallVal
+              if (Math.abs(deltaCall) > 1e-5) {
+                const deltaHeight = Math.abs(exposureScale(p.endCallVal) - exposureScale(p.startCallVal))
+                const deltaY = exposureScale(Math.max(p.startCallVal, p.endCallVal))
+                g.append('rect')
+                  .attr('x', barX).attr('y', deltaY)
+                  .attr('width', barWidth).attr('height', Math.max(1, deltaHeight))
+                  .attr('fill', deltaCall >= 0 ? 'url(#increase-stripes-left)' : 'url(#decrease-stripes-left)')
+                  .attr('stroke', deltaCall >= 0 ? '#00C805' : '#FF3B60')
+                  .attr('stroke-opacity', 0.95).attr('stroke-width', 0.5).attr('rx', 1)
+              }
+
+              // Delta Put change bar (magnitude change)
+              const deltaPutRaw = Math.abs(p.endPutVal) - Math.abs(p.startPutVal)
+              const deltaPutHeight = Math.abs(exposureScale(p.endPutVal) - exposureScale(p.startPutVal))
+              const deltaPutY = exposureScale(Math.max(p.startPutVal, p.endPutVal))
+              if (Math.abs(deltaPutRaw) > 1e-5) {
+                g.append('rect')
+                  .attr('x', barX).attr('y', deltaPutY)
+                  .attr('width', barWidth).attr('height', Math.max(1, deltaPutHeight))
+                  .attr('fill', deltaPutRaw >= 0 ? 'url(#increase-stripes-left)' : 'url(#decrease-stripes-left)')
+                  .attr('stroke', deltaPutRaw >= 0 ? '#00C805' : '#FF3B60')
+                  .attr('stroke-opacity', 0.95).attr('stroke-width', 0.5).attr('rx', 1)
+              }
+            }
+          } else {
+            // Net Mode
+            const startVal = p.startNetVal
+            const endVal = p.endNetVal
+            const delta = endVal - startVal
+
+            if (!isLive) {
+              const startHeight = Math.abs(exposureScale(startVal) - exposureScale(0))
+              const startY = Math.min(exposureScale(0), exposureScale(startVal))
+              g.append('rect')
+                .attr('x', barX).attr('y', startY)
+                .attr('width', barWidth).attr('height', Math.max(1, startHeight))
+                .attr('fill', startVal >= 0 ? 'rgba(0, 200, 5, 0.35)' : 'rgba(255, 59, 96, 0.35)')
+                .attr('stroke', startVal >= 0 ? '#00C805' : '#FF3B60')
+                .attr('stroke-opacity', 0.35).attr('stroke-width', 0.5).attr('rx', 1)
+            }
+
+            const endHeight = Math.abs(exposureScale(endVal) - exposureScale(0))
+            const endY = Math.min(exposureScale(0), exposureScale(endVal))
+            g.append('rect')
+              .attr('x', barX).attr('y', endY)
+              .attr('width', barWidth).attr('height', Math.max(1, endHeight))
+              .attr('fill', endVal >= 0 ? 'rgba(0, 200, 5, 0.8)' : 'rgba(255, 59, 96, 0.8)')
+              .attr('stroke', endVal >= 0 ? '#00C805' : '#FF3B60')
+              .attr('stroke-opacity', 0.8).attr('stroke-width', 0.5).attr('rx', 1)
+
+            if (!isLive && Math.abs(delta) > 1e-5) {
+              const deltaHeight = Math.abs(exposureScale(endVal) - exposureScale(startVal))
+              const deltaY = exposureScale(Math.max(startVal, endVal))
+              g.append('rect')
+                .attr('x', barX).attr('y', deltaY)
+                .attr('width', barWidth).attr('height', Math.max(1, deltaHeight))
+                .attr('fill', delta >= 0 ? 'url(#increase-stripes-left)' : 'url(#decrease-stripes-left)')
+                .attr('stroke', delta >= 0 ? '#00C805' : '#FF3B60')
+                .attr('stroke-opacity', 0.95).attr('stroke-width', 0.5).attr('rx', 1)
+            }
+          }
+        } else {
+          // Standard mode (horizontal bars)
+          const y = yScale(p.strike)
+          if (y === undefined || y < 0 || y > chartHeight) return
+
+          if (showAbsolute) {
+            // Absolute Mode: Draw Call bars (green, right) and Put bars (red, left)
+            if (!isLive) {
+              // Start Call bar (Solid green, 35% opacity)
+              const startCallWidth = Math.abs(xScale(p.startCallVal) - xScale(0))
+              g.append('rect')
+                .attr('x', xScale(0)).attr('y', y - 2)
+                .attr('width', Math.max(1, startCallWidth))
+                .attr('height', 5)
+                .attr('fill', 'rgba(0, 200, 5, 0.35)')
+                .attr('stroke', '#00C805')
+                .attr('stroke-opacity', 0.35)
+                .attr('stroke-width', 0.5)
+                .attr('rx', 1)
+
+              // Start Put bar (Solid red, 35% opacity)
+              const startPutWidth = Math.abs(xScale(p.startPutVal) - xScale(0))
+              g.append('rect')
+                .attr('x', xScale(p.startPutVal)).attr('y', y - 2)
+                .attr('width', Math.max(1, startPutWidth))
+                .attr('height', 5)
+                .attr('fill', 'rgba(255, 59, 96, 0.35)')
+                .attr('stroke', '#FF3B60')
+                .attr('stroke-opacity', 0.35)
+                .attr('stroke-width', 0.5)
+                .attr('rx', 1)
+            }
+
+            // End Call bar (Solid green, 80% opacity)
+            const endCallWidth = Math.abs(xScale(p.endCallVal) - xScale(0))
             g.append('rect')
               .attr('x', xScale(0)).attr('y', y - 2)
-              .attr('width', Math.max(1, startCallWidth))
+              .attr('width', Math.max(1, endCallWidth))
               .attr('height', 5)
-              .attr('fill', 'rgba(0, 200, 5, 0.35)')
+              .attr('fill', 'rgba(0, 200, 5, 0.8)')
               .attr('stroke', '#00C805')
-              .attr('stroke-opacity', 0.35)
+              .attr('stroke-opacity', 0.8)
               .attr('stroke-width', 0.5)
               .attr('rx', 1)
 
-            // Start Put bar (Solid red, 35% opacity)
-            const startPutWidth = Math.abs(xScale(p.startPutVal) - xScale(0))
+            // End Put bar (Solid red, 80% opacity)
+            const endPutWidth = Math.abs(xScale(p.endPutVal) - xScale(0))
             g.append('rect')
-              .attr('x', xScale(p.startPutVal)).attr('y', y - 2)
-              .attr('width', Math.max(1, startPutWidth))
+              .attr('x', xScale(p.endPutVal)).attr('y', y - 2)
+              .attr('width', Math.max(1, endPutWidth))
               .attr('height', 5)
-              .attr('fill', 'rgba(255, 59, 96, 0.35)')
+              .attr('fill', 'rgba(255, 59, 96, 0.8)')
               .attr('stroke', '#FF3B60')
-              .attr('stroke-opacity', 0.35)
+              .attr('stroke-opacity', 0.8)
               .attr('stroke-width', 0.5)
               .attr('rx', 1)
-          }
 
-          // End Call bar (Solid green, 80% opacity)
-          const endCallWidth = Math.abs(xScale(p.endCallVal) - xScale(0))
-          g.append('rect')
-            .attr('x', xScale(0)).attr('y', y - 2)
-            .attr('width', Math.max(1, endCallWidth))
-            .attr('height', 5)
-            .attr('fill', 'rgba(0, 200, 5, 0.8)')
-            .attr('stroke', '#00C805')
-            .attr('stroke-opacity', 0.8)
-            .attr('stroke-width', 0.5)
-            .attr('rx', 1)
+            if (!isLive) {
+              // Delta Call change bar
+              const deltaCall = p.endCallVal - p.startCallVal
+              if (Math.abs(deltaCall) > 1e-5) {
+                const deltaWidth = Math.abs(xScale(p.endCallVal) - xScale(p.startCallVal))
+                const deltaX = xScale(Math.min(p.startCallVal, p.endCallVal))
+                g.append('rect')
+                  .attr('x', deltaX).attr('y', y - 2)
+                  .attr('width', Math.max(1, deltaWidth))
+                  .attr('height', 5)
+                  .attr('fill', deltaCall >= 0 ? 'url(#increase-stripes-left)' : 'url(#decrease-stripes-left)')
+                  .attr('stroke', deltaCall >= 0 ? '#00C805' : '#FF3B60')
+                  .attr('stroke-opacity', 0.95)
+                  .attr('stroke-width', 0.5)
+                  .attr('rx', 1)
+              }
 
-          // End Put bar (Solid red, 80% opacity)
-          const endPutWidth = Math.abs(xScale(p.endPutVal) - xScale(0))
-          g.append('rect')
-            .attr('x', xScale(p.endPutVal)).attr('y', y - 2)
-            .attr('width', Math.max(1, endPutWidth))
-            .attr('height', 5)
-            .attr('fill', 'rgba(255, 59, 96, 0.8)')
-            .attr('stroke', '#FF3B60')
-            .attr('stroke-opacity', 0.8)
-            .attr('stroke-width', 0.5)
-            .attr('rx', 1)
+              // Delta Put change bar (magnitude change)
+              const deltaPutRaw = Math.abs(p.endPutVal) - Math.abs(p.startPutVal)
+              const deltaPutWidth = Math.abs(xScale(p.endPutVal) - xScale(p.startPutVal))
+              const deltaPutX = xScale(Math.min(p.startPutVal, p.endPutVal))
+              if (Math.abs(deltaPutRaw) > 1e-5) {
+                g.append('rect')
+                  .attr('x', deltaPutX).attr('y', y - 2)
+                  .attr('width', Math.max(1, deltaPutWidth))
+                  .attr('height', 5)
+                  .attr('fill', deltaPutRaw >= 0 ? 'url(#increase-stripes-left)' : 'url(#decrease-stripes-left)')
+                  .attr('stroke', deltaPutRaw >= 0 ? '#00C805' : '#FF3B60')
+                  .attr('stroke-opacity', 0.95)
+                  .attr('stroke-width', 0.5)
+                  .attr('rx', 1)
+              }
+            }
+          } else {
+            // Net Mode
+            const startVal = p.startNetVal
+            const endVal = p.endNetVal
+            const delta = endVal - startVal
 
-          if (!isLive) {
-            // Delta Call change bar
-            const deltaCall = p.endCallVal - p.startCallVal
-            if (Math.abs(deltaCall) > 1e-5) {
-              const deltaWidth = Math.abs(xScale(p.endCallVal) - xScale(p.startCallVal))
-              const deltaX = xScale(Math.min(p.startCallVal, p.endCallVal))
+            if (!isLive) {
+              const startWidth = Math.abs(xScale(startVal) - xScale(0))
+              const startX = startVal >= 0 ? xScale(0) : xScale(startVal)
+              g.append('rect')
+                .attr('x', startX).attr('y', y - 2)
+                .attr('width', Math.max(1, startWidth))
+                .attr('height', 5)
+                .attr('fill', startVal >= 0 ? 'rgba(0, 200, 5, 0.35)' : 'rgba(255, 59, 96, 0.35)')
+                .attr('stroke', startVal >= 0 ? '#00C805' : '#FF3B60')
+                .attr('stroke-opacity', 0.35)
+                .attr('stroke-width', 0.5)
+                .attr('rx', 1)
+            }
+
+            const endWidth = Math.abs(xScale(endVal) - xScale(0))
+            const endX = endVal >= 0 ? xScale(0) : xScale(endVal)
+            g.append('rect')
+              .attr('x', endX).attr('y', y - 2)
+              .attr('width', Math.max(1, endWidth))
+              .attr('height', 5)
+              .attr('fill', endVal >= 0 ? 'rgba(0, 200, 5, 0.8)' : 'rgba(255, 59, 96, 0.8)')
+              .attr('stroke', endVal >= 0 ? '#00C805' : '#FF3B60')
+              .attr('stroke-opacity', 0.8)
+              .attr('stroke-width', 0.5)
+              .attr('rx', 1)
+
+            if (!isLive && Math.abs(delta) > 1e-5) {
+              const deltaWidth = Math.abs(xScale(endVal) - xScale(startVal))
+              const deltaX = xScale(Math.min(startVal, endVal))
               g.append('rect')
                 .attr('x', deltaX).attr('y', y - 2)
                 .attr('width', Math.max(1, deltaWidth))
                 .attr('height', 5)
-                .attr('fill', deltaCall >= 0 ? 'url(#increase-stripes-left)' : 'url(#decrease-stripes-left)')
-                .attr('stroke', deltaCall >= 0 ? '#00C805' : '#FF3B60')
+                .attr('fill', delta >= 0 ? 'url(#increase-stripes-left)' : 'url(#decrease-stripes-left)')
+                .attr('stroke', delta >= 0 ? '#00C805' : '#FF3B60')
                 .attr('stroke-opacity', 0.95)
                 .attr('stroke-width', 0.5)
                 .attr('rx', 1)
             }
-
-            // Delta Put change bar (magnitude change)
-            const deltaPutRaw = Math.abs(p.endPutVal) - Math.abs(p.startPutVal)
-            const deltaPutWidth = Math.abs(xScale(p.endPutVal) - xScale(p.startPutVal))
-            const deltaPutX = xScale(Math.min(p.startPutVal, p.endPutVal))
-            if (Math.abs(deltaPutRaw) > 1e-5) {
-              g.append('rect')
-                .attr('x', deltaPutX).attr('y', y - 2)
-                .attr('width', Math.max(1, deltaPutWidth))
-                .attr('height', 5)
-                .attr('fill', deltaPutRaw >= 0 ? 'url(#increase-stripes-left)' : 'url(#decrease-stripes-left)')
-                .attr('stroke', deltaPutRaw >= 0 ? '#00C805' : '#FF3B60')
-                .attr('stroke-opacity', 0.95)
-                .attr('stroke-width', 0.5)
-                .attr('rx', 1)
-            }
-          }
-        } else {
-          // Net Mode
-          const startVal = p.startNetVal
-          const endVal = p.endNetVal
-          const delta = endVal - startVal
-
-          if (!isLive) {
-            const startWidth = Math.abs(xScale(startVal) - xScale(0))
-            const startX = startVal >= 0 ? xScale(0) : xScale(startVal)
-            g.append('rect')
-              .attr('x', startX).attr('y', y - 2)
-              .attr('width', Math.max(1, startWidth))
-              .attr('height', 5)
-              .attr('fill', startVal >= 0 ? 'rgba(0, 200, 5, 0.35)' : 'rgba(255, 59, 96, 0.35)')
-              .attr('stroke', startVal >= 0 ? '#00C805' : '#FF3B60')
-              .attr('stroke-opacity', 0.35)
-              .attr('stroke-width', 0.5)
-              .attr('rx', 1)
-          }
-
-          const endWidth = Math.abs(xScale(endVal) - xScale(0))
-          const endX = endVal >= 0 ? xScale(0) : xScale(endVal)
-          g.append('rect')
-            .attr('x', endX).attr('y', y - 2)
-            .attr('width', Math.max(1, endWidth))
-            .attr('height', 5)
-            .attr('fill', endVal >= 0 ? 'rgba(0, 200, 5, 0.8)' : 'rgba(255, 59, 96, 0.8)')
-            .attr('stroke', endVal >= 0 ? '#00C805' : '#FF3B60')
-            .attr('stroke-opacity', 0.8)
-            .attr('stroke-width', 0.5)
-            .attr('rx', 1)
-
-          if (!isLive && Math.abs(delta) > 1e-5) {
-            const deltaWidth = Math.abs(xScale(endVal) - xScale(startVal))
-            const deltaX = xScale(Math.min(startVal, endVal))
-            g.append('rect')
-              .attr('x', deltaX).attr('y', y - 2)
-              .attr('width', Math.max(1, deltaWidth))
-              .attr('height', 5)
-              .attr('fill', delta >= 0 ? 'url(#increase-stripes-left)' : 'url(#decrease-stripes-left)')
-              .attr('stroke', delta >= 0 ? '#00C805' : '#FF3B60')
-              .attr('stroke-opacity', 0.95)
-              .attr('stroke-width', 0.5)
-              .attr('rx', 1)
           }
         }
       })
 
       // Spot Line
-      const spotY = yScale(endSpotPrice)
-      if (spotY >= 0 && spotY <= chartHeight) {
-        g.append('line')
-          .attr('x1', 0).attr('x2', width)
-          .attr('y1', spotY).attr('y2', spotY)
-          .attr('stroke', colors.accent.amber).attr('stroke-width', 1).style('opacity', 0.8)
+      if (isRotated) {
+        const spotX = strikeScale(endSpotPrice)
+        if (spotX >= 0 && spotX <= chartWidth) {
+          g.append('line')
+            .attr('x1', spotX).attr('x2', spotX)
+            .attr('y1', 0).attr('y2', chartHeight)
+            .attr('stroke', colors.accent.amber).attr('stroke-width', 1).style('opacity', 0.8)
+        }
+      } else {
+        const spotY = yScale(endSpotPrice)
+        if (spotY >= 0 && spotY <= chartHeight) {
+          g.append('line')
+            .attr('x1', 0).attr('x2', chartWidth)
+            .attr('y1', spotY).attr('y2', spotY)
+            .attr('stroke', colors.accent.amber).attr('stroke-width', 1).style('opacity', 0.8)
+        }
       }
 
       // Gamma Flip / Zero Cross Line (Only relevant in Gamma Mode)
       if (displayMode === 'gamma-vol' && endZeroGamma) {
-        const flipY = yScale(endZeroGamma)
-        if (flipY >= 0 && flipY <= chartHeight) {
-          g.append('line')
-            .attr('x1', 0).attr('x2', width)
-            .attr('y1', flipY).attr('y2', flipY)
-            .attr('stroke', colors.accent.magenta).attr('stroke-width', 1).attr('stroke-dasharray', '3,3').style('opacity', 0.8)
+        if (isRotated) {
+          const flipX = strikeScale(endZeroGamma)
+          if (flipX >= 0 && flipX <= chartWidth) {
+            g.append('line')
+              .attr('x1', flipX).attr('x2', flipX)
+              .attr('y1', 0).attr('y2', chartHeight)
+              .attr('stroke', colors.accent.magenta).attr('stroke-width', 1).attr('stroke-dasharray', '3,3').style('opacity', 0.8)
+          }
+        } else {
+          const flipY = yScale(endZeroGamma)
+          if (flipY >= 0 && flipY <= chartHeight) {
+            g.append('line')
+              .attr('x1', 0).attr('x2', chartWidth)
+              .attr('y1', flipY).attr('y2', flipY)
+              .attr('stroke', colors.accent.magenta).attr('stroke-width', 1).attr('stroke-dasharray', '3,3').style('opacity', 0.8)
+          }
         }
       }
 
-      // X Axis
-      const xAxis = d3.axisBottom(xScale).ticks(3).tickFormat(d => formatBillions(d as number))
-      const xAxisG = g.append('g').attr('transform', `translate(0,${chartHeight})`).call(xAxis)
-      xAxisG.selectAll('line').attr('stroke', 'none')
-      xAxisG.selectAll('path').attr('stroke', '#1A1A1A')
-      xAxisG.selectAll('text').attr('fill', '#949494').style('font-family', typography.fontSans).style('font-size', '9px').attr('dy', '10px')
+      // Axes
+      if (isRotated) {
+        // X Axis represents Strike Price
+        const xAxis = d3.axisBottom(strikeScale).ticks(5).tickFormat(d => formatCurrency(d as number))
+        const xAxisG = g.append('g').attr('transform', `translate(0,${chartHeight})`).call(xAxis)
+        xAxisG.selectAll('line').attr('stroke', 'none')
+        xAxisG.selectAll('path').attr('stroke', '#1A1A1A')
+        xAxisG.selectAll('text').attr('fill', '#949494').style('font-family', typography.fontSans).style('font-size', '9px').attr('dy', '10px')
+
+        // Y Axis represents Exposure
+        const yAxis = d3.axisLeft(exposureScale).ticks(3).tickFormat(d => formatBillions(d as number))
+        const yAxisG = g.append('g').call(yAxis)
+        yAxisG.selectAll('line').attr('stroke', '#222')
+        yAxisG.selectAll('path').attr('stroke', 'none')
+        yAxisG.selectAll('text').attr('fill', '#B5B5B5').style('font-family', typography.fontMono).style('font-size', '9px').attr('dx', '-3px')
+      } else {
+        // X Axis represents Exposure
+        const xAxis = d3.axisBottom(xScale).ticks(3).tickFormat(d => formatBillions(d as number))
+        const xAxisG = g.append('g').attr('transform', `translate(0,${chartHeight})`).call(xAxis)
+        xAxisG.selectAll('line').attr('stroke', 'none')
+        xAxisG.selectAll('path').attr('stroke', '#1A1A1A')
+        xAxisG.selectAll('text').attr('fill', '#949494').style('font-family', typography.fontSans).style('font-size', '9px').attr('dy', '10px')
+      }
 
       // Label
       g.append('text')
-        .attr('x', width / 2).attr('y', chartHeight + 32)
+        .attr('x', chartWidth / 2).attr('y', isRotated ? 12 : chartHeight + 28)
         .attr('text-anchor', 'middle')
         .attr('fill', '#949494').style('font-family', typography.fontSans).style('font-size', '9px')
         .text(displayMode === 'gamma-vol' 
-          ? (showAbsolute ? 'Absolute GEX (Calls → | ← Puts)' : 'GEX Profile') 
-          : (showAbsolute ? 'Absolute VEX (Calls → | ← Puts)' : 'Vanna Profile (VEX)'))
+          ? (showAbsolute ? 'Absolute GEX (Calls ↑ | ← Puts)' : 'GEX Profile') 
+          : (showAbsolute ? 'Absolute VEX (Calls ↑ | ← Puts)' : 'Vanna Profile (VEX)'))
 
       // Hover overlay (tooltips only)
       g.append('rect')
-        .attr('width', width).attr('height', chartHeight)
+        .attr('width', chartWidth).attr('height', chartHeight)
         .attr('fill', 'transparent')
         .on('mousemove', (event) => {
-          const [, my] = d3.pointer(event)
-          const price = yScale.invert(my)
+          const [mx, my] = d3.pointer(event)
+          const price = isRotated ? strikeScale.invert(mx) : yScale.invert(my)
 
           const closest = leftProfileData.reduce((prev, curr) => {
             return Math.abs(curr.strike - price) < Math.abs(prev.strike - price) ? curr : prev
@@ -1088,8 +1278,11 @@ export function SyncedStrikeWorkspace({
 
     // ─── 3. RIGHT PROFILE CHART (Volume/Charm) ───
     {
-      const g = volSvg.append('g').attr('transform', `translate(${margin.right},${margin.top})`)
-      const width = profileWidth - margin.right - margin.left
+      const currentMargin = isRotated ? marginRotated : margin
+      const chartWidth = volWidth - currentMargin.left - currentMargin.right
+      const chartHeight = volHeight - currentMargin.top - currentMargin.bottom
+
+      const g = volSvg.append('g').attr('transform', `translate(${currentMargin.left},${currentMargin.top})`)
 
       const rightProfileData = rightProfileDataCombined.filter(p => p.strike >= yDomain[0] && p.strike <= yDomain[1])
 
@@ -1110,7 +1303,15 @@ export function SyncedStrikeWorkspace({
 
       const xScale = d3.scaleLinear()
         .domain(isSymmetric ? [-maxVal, maxVal] : [0, maxVal])
-        .range([0, width])
+        .range([0, chartWidth])
+
+      const strikeScale = d3.scaleLinear()
+        .domain(yDomain)
+        .range([0, chartWidth])
+
+      const exposureScale = d3.scaleLinear()
+        .domain(isSymmetric ? [-maxVal, maxVal] : [0, maxVal])
+        .range([chartHeight, 0])
 
       // Append definitions for striped patterns
       const defsRight = volSvg.append('defs')
@@ -1151,177 +1352,320 @@ export function SyncedStrikeWorkspace({
 
       if (isSymmetric) {
         // Zero line in the center for Charm
-        g.append('line')
-          .attr('x1', xScale(0)).attr('x2', xScale(0))
-          .attr('y1', 0).attr('y2', chartHeight)
-          .attr('stroke', '#222').attr('stroke-width', 1)
+        if (isRotated) {
+          g.append('line')
+            .attr('x1', 0).attr('x2', chartWidth)
+            .attr('y1', exposureScale(0)).attr('y2', exposureScale(0))
+            .attr('stroke', '#222').attr('stroke-width', 1)
+        } else {
+          g.append('line')
+            .attr('x1', xScale(0)).attr('x2', xScale(0))
+            .attr('y1', 0).attr('y2', chartHeight)
+            .attr('stroke', '#222').attr('stroke-width', 1)
+        }
       }
 
-      // Draw horizontal bars
+      // Draw horizontal or vertical bars
       rightProfileData.forEach(p => {
-        const y = yScale(p.strike)
-        if (y === undefined || y < 0 || y > chartHeight) return
+        if (isRotated) {
+          const x = strikeScale(p.strike)
+          if (x === undefined || x < 0 || x > chartWidth) return
+          const barWidth = 5
+          const barX = x - barWidth / 2
 
-        if (showAbsolute && !isVolMode) {
-          // Absolute Mode for Charm
-          if (!isLive) {
-            // Start Call bar
-            const startCallWidth = Math.abs(xScale(p.startCallVal) - xScale(0))
+          if (showAbsolute && !isVolMode) {
+            // Absolute Mode for Charm
+            if (!isLive) {
+              // Start Call bar
+              const startCallHeight = Math.abs(exposureScale(p.startCallVal) - exposureScale(0))
+              g.append('rect')
+                .attr('x', barX).attr('y', exposureScale(p.startCallVal))
+                .attr('width', barWidth).attr('height', Math.max(1, startCallHeight))
+                .attr('fill', 'rgba(0, 200, 5, 0.35)')
+                .attr('stroke', '#00C805').attr('stroke-opacity', 0.35).attr('stroke-width', 0.5).attr('rx', 1)
+
+              // Start Put bar
+              const startPutHeight = Math.abs(exposureScale(p.startPutVal) - exposureScale(0))
+              g.append('rect')
+                .attr('x', barX).attr('y', exposureScale(0))
+                .attr('width', barWidth).attr('height', Math.max(1, startPutHeight))
+                .attr('fill', 'rgba(255, 59, 96, 0.35)')
+                .attr('stroke', '#FF3B60').attr('stroke-opacity', 0.35).attr('stroke-width', 0.5).attr('rx', 1)
+            }
+
+            // End Call bar
+            const endCallHeight = Math.abs(exposureScale(p.endCallVal) - exposureScale(0))
+            g.append('rect')
+              .attr('x', barX).attr('y', exposureScale(p.endCallVal))
+              .attr('width', barWidth).attr('height', Math.max(1, endCallHeight))
+              .attr('fill', 'rgba(0, 200, 5, 0.8)')
+              .attr('stroke', '#00C805').attr('stroke-opacity', 0.8).attr('stroke-width', 0.5).attr('rx', 1)
+
+            // End Put bar
+            const endPutHeight = Math.abs(exposureScale(p.endPutVal) - exposureScale(0))
+            g.append('rect')
+              .attr('x', barX).attr('y', exposureScale(0))
+              .attr('width', barWidth).attr('height', Math.max(1, endPutHeight))
+              .attr('fill', 'rgba(255, 59, 96, 0.8)')
+              .attr('stroke', '#FF3B60').attr('stroke-opacity', 0.8).attr('stroke-width', 0.5).attr('rx', 1)
+
+            if (!isLive) {
+              // Delta Call
+              const deltaCall = p.endCallVal - p.startCallVal
+              if (Math.abs(deltaCall) > 1e-5) {
+                const deltaHeight = Math.abs(exposureScale(p.endCallVal) - exposureScale(p.startCallVal))
+                const deltaY = exposureScale(Math.max(p.startCallVal, p.endCallVal))
+                g.append('rect')
+                  .attr('x', barX).attr('y', deltaY)
+                  .attr('width', barWidth).attr('height', Math.max(1, deltaHeight))
+                  .attr('fill', deltaCall >= 0 ? 'url(#increase-stripes-right)' : 'url(#decrease-stripes-right)')
+                  .attr('stroke', deltaCall >= 0 ? '#00C805' : '#FF3B60')
+                  .attr('stroke-opacity', 0.95).attr('stroke-width', 0.5).attr('rx', 1)
+              }
+
+              // Delta Put
+              const deltaPutRaw = Math.abs(p.endPutVal) - Math.abs(p.startPutVal)
+              const deltaPutHeight = Math.abs(exposureScale(p.endPutVal) - exposureScale(p.startPutVal))
+              const deltaPutY = exposureScale(Math.max(p.startPutVal, p.endPutVal))
+              if (Math.abs(deltaPutRaw) > 1e-5) {
+                g.append('rect')
+                  .attr('x', barX).attr('y', deltaPutY)
+                  .attr('width', barWidth).attr('height', Math.max(1, deltaPutHeight))
+                  .attr('fill', deltaPutRaw >= 0 ? 'url(#increase-stripes-right)' : 'url(#decrease-stripes-right)')
+                  .attr('stroke', deltaPutRaw >= 0 ? '#00C805' : '#FF3B60')
+                  .attr('stroke-opacity', 0.95).attr('stroke-width', 0.5).attr('rx', 1)
+              }
+            }
+          } else {
+            // Net Mode (Volume or original Charm)
+            const startVal = p.startNetVal
+            const endVal = p.endNetVal
+            const delta = endVal - startVal
+
+            if (!isLive) {
+              const startHeight = Math.abs(exposureScale(startVal) - exposureScale(0))
+              const startY = Math.min(exposureScale(0), exposureScale(startVal))
+              g.append('rect')
+                .attr('x', barX).attr('y', startY)
+                .attr('width', barWidth).attr('height', Math.max(1, startHeight))
+                .attr('fill', isSymmetric 
+                  ? (startVal >= 0 ? 'rgba(0, 200, 5, 0.35)' : 'rgba(255, 59, 96, 0.35)') 
+                  : 'rgba(0, 200, 255, 0.35)')
+                .attr('stroke', isSymmetric ? (startVal >= 0 ? '#00C805' : '#FF3B60') : '#00C8FF')
+                .attr('stroke-opacity', 0.35).attr('stroke-width', 0.5).attr('rx', 1)
+            }
+
+            const endHeight = Math.abs(exposureScale(endVal) - exposureScale(0))
+            const endY = Math.min(exposureScale(0), exposureScale(endVal))
+            g.append('rect')
+              .attr('x', barX).attr('y', endY)
+              .attr('width', barWidth).attr('height', Math.max(1, endHeight))
+              .attr('fill', isSymmetric 
+                ? (endVal >= 0 ? 'rgba(0, 200, 5, 0.8)' : 'rgba(255, 59, 96, 0.8)') 
+                : 'rgba(0, 200, 255, 0.8)')
+              .attr('stroke', isSymmetric ? (endVal >= 0 ? '#00C805' : '#FF3B60') : '#00C8FF')
+              .attr('stroke-opacity', 0.8).attr('stroke-width', 0.5).attr('rx', 1)
+
+            if (!isLive && Math.abs(delta) > 1e-5) {
+              const deltaHeight = Math.abs(exposureScale(endVal) - exposureScale(startVal))
+              const deltaY = exposureScale(Math.max(startVal, endVal))
+              g.append('rect')
+                .attr('x', barX).attr('y', deltaY)
+                .attr('width', barWidth).attr('height', Math.max(1, deltaHeight))
+                .attr('fill', delta >= 0 ? 'url(#increase-stripes-right)' : 'url(#decrease-stripes-right)')
+                .attr('stroke', delta >= 0 ? '#00C805' : '#FF3B60')
+                .attr('stroke-opacity', 0.95).attr('stroke-width', 0.5).attr('rx', 1)
+            }
+          }
+        } else {
+          // Normal mode (horizontal bars)
+          const y = yScale(p.strike)
+          if (y === undefined || y < 0 || y > chartHeight) return
+
+          if (showAbsolute && !isVolMode) {
+            // Absolute Mode for Charm
+            if (!isLive) {
+              // Start Call bar
+              const startCallWidth = Math.abs(xScale(p.startCallVal) - xScale(0))
+              g.append('rect')
+                .attr('x', xScale(0)).attr('y', y - 2)
+                .attr('width', Math.max(1, startCallWidth))
+                .attr('height', 5)
+                .attr('fill', 'rgba(0, 200, 5, 0.35)')
+                .attr('stroke', '#00C805')
+                .attr('stroke-opacity', 0.35)
+                .attr('stroke-width', 0.5)
+                .attr('rx', 1)
+
+              // Start Put bar
+              const startPutWidth = Math.abs(xScale(p.startPutVal) - xScale(0))
+              g.append('rect')
+                .attr('x', xScale(p.startPutVal)).attr('y', y - 2)
+                .attr('width', Math.max(1, startPutWidth))
+                .attr('height', 5)
+                .attr('fill', 'rgba(255, 59, 96, 0.35)')
+                .attr('stroke', '#FF3B60')
+                .attr('stroke-opacity', 0.35)
+                .attr('stroke-width', 0.5)
+                .attr('rx', 1)
+            }
+
+            // End Call bar
+            const endCallWidth = Math.abs(xScale(p.endCallVal) - xScale(0))
             g.append('rect')
               .attr('x', xScale(0)).attr('y', y - 2)
-              .attr('width', Math.max(1, startCallWidth))
+              .attr('width', Math.max(1, endCallWidth))
               .attr('height', 5)
-              .attr('fill', 'rgba(0, 200, 5, 0.35)')
+              .attr('fill', 'rgba(0, 200, 5, 0.8)')
               .attr('stroke', '#00C805')
-              .attr('stroke-opacity', 0.35)
+              .attr('stroke-opacity', 0.8)
               .attr('stroke-width', 0.5)
               .attr('rx', 1)
 
-            // Start Put bar
-            const startPutWidth = Math.abs(xScale(p.startPutVal) - xScale(0))
+            // End Put bar
+            const endPutWidth = Math.abs(xScale(p.endPutVal) - xScale(0))
             g.append('rect')
-              .attr('x', xScale(p.startPutVal)).attr('y', y - 2)
-              .attr('width', Math.max(1, startPutWidth))
+              .attr('x', xScale(p.endPutVal)).attr('y', y - 2)
+              .attr('width', Math.max(1, endPutWidth))
               .attr('height', 5)
-              .attr('fill', 'rgba(255, 59, 96, 0.35)')
+              .attr('fill', 'rgba(255, 59, 96, 0.8)')
               .attr('stroke', '#FF3B60')
-              .attr('stroke-opacity', 0.35)
+              .attr('stroke-opacity', 0.8)
               .attr('stroke-width', 0.5)
               .attr('rx', 1)
-          }
 
-          // End Call bar
-          const endCallWidth = Math.abs(xScale(p.endCallVal) - xScale(0))
-          g.append('rect')
-            .attr('x', xScale(0)).attr('y', y - 2)
-            .attr('width', Math.max(1, endCallWidth))
-            .attr('height', 5)
-            .attr('fill', 'rgba(0, 200, 5, 0.8)')
-            .attr('stroke', '#00C805')
-            .attr('stroke-opacity', 0.8)
-            .attr('stroke-width', 0.5)
-            .attr('rx', 1)
+            if (!isLive) {
+              // Delta Call
+              const deltaCall = p.endCallVal - p.startCallVal
+              if (Math.abs(deltaCall) > 1e-5) {
+                const deltaWidth = Math.abs(xScale(p.endCallVal) - xScale(p.startCallVal))
+                const deltaX = xScale(Math.min(p.startCallVal, p.endCallVal))
+                g.append('rect')
+                  .attr('x', deltaX).attr('y', y - 2)
+                  .attr('width', Math.max(1, deltaWidth))
+                  .attr('height', 5)
+                  .attr('fill', deltaCall >= 0 ? 'url(#increase-stripes-right)' : 'url(#decrease-stripes-right)')
+                  .attr('stroke', deltaCall >= 0 ? '#00C805' : '#FF3B60')
+                  .attr('stroke-opacity', 0.95)
+                  .attr('stroke-width', 0.5)
+                  .attr('rx', 1)
+              }
 
-          // End Put bar
-          const endPutWidth = Math.abs(xScale(p.endPutVal) - xScale(0))
-          g.append('rect')
-            .attr('x', xScale(p.endPutVal)).attr('y', y - 2)
-            .attr('width', Math.max(1, endPutWidth))
-            .attr('height', 5)
-            .attr('fill', 'rgba(255, 59, 96, 0.8)')
-            .attr('stroke', '#FF3B60')
-            .attr('stroke-opacity', 0.8)
-            .attr('stroke-width', 0.5)
-            .attr('rx', 1)
+              // Delta Put
+              const deltaPutRaw = Math.abs(p.endPutVal) - Math.abs(p.startPutVal)
+              const deltaPutWidth = Math.abs(xScale(p.endPutVal) - xScale(p.startPutVal))
+              const deltaPutX = xScale(Math.min(p.startPutVal, p.endPutVal))
+              if (Math.abs(deltaPutRaw) > 1e-5) {
+                g.append('rect')
+                  .attr('x', deltaPutX).attr('y', y - 2)
+                  .attr('width', Math.max(1, deltaPutWidth))
+                  .attr('height', 5)
+                  .attr('fill', deltaPutRaw >= 0 ? 'url(#increase-stripes-right)' : 'url(#decrease-stripes-right)')
+                  .attr('stroke', deltaPutRaw >= 0 ? '#00C805' : '#FF3B60')
+                  .attr('stroke-opacity', 0.95)
+                  .attr('stroke-width', 0.5)
+                  .attr('rx', 1)
+              }
+            }
+          } else {
+            // Net Mode (Volume or original Charm)
+            const startVal = p.startNetVal
+            const endVal = p.endNetVal
+            const delta = endVal - startVal
 
-          if (!isLive) {
-            // Delta Call
-            const deltaCall = p.endCallVal - p.startCallVal
-            if (Math.abs(deltaCall) > 1e-5) {
-              const deltaWidth = Math.abs(xScale(p.endCallVal) - xScale(p.startCallVal))
-              const deltaX = xScale(Math.min(p.startCallVal, p.endCallVal))
+            if (!isLive) {
+              const startWidth = Math.abs(xScale(startVal) - xScale(0))
+              const startX = isSymmetric ? (startVal >= 0 ? xScale(0) : xScale(startVal)) : xScale(0)
+              g.append('rect')
+                .attr('x', startX).attr('y', y - 2)
+                .attr('width', Math.max(1, startWidth))
+                .attr('height', 5)
+                .attr('fill', isSymmetric 
+                  ? (startVal >= 0 ? 'rgba(0, 200, 5, 0.35)' : 'rgba(255, 59, 96, 0.35)') 
+                  : 'rgba(0, 200, 255, 0.35)')
+                .attr('stroke', isSymmetric ? (startVal >= 0 ? '#00C805' : '#FF3B60') : '#00C8FF')
+                .attr('stroke-opacity', 0.35)
+                .attr('stroke-width', 0.5)
+                .attr('rx', 1)
+            }
+
+            const endWidth = Math.abs(xScale(endVal) - xScale(0))
+            const endX = isSymmetric ? (endVal >= 0 ? xScale(0) : xScale(endVal)) : xScale(0)
+            g.append('rect')
+              .attr('x', endX).attr('y', y - 2)
+              .attr('width', Math.max(1, endWidth))
+              .attr('height', 5)
+              .attr('fill', isSymmetric 
+                ? (endVal >= 0 ? 'rgba(0, 200, 5, 0.8)' : 'rgba(255, 59, 96, 0.8)') 
+                : 'rgba(0, 200, 255, 0.8)')
+              .attr('stroke', isSymmetric ? (endVal >= 0 ? '#00C805' : '#FF3B60') : '#00C8FF')
+              .attr('stroke-opacity', 0.8)
+              .attr('stroke-width', 0.5)
+              .attr('rx', 1)
+
+            if (!isLive && Math.abs(delta) > 1e-5) {
+              const deltaWidth = Math.abs(xScale(endVal) - xScale(startVal))
+              const deltaX = xScale(Math.min(startVal, endVal))
               g.append('rect')
                 .attr('x', deltaX).attr('y', y - 2)
                 .attr('width', Math.max(1, deltaWidth))
                 .attr('height', 5)
-                .attr('fill', deltaCall >= 0 ? 'url(#increase-stripes-right)' : 'url(#decrease-stripes-right)')
-                .attr('stroke', deltaCall >= 0 ? '#00C805' : '#FF3B60')
+                .attr('fill', delta >= 0 ? 'url(#increase-stripes-right)' : 'url(#decrease-stripes-right)')
+                .attr('stroke', delta >= 0 ? '#00C805' : '#FF3B60')
                 .attr('stroke-opacity', 0.95)
                 .attr('stroke-width', 0.5)
                 .attr('rx', 1)
             }
-
-            // Delta Put
-            const deltaPutRaw = Math.abs(p.endPutVal) - Math.abs(p.startPutVal)
-            const deltaPutWidth = Math.abs(xScale(p.endPutVal) - xScale(p.startPutVal))
-            const deltaPutX = xScale(Math.min(p.startPutVal, p.endPutVal))
-            if (Math.abs(deltaPutRaw) > 1e-5) {
-              g.append('rect')
-                .attr('x', deltaPutX).attr('y', y - 2)
-                .attr('width', Math.max(1, deltaPutWidth))
-                .attr('height', 5)
-                .attr('fill', deltaPutRaw >= 0 ? 'url(#increase-stripes-right)' : 'url(#decrease-stripes-right)')
-                .attr('stroke', deltaPutRaw >= 0 ? '#00C805' : '#FF3B60')
-                .attr('stroke-opacity', 0.95)
-                .attr('stroke-width', 0.5)
-                .attr('rx', 1)
-            }
-          }
-        } else {
-          // Net Mode (Volume or original Charm)
-          const startVal = p.startNetVal
-          const endVal = p.endNetVal
-          const delta = endVal - startVal
-
-          if (!isLive) {
-            const startWidth = Math.abs(xScale(startVal) - xScale(0))
-            const startX = isSymmetric ? (startVal >= 0 ? xScale(0) : xScale(startVal)) : xScale(0)
-            g.append('rect')
-              .attr('x', startX).attr('y', y - 2)
-              .attr('width', Math.max(1, startWidth))
-              .attr('height', 5)
-              .attr('fill', isSymmetric 
-                ? (startVal >= 0 ? 'rgba(0, 200, 5, 0.35)' : 'rgba(255, 59, 96, 0.35)') 
-                : 'rgba(0, 200, 255, 0.35)')
-              .attr('stroke', isSymmetric 
-                ? (startVal >= 0 ? '#00C805' : '#FF3B60') 
-                : '#00C8FF')
-              .attr('stroke-opacity', 0.35)
-              .attr('stroke-width', 0.5)
-              .attr('rx', 1)
-          }
-
-          const endWidth = Math.abs(xScale(endVal) - xScale(0))
-          const endX = isSymmetric ? (endVal >= 0 ? xScale(0) : xScale(endVal)) : xScale(0)
-          g.append('rect')
-            .attr('x', endX).attr('y', y - 2)
-            .attr('width', Math.max(1, endWidth))
-            .attr('height', 5)
-            .attr('fill', isSymmetric 
-              ? (endVal >= 0 ? 'rgba(0, 200, 5, 0.8)' : 'rgba(255, 59, 96, 0.8)') 
-              : 'rgba(0, 200, 255, 0.8)')
-            .attr('stroke', isSymmetric 
-              ? (endVal >= 0 ? '#00C805' : '#FF3B60') 
-              : '#00C8FF')
-            .attr('stroke-opacity', 0.8)
-            .attr('stroke-width', 0.5)
-            .attr('rx', 1)
-
-          if (!isLive && Math.abs(delta) > 1e-5) {
-            const deltaWidth = Math.abs(xScale(endVal) - xScale(startVal))
-            const deltaX = xScale(Math.min(startVal, endVal))
-            g.append('rect')
-              .attr('x', deltaX).attr('y', y - 2)
-              .attr('width', Math.max(1, deltaWidth))
-              .attr('height', 5)
-              .attr('fill', delta >= 0 ? 'url(#increase-stripes-right)' : 'url(#decrease-stripes-right)')
-              .attr('stroke', delta >= 0 ? '#00C805' : '#FF3B60')
-              .attr('stroke-opacity', 0.95)
-              .attr('stroke-width', 0.5)
-              .attr('rx', 1)
           }
         }
       })
 
       // Spot Line
-      const spotY = yScale(endSpotPrice)
-      if (spotY >= 0 && spotY <= chartHeight) {
-        g.append('line')
-          .attr('x1', 0).attr('x2', width)
-          .attr('y1', spotY).attr('y2', spotY)
-          .attr('stroke', colors.accent.amber).attr('stroke-width', 1).style('opacity', 0.8)
+      if (isRotated) {
+        const spotX = strikeScale(endSpotPrice)
+        if (spotX >= 0 && spotX <= chartWidth) {
+          g.append('line')
+            .attr('x1', spotX).attr('x2', spotX)
+            .attr('y1', 0).attr('y2', chartHeight)
+            .attr('stroke', colors.accent.amber).attr('stroke-width', 1).style('opacity', 0.8)
+        }
+      } else {
+        const spotY = yScale(endSpotPrice)
+        if (spotY >= 0 && spotY <= chartHeight) {
+          g.append('line')
+            .attr('x1', 0).attr('x2', chartWidth)
+            .attr('y1', spotY).attr('y2', spotY)
+            .attr('stroke', colors.accent.amber).attr('stroke-width', 1).style('opacity', 0.8)
+        }
       }
 
-      // X Axis
-      const xAxis = d3.axisBottom(xScale).ticks(3).tickFormat(d => isSymmetric ? formatBillions(d as number) : formatCompact(d as number))
-      const xAxisG = g.append('g').attr('transform', `translate(0,${chartHeight})`).call(xAxis)
-      xAxisG.selectAll('line').attr('stroke', 'none')
-      xAxisG.selectAll('path').attr('stroke', '#1A1A1A')
-      xAxisG.selectAll('text').attr('fill', '#949494').style('font-family', typography.fontSans).style('font-size', '9px').attr('dy', '10px')
+      // Axes
+      if (isRotated) {
+        // X Axis represents Strike Price
+        const xAxis = d3.axisBottom(strikeScale).ticks(5).tickFormat(d => formatCurrency(d as number))
+        const xAxisG = g.append('g').attr('transform', `translate(0,${chartHeight})`).call(xAxis)
+        xAxisG.selectAll('line').attr('stroke', 'none')
+        xAxisG.selectAll('path').attr('stroke', '#1A1A1A')
+        xAxisG.selectAll('text').attr('fill', '#949494').style('font-family', typography.fontSans).style('font-size', '9px').attr('dy', '10px')
+
+        // Y Axis represents Exposure
+        const yAxis = d3.axisLeft(exposureScale).ticks(3).tickFormat(d => isSymmetric ? formatBillions(d as number) : formatCompact(d as number))
+        const yAxisG = g.append('g').call(yAxis)
+        yAxisG.selectAll('line').attr('stroke', '#222')
+        yAxisG.selectAll('path').attr('stroke', 'none')
+        yAxisG.selectAll('text').attr('fill', '#B5B5B5').style('font-family', typography.fontMono).style('font-size', '9px').attr('dx', '-3px')
+      } else {
+        // X Axis represents Exposure
+        const xAxis = d3.axisBottom(xScale).ticks(3).tickFormat(d => isSymmetric ? formatBillions(d as number) : formatCompact(d as number))
+        const xAxisG = g.append('g').attr('transform', `translate(0,${chartHeight})`).call(xAxis)
+        xAxisG.selectAll('line').attr('stroke', 'none')
+        xAxisG.selectAll('path').attr('stroke', '#1A1A1A')
+        xAxisG.selectAll('text').attr('fill', '#949494').style('font-family', typography.fontSans).style('font-size', '9px').attr('dy', '10px')
+      }
 
       // Label
       g.append('text')
-        .attr('x', width / 2).attr('y', chartHeight + 32)
+        .attr('x', chartWidth / 2).attr('y', isRotated ? 12 : chartHeight + 28)
         .attr('text-anchor', 'middle')
         .attr('fill', '#949494').style('font-family', typography.fontSans).style('font-size', '9px')
         .text(displayMode === 'gamma-vol' 
@@ -1330,11 +1674,11 @@ export function SyncedStrikeWorkspace({
 
       // Hover overlay
       g.append('rect')
-        .attr('width', width).attr('height', chartHeight)
+        .attr('width', chartWidth).attr('height', chartHeight)
         .attr('fill', 'transparent')
         .on('mousemove', (event) => {
-          const [, my] = d3.pointer(event)
-          const price = yScale.invert(my)
+          const [mx, my] = d3.pointer(event)
+          const price = isRotated ? strikeScale.invert(mx) : yScale.invert(my)
 
           const closest = rightProfileData.reduce((prev, curr) => {
             return Math.abs(curr.strike - price) < Math.abs(prev.strike - price) ? curr : prev
@@ -1430,7 +1774,7 @@ export function SyncedStrikeWorkspace({
         .on('mouseleave', hideCrosshairs)
     }
 
-  }, [dimensions, yDomain, visibleCandlesData, indicatorData, startGexProfile, endGexProfile, startVolProfile, endVolProfile, startVannaProfile, endVannaProfile, startCharmProfile, endCharmProfile, endSpotPrice, endZeroGamma, market, ticker, displayMode, isCandlesCollapsed, isLive, showAbsolute])
+  }, [dimensions, yDomain, visibleCandlesData, indicatorData, startGexProfile, endGexProfile, startVolProfile, endVolProfile, startVannaProfile, endVannaProfile, startCharmProfile, endCharmProfile, endSpotPrice, endZeroGamma, market, ticker, displayMode, isCandlesCollapsed, isLive, showAbsolute, isRotated])
 
   return (
     <div
@@ -1474,6 +1818,21 @@ export function SyncedStrikeWorkspace({
           ) : (
             <ChevronsLeft className="w-3.5 h-3.5" />
           )}
+        </button>
+
+        {/* Column divider line */}
+        <div className="w-[1px] h-3.5 bg-[#222] mx-1" />
+
+        {/* Rotate Toggle Button */}
+        <button
+          onClick={() => setIsRotated(!isRotated)}
+          className={`p-0.5 rounded hover:bg-[#111] transition-colors flex items-center justify-center ${
+            isRotated ? 'text-terminal-green' : 'text-[#777] hover:text-white'
+          }`}
+          title={isRotated ? "Show Standard Layout" : "Rotate Axes (Strikes on X)"}
+          type="button"
+        >
+          <RotateCw className="w-3.5 h-3.5" />
         </button>
       </div>
 
@@ -1559,21 +1918,40 @@ export function SyncedStrikeWorkspace({
         )}
       </div>
 
-      {/* GEX/VEX Profile SVG */}
-      <svg 
-        ref={gexSvgRef} 
-        className="h-full cursor-grab active:cursor-grabbing" 
-        onMouseDown={handleProfileMouseDown}
-        onDoubleClick={handleProfileDoubleClick}
-      />
+      {isRotated ? (
+        <div className="flex-1 flex flex-col min-w-0 h-full border-l border-[#15151A]">
+          <svg 
+            ref={gexSvgRef} 
+            className="w-full h-1/2 cursor-grab active:cursor-grabbing border-b border-[#15151A]" 
+            onMouseDown={handleProfileMouseDown}
+            onDoubleClick={handleProfileDoubleClick}
+          />
+          <svg 
+            ref={volSvgRef} 
+            className="w-full h-1/2 cursor-grab active:cursor-grabbing" 
+            onMouseDown={handleProfileMouseDown}
+            onDoubleClick={handleProfileDoubleClick}
+          />
+        </div>
+      ) : (
+        <>
+          {/* GEX/VEX Profile SVG */}
+          <svg 
+            ref={gexSvgRef} 
+            className="h-full cursor-grab active:cursor-grabbing border-l border-[#15151A]" 
+            onMouseDown={handleProfileMouseDown}
+            onDoubleClick={handleProfileDoubleClick}
+          />
 
-      {/* Volume/CEX Profile SVG */}
-      <svg 
-        ref={volSvgRef} 
-        className="h-full cursor-grab active:cursor-grabbing" 
-        onMouseDown={handleProfileMouseDown}
-        onDoubleClick={handleProfileDoubleClick}
-      />
+          {/* Volume/CEX Profile SVG */}
+          <svg 
+            ref={volSvgRef} 
+            className="h-full cursor-grab active:cursor-grabbing border-l border-[#15151A]" 
+            onMouseDown={handleProfileMouseDown}
+            onDoubleClick={handleProfileDoubleClick}
+          />
+        </>
+      )}
 
       {/* Sync Tooltip */}
       <div

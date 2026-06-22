@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo } from "react"
-import { Bot } from "lucide-react"
+import { Bot, ChevronDown } from "lucide-react"
 import { colors } from "@/lib/design-tokens"
 import type { OptionData } from "@/lib/types"
 
@@ -133,6 +133,7 @@ interface TerminalHeaderProps {
   gammaFlipLevel?: number | null
   isAIPanelOpen?: boolean
   onToggleAIPanel?: () => void
+  watchlist?: Array<{ ticker: string; price: number | null; pct: number | null }>
 }
 
 export function TerminalHeader({
@@ -148,6 +149,7 @@ export function TerminalHeader({
   gammaFlipLevel,
   isAIPanelOpen = false,
   onToggleAIPanel,
+  watchlist,
 }: TerminalHeaderProps) {
   const [showInput, setShowInput] = useState(false)
   const [inputValue, setInputValue] = useState("")
@@ -209,12 +211,53 @@ export function TerminalHeader({
 
   return (
     <header className="border-b border-[#1A1A1E] bg-[#070709] px-4 py-2.5 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 select-none min-h-14">
-      {/* Left section: Ticker search */}
-      <div className="flex items-center gap-3 flex-shrink-0">
-        {/* Ticker Name */}
-        <span className="text-lg font-extrabold tracking-tight text-white font-mono uppercase flex-shrink-0">
-          ^{ticker}
-        </span>
+      {/* Left section: Ticker search and hoverable watchlist */}
+      <div className="flex items-center gap-3 flex-shrink-0 relative group">
+        {/* Ticker Name with hoverable dropdown */}
+        <div className="relative py-1 cursor-pointer">
+          <span className="text-lg font-black tracking-tight text-terminal-green font-mono uppercase flex-shrink-0 hover:text-white transition-colors flex items-center gap-1">
+            ^{ticker}
+            <ChevronDown className="w-3.5 h-3.5 text-[#555] group-hover:text-terminal-green transition-colors" />
+          </span>
+
+          {/* Hover dropdown content */}
+          {watchlist && watchlist.length > 0 && (
+            <div className="absolute left-0 top-full mt-1.5 w-60 bg-[#0F0F12] border border-[#222]/90 rounded-md shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 p-2 select-text">
+              <div className="text-[9px] font-mono text-[#555] uppercase tracking-wider mb-1.5 px-2 pb-1 border-b border-[#222]/40 font-bold">Watchlist</div>
+              <div className="flex flex-col gap-1 max-h-[250px] overflow-y-auto pr-1 terminal-scrollbar">
+                {watchlist.map((item) => {
+                  const active = ticker === item.ticker
+                  const isUp = item.pct !== null ? item.pct >= 0 : true
+                  return (
+                    <div
+                      key={item.ticker}
+                      onClick={() => onTickerSelect(item.ticker)}
+                      className={`flex items-center justify-between p-2 rounded cursor-pointer transition-all duration-150 ${
+                        active
+                          ? 'bg-[#18181F] text-terminal-green border border-terminal-green/20'
+                          : 'bg-transparent text-[#949494] hover:bg-[#121216] hover:text-white border border-transparent'
+                      }`}
+                    >
+                      <span className="font-mono font-bold text-xs">{item.ticker}</span>
+                      <div className="text-right font-mono">
+                        <span className="text-xs font-semibold block text-[#E5E5E5]">
+                          {item.price && item.price > 0 
+                            ? `${currencySymbol}${item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                            : 'N/A'}
+                        </span>
+                        {item.pct !== null && (
+                          <span className={`text-[9px] block font-bold ${isUp ? 'text-[#00C805]' : 'text-[#FF3B60]'}`}>
+                            {isUp ? '+' : ''}{item.pct.toFixed(2)}%
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Search button/input */}
         <form onSubmit={handleSearchSubmit} className="relative flex items-center flex-shrink-0">

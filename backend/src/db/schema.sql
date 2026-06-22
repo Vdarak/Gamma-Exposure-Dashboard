@@ -197,6 +197,9 @@ CREATE TABLE IF NOT EXISTS cot_positions (
   UNIQUE(ticker, report_date)
 );
 
+-- Migration to add open_interest to cot_positions if it exists from previous deploys
+ALTER TABLE cot_positions ADD COLUMN IF NOT EXISTS open_interest INTEGER NOT NULL DEFAULT 0;
+
 CREATE INDEX IF NOT EXISTS idx_cot_positions_ticker_date ON cot_positions(ticker, report_date DESC);
 
 -- Cache table for daily GARCH forecast metrics

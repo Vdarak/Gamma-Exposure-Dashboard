@@ -23,6 +23,7 @@ export function CotFlowChart() {
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'absolute' | 'net'>('absolute')
   const [hoveredData, setHoveredData] = useState<CotFlowData['data'][0] | null>(null)
+  const [tooltipPos, setTooltipPos] = useState<{ x: number, y: number } | null>(null)
 
   const svgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -290,12 +291,14 @@ export function CotFlowChart() {
           const orig = data.data.find(x => x.reportDate === d.reportDateString)
           if (orig) {
             setHoveredData(orig)
+            setTooltipPos({ x: event.offsetX, y: event.offsetY })
           }
         }
       })
       .on('mouseleave', () => {
         hoverLine.style('opacity', 0)
         setHoveredData(null)
+        setTooltipPos(null)
       })
 
   }, [data, dims, viewMode])
@@ -431,74 +434,6 @@ export function CotFlowChart() {
             </div>
           </div>
 
-          {/* Change Positioning Bar Chart (Visual representations) */}
-          <div className="bg-[#0A0A0C] border border-[#141416] rounded p-3 flex flex-col gap-2 flex-shrink-0">
-            <span className="text-[8px] font-mono text-[#555] uppercase tracking-wider mb-1">Weekly Change In Net Positions</span>
-
-            {/* Commercials Change Bar */}
-            <div className="flex items-center justify-between text-[9px] font-mono">
-              <span className="w-24 text-[#E5E5E5]">Commercials</span>
-              <div className="flex-1 mx-4 h-3 bg-[#111115] border border-[#1A1A22] rounded-sm relative overflow-hidden">
-                {positioningStats.changes.comm !== 0 && (
-                  <div
-                    className={`h-full absolute ${positioningStats.changes.comm >= 0 ? 'bg-[#EF4444]/40 border-r border-[#EF4444]' : 'bg-[#FF3B60]/40 border-l border-[#FF3B60]'}`}
-                    style={{
-                      left: positioningStats.changes.comm >= 0 ? '50%' : 'auto',
-                      right: positioningStats.changes.comm < 0 ? '50%' : 'auto',
-                      width: `${Math.min(50, (Math.abs(positioningStats.changes.comm) / 25000) * 50)}%`
-                    }}
-                  />
-                )}
-                <div className="w-px h-full bg-[#2A2A2A] absolute left-1/2" />
-              </div>
-              <span className={`w-16 text-right ${positioningStats.changes.comm >= 0 ? 'text-[#EF4444]' : 'text-[#FF3B60]'}`}>
-                {positioningStats.changes.comm >= 0 ? '+' : ''}{(positioningStats.changes.comm / 1000).toFixed(1)}k
-              </span>
-            </div>
-
-            {/* Speculators Change Bar */}
-            <div className="flex items-center justify-between text-[9px] font-mono">
-              <span className="w-24 text-[#E5E5E5]">Large Spec</span>
-              <div className="flex-1 mx-4 h-3 bg-[#111115] border border-[#1A1A22] rounded-sm relative overflow-hidden">
-                {positioningStats.changes.noncomm !== 0 && (
-                  <div
-                    className={`h-full absolute ${positioningStats.changes.noncomm >= 0 ? 'bg-[#3B82F6]/40 border-r border-[#3B82F6]' : 'bg-[#FF3B60]/40 border-l border-[#FF3B60]'}`}
-                    style={{
-                      left: positioningStats.changes.noncomm >= 0 ? '50%' : 'auto',
-                      right: positioningStats.changes.noncomm < 0 ? '50%' : 'auto',
-                      width: `${Math.min(50, (Math.abs(positioningStats.changes.noncomm) / 25000) * 50)}%`
-                    }}
-                  />
-                )}
-                <div className="w-px h-full bg-[#2A2A2A] absolute left-1/2" />
-              </div>
-              <span className={`w-16 text-right ${positioningStats.changes.noncomm >= 0 ? 'text-[#3B82F6]' : 'text-[#FF3B60]'}`}>
-                {positioningStats.changes.noncomm >= 0 ? '+' : ''}{(positioningStats.changes.noncomm / 1000).toFixed(1)}k
-              </span>
-            </div>
-
-            {/* Retail Change Bar */}
-            <div className="flex items-center justify-between text-[9px] font-mono">
-              <span className="w-24 text-[#E5E5E5]">Retail</span>
-              <div className="flex-1 mx-4 h-3 bg-[#111115] border border-[#1A1A22] rounded-sm relative overflow-hidden">
-                {positioningStats.changes.retail !== 0 && (
-                  <div
-                    className={`h-full absolute ${positioningStats.changes.retail >= 0 ? 'bg-[#FBBF24]/40 border-r border-[#FBBF24]' : 'bg-[#FF3B60]/40 border-l border-[#FF3B60]'}`}
-                    style={{
-                      left: positioningStats.changes.retail >= 0 ? '50%' : 'auto',
-                      right: positioningStats.changes.retail < 0 ? '50%' : 'auto',
-                      width: `${Math.min(50, (Math.abs(positioningStats.changes.retail) / 25000) * 50)}%`
-                    }}
-                  />
-                )}
-                <div className="w-px h-full bg-[#2A2A2A] absolute left-1/2" />
-              </div>
-              <span className={`w-16 text-right ${positioningStats.changes.retail >= 0 ? 'text-[#FBBF24]' : 'text-[#FF3B60]'}`}>
-                {positioningStats.changes.retail >= 0 ? '+' : ''}{(positioningStats.changes.retail / 1000).toFixed(1)}k
-              </span>
-            </div>
-          </div>
-
           {/* D3 Line/Bar Chart Container */}
           <div className="flex-1 flex flex-col min-h-0">
             <div className="flex items-center justify-between mb-2 flex-shrink-0">
@@ -531,6 +466,86 @@ export function CotFlowChart() {
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center border border-dashed border-[#1A1A1E] rounded text-[9px] font-mono text-[#555] uppercase tracking-widest bg-black/10">
                   Historical trend requires multiple weeks of data
+                </div>
+              )}
+
+              {/* Tooltip Overlay */}
+              {hoveredData && tooltipPos && positioningStats && (
+                <div 
+                  className="absolute pointer-events-none bg-[#070709]/95 border border-[#141416]/90 rounded p-3 flex flex-col gap-2 shadow-2xl z-30 min-w-[280px]"
+                  style={{
+                    left: `${tooltipPos.x + 15}px`,
+                    top: `${tooltipPos.y + 15}px`,
+                    transform: tooltipPos.x > dims.width - 320 ? 'translateX(-110%)' : 'none'
+                  }}
+                >
+                  <div className="flex items-center justify-between border-b border-[#222]/40 pb-1.5 mb-0.5">
+                    <span className="text-[10px] font-mono font-bold text-[#E5E5E5] uppercase tracking-wider">COT Weekly Change</span>
+                    <span className="text-[9px] font-mono text-[#777]">{positioningStats.current.reportDate}</span>
+                  </div>
+
+                  {/* Commercials Change Bar */}
+                  <div className="flex items-center justify-between text-[9px] font-mono">
+                    <span className="w-20 text-[#EF4444] font-bold">Commercials</span>
+                    <div className="flex-1 mx-2.5 h-2 bg-[#111115] border border-[#1A1A22] rounded-sm relative overflow-hidden">
+                      {positioningStats.changes.comm !== 0 && (
+                        <div
+                          className={`h-full absolute ${positioningStats.changes.comm >= 0 ? 'bg-[#EF4444]/40 border-r border-[#EF4444]' : 'bg-[#FF3B60]/40 border-l border-[#FF3B60]'}`}
+                          style={{
+                            left: positioningStats.changes.comm >= 0 ? '50%' : 'auto',
+                            right: positioningStats.changes.comm < 0 ? '50%' : 'auto',
+                            width: `${Math.min(50, (Math.abs(positioningStats.changes.comm) / 25000) * 50)}%`
+                          }}
+                        />
+                      )}
+                      <div className="w-px h-full bg-[#2A2A2A] absolute left-1/2" />
+                    </div>
+                    <span className={`w-14 text-right ${positioningStats.changes.comm >= 0 ? 'text-[#EF4444]' : 'text-[#FF3B60]'}`}>
+                      {positioningStats.changes.comm >= 0 ? '+' : ''}{(positioningStats.changes.comm / 1000).toFixed(1)}k
+                    </span>
+                  </div>
+
+                  {/* Speculators Change Bar */}
+                  <div className="flex items-center justify-between text-[9px] font-mono">
+                    <span className="w-20 text-[#3B82F6] font-bold">Large Spec</span>
+                    <div className="flex-1 mx-2.5 h-2 bg-[#111115] border border-[#1A1A22] rounded-sm relative overflow-hidden">
+                      {positioningStats.changes.noncomm !== 0 && (
+                        <div
+                          className={`h-full absolute ${positioningStats.changes.noncomm >= 0 ? 'bg-[#3B82F6]/40 border-r border-[#3B82F6]' : 'bg-[#FF3B60]/40 border-l border-[#FF3B60]'}`}
+                          style={{
+                            left: positioningStats.changes.noncomm >= 0 ? '50%' : 'auto',
+                            right: positioningStats.changes.noncomm < 0 ? '50%' : 'auto',
+                            width: `${Math.min(50, (Math.abs(positioningStats.changes.noncomm) / 25000) * 50)}%`
+                          }}
+                        />
+                      )}
+                      <div className="w-px h-full bg-[#2A2A2A] absolute left-1/2" />
+                    </div>
+                    <span className={`w-14 text-right ${positioningStats.changes.noncomm >= 0 ? 'text-[#3B82F6]' : 'text-[#FF3B60]'}`}>
+                      {positioningStats.changes.noncomm >= 0 ? '+' : ''}{(positioningStats.changes.noncomm / 1000).toFixed(1)}k
+                    </span>
+                  </div>
+
+                  {/* Retail Change Bar */}
+                  <div className="flex items-center justify-between text-[9px] font-mono">
+                    <span className="w-20 text-[#FBBF24] font-bold">Retail</span>
+                    <div className="flex-1 mx-2.5 h-2 bg-[#111115] border border-[#1A1A22] rounded-sm relative overflow-hidden">
+                      {positioningStats.changes.retail !== 0 && (
+                        <div
+                          className={`h-full absolute ${positioningStats.changes.retail >= 0 ? 'bg-[#FBBF24]/40 border-r border-[#FBBF24]' : 'bg-[#FF3B60]/40 border-l border-[#FF3B60]'}`}
+                          style={{
+                            left: positioningStats.changes.retail >= 0 ? '50%' : 'auto',
+                            right: positioningStats.changes.retail < 0 ? '50%' : 'auto',
+                            width: `${Math.min(50, (Math.abs(positioningStats.changes.retail) / 25000) * 50)}%`
+                          }}
+                        />
+                      )}
+                      <div className="w-px h-full bg-[#2A2A2A] absolute left-1/2" />
+                    </div>
+                    <span className={`w-14 text-right ${positioningStats.changes.retail >= 0 ? 'text-[#FBBF24]' : 'text-[#FF3B60]'}`}>
+                      {positioningStats.changes.retail >= 0 ? '+' : ''}{(positioningStats.changes.retail / 1000).toFixed(1)}k
+                    </span>
+                  </div>
                 </div>
               )}
             </div>
