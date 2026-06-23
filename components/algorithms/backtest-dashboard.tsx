@@ -7,6 +7,7 @@ import { BacktestMetricsGrid } from './backtest-metrics-grid';
 import { BacktestCharts } from './backtest-charts';
 import { BacktestTradeLog } from './backtest-trade-log';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from 'sonner';
 import { Maximize2, MessageSquare, Send, Sparkles, ChevronDown, ChevronUp, Sliders, Settings, X, Play, ChevronLeft, ChevronRight } from 'lucide-react';
 
