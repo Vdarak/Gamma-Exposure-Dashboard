@@ -1138,14 +1138,33 @@ async function recordOptionSuggestion(ticker: string) {
       }
     });
 
+    // Find the nearest significant GEX cluster (GEX Magnet / Gravity Well)
+    // We scan within a 1.5% localized window of the current spot price, falling back to global max if empty.
+    const localizedRange = spot * 0.015;
     let maxGexStrike = 0;
     let maxGexVal = 0;
+    let hasLocalizedMagnet = false;
+
     Object.entries(gexByStrike).forEach(([strikeStr, val]) => {
-      if (Math.abs(val) > Math.abs(maxGexVal)) {
-        maxGexVal = val;
-        maxGexStrike = parseFloat(strikeStr);
+      const strikeNum = parseFloat(strikeStr);
+      if (Math.abs(strikeNum - spot) <= localizedRange) {
+        if (Math.abs(val) > Math.abs(maxGexVal)) {
+          maxGexVal = val;
+          maxGexStrike = strikeNum;
+          hasLocalizedMagnet = true;
+        }
       }
     });
+
+    if (!hasLocalizedMagnet) {
+      Object.entries(gexByStrike).forEach(([strikeStr, val]) => {
+        const strikeNum = parseFloat(strikeStr);
+        if (Math.abs(val) > Math.abs(maxGexVal)) {
+          maxGexVal = val;
+          maxGexStrike = strikeNum;
+        }
+      });
+    }
 
     let callWall = spot * 1.01;
     let putWall = spot * 0.99;
@@ -1164,25 +1183,54 @@ async function recordOptionSuggestion(ticker: string) {
       }
     });
 
+    // Find localized nearest GEX clusters above and below spot (for breakouts/squeezes)
     let strikeAbove = spot * 1.01;
     let strikeBelow = spot * 0.99;
     let maxGexAboveVal = 0;
     let maxGexBelowVal = 0;
+    let hasLocalizedAbove = false;
+    let hasLocalizedBelow = false;
 
     Object.entries(gexByStrike).forEach(([strikeStr, val]) => {
       const strikeNum = parseFloat(strikeStr);
-      if (strikeNum > spot) {
+      if (strikeNum > spot && strikeNum <= spot + localizedRange) {
         if (val > maxGexAboveVal) {
           maxGexAboveVal = val;
           strikeAbove = strikeNum;
+          hasLocalizedAbove = true;
         }
-      } else if (strikeNum < spot) {
+      } else if (strikeNum < spot && strikeNum >= spot - localizedRange) {
         if (Math.abs(val) > maxGexBelowVal) {
           maxGexBelowVal = Math.abs(val);
           strikeBelow = strikeNum;
+          hasLocalizedBelow = true;
         }
       }
     });
+
+    // Fallbacks to global if no localized clusters are found
+    if (!hasLocalizedAbove) {
+      Object.entries(gexByStrike).forEach(([strikeStr, val]) => {
+        const strikeNum = parseFloat(strikeStr);
+        if (strikeNum > spot) {
+          if (val > maxGexAboveVal) {
+            maxGexAboveVal = val;
+            strikeAbove = strikeNum;
+          }
+        }
+      });
+    }
+    if (!hasLocalizedBelow) {
+      Object.entries(gexByStrike).forEach(([strikeStr, val]) => {
+        const strikeNum = parseFloat(strikeStr);
+        if (strikeNum < spot) {
+          if (Math.abs(val) > maxGexBelowVal) {
+            maxGexBelowVal = Math.abs(val);
+            strikeBelow = strikeNum;
+          }
+        }
+      });
+    }
 
     const roundStrikeAbove = Math.round(strikeAbove / 5) * 5;
     const roundStrikeBelow = Math.round(strikeBelow / 5) * 5;
@@ -1271,10 +1319,123 @@ async function recordOptionSuggestion(ticker: string) {
       }
     }
 
+    // ─── INSTITUTIONAL-GRADE DATA CAPTURE ───
+    // Helper to format detailed contract statistics
+    const getOptionDetails = (strikeNum: number, optionType: 'C' | 'P') => {
+      const opt = options.find(o => 
+        o.strike === strikeNum && 
+        o.type === optionType && 
+        o.expiration.toDateString() === selectedExpiry.toDateString()
+      );
+      if (!opt) return null;
+      return {
+        strike: opt.strike,
+        type: opt.type,
+        expiration: opt.expiration.toISOString(),
+        last_price: Number(opt.lastPrice) || 0,
+        bid: Number(opt.bid) || 0,
+        ask: Number(opt.ask) || 0,
+        mid_price: opt.bid && opt.ask ? (Number(opt.bid) + Number(opt.ask)) / 2 : Number(opt.lastPrice) || 0,
+        volume: Number(opt.volume) || 0,
+        open_interest: Number(opt.openInterest) || 0,
+        implied_volatility: Number(opt.impliedVolatility) || 0,
+        delta: Number(opt.delta) || 0,
+        gamma: Number(opt.gamma) || 0,
+        theta: Number(opt.theta) || 0,
+        vega: Number(opt.vega) || 0,
+        gex_bs: opt.openInterest * 100 * spot * spot * 0.01 * (opt.gamma || 0) * (opt.type === 'P' ? -1 : 1)
+      };
+    };
+
+    // Find the closest option by delta for long single leg selections
+    const findOptionByDelta = (optionType: 'C' | 'P', targetDelta: number) => {
+      const expiryOptions = options.filter(o => 
+        o.type === optionType && 
+        o.expiration.toDateString() === selectedExpiry.toDateString()
+      );
+      if (expiryOptions.length === 0) return null;
+      const closestOpt = expiryOptions.reduce((closest, current) => {
+        const currentDiff = Math.abs(Math.abs(current.delta || 0) - targetDelta);
+        const closestDiff = Math.abs(Math.abs(closest.delta || 0) - targetDelta);
+        return currentDiff < closestDiff ? current : closest;
+      });
+      return getOptionDetails(closestOpt.strike, optionType);
+    };
+
+    // Identify closest ATM strikes
+    const sortedStrikes = Array.from(new Set(options.map(o => o.strike))).sort((a, b) => a - b);
+    const closestStrikeAboveSpot = sortedStrikes.find(s => s >= spot) || spot * 1.001;
+    const closestStrikeBelowSpot = [...sortedStrikes].reverse().find(s => s <= spot) || spot * 0.999;
+
+    // Gather long single leg contracts (ATM, OTM 25-delta, OTM 15-delta)
+    const singleLegs = {
+      atm_call: getOptionDetails(closestStrikeAboveSpot, 'C'),
+      atm_put: getOptionDetails(closestStrikeBelowSpot, 'P'),
+      otm_25d_call: findOptionByDelta('C', 0.25),
+      otm_25d_put: findOptionByDelta('P', 0.25),
+      otm_15d_call: findOptionByDelta('C', 0.15),
+      otm_15d_put: findOptionByDelta('P', 0.15),
+    };
+
+    // Gather specific recommended strategy legs
+    const strategyLegs: any[] = [];
+    if (isPinRegime) {
+      const strategyOptionType = totalGEX < 0 ? 'P' : 'C';
+      // Butterfly Spread
+      const leg1 = getOptionDetails(maxGexStrike - 10, strategyOptionType);
+      const leg2 = getOptionDetails(maxGexStrike, strategyOptionType);
+      const leg3 = getOptionDetails(maxGexStrike + 10, strategyOptionType);
+      if (leg1) strategyLegs.push({ action: 'BUY', ratio: 1, contract: leg1 });
+      if (leg2) strategyLegs.push({ action: 'SELL', ratio: 2, contract: leg2 });
+      if (leg3) strategyLegs.push({ action: 'BUY', ratio: 1, contract: leg3 });
+    } else {
+      const isCallWallProximity = Math.abs(spot - callWall) / spot < 0.003;
+      const isPutWallProximity = Math.abs(spot - putWall) / spot < 0.003;
+
+      if (spot >= callWall || isCallWallProximity) {
+        // Bull Call Spread
+        const buyStrike = Math.round(callWall / 5) * 5;
+        const sellStrike = roundStrikeAbove;
+        const leg1 = getOptionDetails(buyStrike, 'C');
+        const leg2 = getOptionDetails(sellStrike, 'C');
+        if (leg1) strategyLegs.push({ action: 'BUY', ratio: 1, contract: leg1 });
+        if (leg2) strategyLegs.push({ action: 'SELL', ratio: 1, contract: leg2 });
+      } else if (spot <= putWall || isPutWallProximity) {
+        // Bear Put Spread
+        const buyStrike = Math.round(putWall / 5) * 5;
+        const sellStrike = roundStrikeBelow;
+        const leg1 = getOptionDetails(buyStrike, 'P');
+        const leg2 = getOptionDetails(sellStrike, 'P');
+        if (leg1) strategyLegs.push({ action: 'BUY', ratio: 1, contract: leg1 });
+        if (leg2) strategyLegs.push({ action: 'SELL', ratio: 1, contract: leg2 });
+      } else {
+        // Iron Condor (Short Call/Put with protective wings)
+        const shortCall = Math.ceil(callWall / 5) * 5;
+        const longCall = shortCall + 10;
+        const shortPut = Math.floor(putWall / 5) * 5;
+        const longPut = shortPut - 10;
+
+        const leg1ShortCall = getOptionDetails(shortCall, 'C');
+        const leg1LongCall = getOptionDetails(longCall, 'C');
+        const leg2ShortPut = getOptionDetails(shortPut, 'P');
+        const leg2LongPut = getOptionDetails(longPut, 'P');
+
+        if (leg1ShortCall) strategyLegs.push({ action: 'SELL', ratio: 1, contract: leg1ShortCall });
+        if (leg1LongCall) strategyLegs.push({ action: 'BUY', ratio: 1, contract: leg1LongCall });
+        if (leg2ShortPut) strategyLegs.push({ action: 'SELL', ratio: 1, contract: leg2ShortPut });
+        if (leg2LongPut) strategyLegs.push({ action: 'BUY', ratio: 1, contract: leg2LongPut });
+      }
+    }
+
+    const recordedLegs = {
+      single_legs: singleLegs,
+      strategy_legs: strategyLegs
+    };
+
     await pool.query(
       `INSERT INTO option_suggestions_history (
-        ticker, timestamp, spot_price, suggestion_type, title, description, strikes, entry_trigger, risk_reward, confidence_score, ppi
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        ticker, timestamp, spot_price, suggestion_type, title, description, strikes, entry_trigger, risk_reward, confidence_score, ppi, recorded_legs
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [
         ticker,
         snapshot.timestamp,
@@ -1286,11 +1447,12 @@ async function recordOptionSuggestion(ticker: string) {
         entryTrigger,
         riskReward,
         confidenceScore,
-        finalPpi
+        finalPpi,
+        JSON.stringify(recordedLegs)
       ]
     );
 
-    console.log(`[Suggestions Recorder] Successfully logged suggestion: ${title} for ${ticker} at ${snapshot.timestamp}`);
+    console.log(`[Suggestions Recorder] Successfully logged suggestion: ${title} for ${ticker} at ${snapshot.timestamp} with detailed contract prints.`);
   } catch (error) {
     console.error(`[Suggestions Recorder] Failed to log option suggestion for ${ticker}:`, error);
   }

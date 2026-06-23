@@ -841,7 +841,10 @@ export function SyncedStrikeWorkspace({
       .domain(yDomain)
       .range([chartHeight, 0])
 
-    const maxGexStrikeObj = endGexProfile.reduce((max, current) => {
+    // Find the nearest significant GEX cluster (within 1.5% of spot)
+    const localizedRange = endSpotPrice * 0.015;
+    const localizedProfile = endGexProfile.filter(p => Math.abs(p.strike - endSpotPrice) <= localizedRange);
+    const maxGexStrikeObj = (localizedProfile.length > 0 ? localizedProfile : endGexProfile).reduce((max, current) => {
       return Math.abs(current.gex) > Math.abs(max.gex) ? current : max;
     }, { strike: 0, gex: 0 });
 
@@ -2815,7 +2818,7 @@ export function SyncedStrikeWorkspace({
                   <span>EXP: {expiryMode.toUpperCase()}</span>
                 </button>
               </PopoverTrigger>
-              <PopoverContent className="w-72 p-0 bg-black border border-[#222] z-50">
+              <PopoverContent className="w-72 p-0 bg-black border border-[#222] z-50" container={containerRef.current}>
                 <ExpirySelector
                   availableExpiries={availableExpiries}
                   mode={expiryMode as any}

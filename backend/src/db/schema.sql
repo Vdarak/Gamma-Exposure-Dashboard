@@ -244,7 +244,9 @@ CREATE TABLE IF NOT EXISTS option_suggestions_history (
   risk_reward TEXT NOT NULL,
   confidence_score INTEGER NOT NULL,
   ppi INTEGER NOT NULL,
+  recorded_legs TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_suggestions_ticker_timestamp ON option_suggestions_history(ticker, timestamp DESC);
+
 

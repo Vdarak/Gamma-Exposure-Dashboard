@@ -115,7 +115,7 @@ export function ConfluenceHub({
   }, [enrichedOptionData, spotPrice, selectedExpiry])
 
   const maxGexStrikeObj = useMemo(() => {
-    if (!enrichedOptionData.length) return { strike: 0, gex: 0 }
+    if (!enrichedOptionData.length || !spotPrice) return { strike: 0, gex: 0 }
     // Aggregate GEX by strike
     const gexByStrike: Record<number, number> = {}
     enrichedOptionData.forEach(opt => {
@@ -124,16 +124,36 @@ export function ConfluenceHub({
       gexByStrike[strike] = (gexByStrike[strike] || 0) + gex
     })
     
+    // Nearest significant cluster (within 1.5% of spot)
+    const localizedRange = spotPrice * 0.015
     let maxStrike = 0
     let maxVal = 0
-    Object.entries(gexByStrike).forEach(([strike, val]) => {
-      if (Math.abs(val) > Math.abs(maxVal)) {
-        maxVal = val
-        maxStrike = parseFloat(strike)
+    let hasLocalized = false
+
+    Object.entries(gexByStrike).forEach(([strikeStr, val]) => {
+      const strikeNum = parseFloat(strikeStr)
+      if (Math.abs(strikeNum - spotPrice) <= localizedRange) {
+        if (Math.abs(val) > Math.abs(maxVal)) {
+          maxVal = val
+          maxStrike = strikeNum
+          hasLocalized = true
+        }
       }
     })
+
+    // Fallback to absolute largest if no cluster within 1.5% range
+    if (!hasLocalized) {
+      Object.entries(gexByStrike).forEach(([strikeStr, val]) => {
+        const strikeNum = parseFloat(strikeStr)
+        if (Math.abs(val) > Math.abs(maxVal)) {
+          maxVal = val
+          maxStrike = strikeNum
+        }
+      })
+    }
+
     return { strike: maxStrike, gex: maxVal / 1e9 } // in Billions
-  }, [enrichedOptionData])
+  }, [enrichedOptionData, spotPrice])
 
   // Calculate Probability of Touching (PoT) for Call Wall and Put Wall
   const touchProbability = useMemo(() => {

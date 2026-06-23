@@ -14,6 +14,13 @@ export async function initializeDatabase() {
     await pool.query(schemaSQL);
     console.log('✅ Database schema initialized successfully');
 
+    // Migration: Add recorded_legs column if it does not exist
+    await pool.query(`
+      ALTER TABLE option_suggestions_history 
+      ADD COLUMN IF NOT EXISTS recorded_legs TEXT;
+    `);
+    console.log('✅ Migration: option_suggestions_history.recorded_legs checked/created');
+
     // Seed relative earnings dates for common tickers so they are populated with real countdowns
     await pool.query(`
       INSERT INTO earnings_dates (ticker, next_earnings_date)
