@@ -76,7 +76,15 @@ Below is the nested component organization of the dashboard:
       │    │         ├── [GexByStrikeChart](../components/charts/gex-by-strike-chart.tsx) (Bar chart of Calls vs Puts exposure)
       │    │         ├── [CallPutWallsChart](../components/charts/call-put-walls-chart.tsx) (Aggregates wall strikes)
       │    │         ├── [GammaRampChart](../components/charts/gamma-ramp-chart.tsx) (Cumulative GEX slope)
-      │    │         └── [ExpectedMoveChart](../components/charts/expected-move-chart.tsx) (Option IV-implied standard deviation range)
+      │    │         ├── [ExpectedMoveChart](../components/charts/expected-move-chart.tsx) (Option IV-implied standard deviation range)
+      │    │         └── [ExpirySelector](../components/controls/expiry-selector.tsx) ( Radix popover toolbar component with container portal refs)
+      │    │
+      │    ├── Tab: "Confluence Hub"
+      │    │    └── [ConfluenceHub](../components/confluence/confluence-hub.tsx) (Multi-parameter analysis console)
+      │    │         ├── 0DTE Settlebomb Squeeze / Breakout suggestions
+      │    │         ├── Wall Touch Probability Indicators ($2 \times |\text{Delta}| \times 100$)
+      │    │         ├── [GEXSurfaceChart](../components/charts/gex-surface-chart.tsx) (3D GEX surface by DTE/Strike)
+      │    │         └── [IvSurfaceChart](../components/charts/iv-surface-chart.tsx) (3D IV Surface plot via Plotly)
       │    │
       │    ├── Tab: "Option Flow"
       │    │    └── [OptionFlowDashboard](../components/option-flow-dashboard.tsx) (Intraday flow records + sentiment index)
@@ -97,6 +105,12 @@ Below is the nested component organization of the dashboard:
       │    │         ├── [TradeForm](../components/trading-journal/trade-form.tsx) (Trade editor modal)
       │    │         └── [TradeDetail](../components/trading-journal/trade-detail.tsx) (Deep dive and screenshot visualizer)
       │    │
+      │    ├── Tab: "Performance Stats" (Active tab: stats)
+      │    │    └── [StrategyStatsDashboard](../components/dashboard/strategy-stats-dashboard.tsx) (Comparative trading stats workspace)
+      │    │         ├── Plotly double-series equity curve comparing journal returns vs. backtester runs
+      │    │         ├── Win rate, profit factor, total trade metrics variance matrices
+      │    │         └── 0DTE Settlebomb Suggestions History Tracker (expandable historical prints with option Greeks)
+      │    │
       │    ├── Tab: "IV Surface"
       │    │    └── [IvSurfaceChart](../components/charts/iv-surface-chart.tsx) (3D Volatility Skew plot via Plotly)
       │    │
@@ -104,7 +118,7 @@ Below is the nested component organization of the dashboard:
       │         ├── [ProbabilityMapChart](../components/charts/probability-map-chart.tsx) (Implied terminal PDF solver)
       │         ├── [GarchForecastChart](../components/charts/garch-forecast-chart.tsx) (MLE forecast conditional volatility)
       │         ├── [QuantumTunnelingGauge](../components/charts/quantum-tunneling-gauge.tsx) (Quantum tunneling wall transmission gauge)
-      │         └── [CotFlowChart](../components/charts/cot-flow-chart.tsx) (Weekly macro COT positioning tracker with D3 tooltip changes)
+      │         └── [CotFlowChart](../components/charts/cot-flow-chart.tsx) (Weekly macro COT positioning tracker)
       │
       ├── [EnhancedTimeMachine](../components/enhanced-time-machine.tsx) (Mounted at screen footer; controls timeline play, speed, and dates)
       └── [AIChatPanel](../components/AIChatPanel.tsx) (Sidebar slide-out terminal for conversations with the AI agent)
@@ -129,8 +143,17 @@ To optimize vertical and horizontal viewport spacing, several layout enhancement
 * **Compact Card Dimensions**: Height is set to `h-[44px]` with `min-w-[110px]` card width and `py-1.5` padding. The outer scrollable wrapper uses `h-[54px]`, giving ample vertical clearance.
 * **Wheel Scroll Redirect**: A custom `useEffect` wheel event listener on the wrapper redirects vertical mouse wheel scrolls to horizontal scrolls, making navigation easy.
 
-### 4. compact Chart Viewports
+### 4. Compact Chart Viewports
 * **GARCH Chart**: Restricted to `h-[450px]` inside `garch-forecast-chart.tsx` to keep it clean and prevent it from stretching to fill the remaining screen height.
 * **COT Flow Tooltip**: Weekly change bars are moved from a static container into a dynamic D3 hover tooltip overlay that shows the report date and weekly change bar graphs next to the mouse cursor.
 * **ResizeObserver Mount Fix**: Added ResizeObserver triggers on conditional states in both GARCH and 3D PDF maps to ensure they stretch cleanly to container dimensions when mounted.
+
+### 5. Candlestick Timeline Axis Drag-Scaling
+* **Solid Background Cover**: Underneath the horizontal axis, a solid black background `<rect>` with height of `margin.bottom` (40px) blocks out gridlines and bleeding candle wicks.
+* **EW-Resize Scaling**: Added mouse interaction detection (`clickY >= rect.height - 40`) inside the candlestick SVG wrapper. Clicking and dragging horizontally stretches or compresses the visible timeline index range (`xRange`) centered around the midpoint of the visible span.
+
+### 6. Fullscreen Popover Portals
+* The Expiry Selector popover inside `<SyncedStrikeWorkspace>` is compatible with browser native HTML5 fullscreen mode. The `<PopoverContent>` accepts a custom `container` prop and passes it to the Radix Portal. Setting `container={containerRef.current}` forces the popover markup to mount within the fullscreen container DOM element, keeping the dropdown visible and clickable in fullscreen mode.
+* GEX Magnet, Squeeze, and Breakout target calculations are restricted to a localized window of **±1.5% of the spot price** to ensure order flow attractors target nearest relevant clusters first.
+* Touch probabilities for GEX Walls are calculated as $2 \times |\text{Delta}| \times 100$ using the delta of the furthest selected expiration series, and displayed below the badges in the Confluence matrix.
 

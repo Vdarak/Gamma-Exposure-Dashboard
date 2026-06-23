@@ -71,6 +71,8 @@ This project is separated into a Next.js frontend at the root and an Express.js 
 * [app/](../app/) — Pages, layouts, Next.js routing.
 * [components/](../components/) — Interactive UI dashboards and views.
   * [components/charts/](../components/charts/) — Recharts / Chart.js / Plotly wrappers for options metrics.
+  * [components/confluence/](../components/confluence/) — Confluence matrices and 3D Surface charts.
+  * [components/dashboard/](../components/dashboard/) — Performance stats dashboards.
   * [components/algorithms/](../components/algorithms/) — Backtester setups and drawer UI.
   * [components/trading-journal/](../components/trading-journal/) — Heatmaps, calendar grid, PnL charts.
 * [lib/](../lib/) — Math calculation utilities, designs, and API clients.
@@ -173,4 +175,24 @@ sequenceDiagram
     AIService-->>ChatPanel: JSON { text, tradeLogged: TradeRecord }
     ChatPanel->>ChatPanel: Show Success Alert in Chat
     ChatPanel->>Browser: Dispatch Event (Reload Calendar / Heatmap view)
+```
+
+### 4. 0DTE Settlebomb Suggestion & Prints Recording Flow
+This flow tracks the periodic logging of options engine suggestions and detailed Greeks:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Cron as node-cron Scheduler
+    participant Server as server.ts (Express)
+    participant PG as PostgreSQL Database
+
+    Cron->>Server: Trigger suggestion recorder (Every 15 mins)
+    Server->>PG: SELECT * FROM option_snapshots & option_data LIMIT 1 (latest chain)
+    PG-->>Server: Latest Option Chain data (Bid, Ask, Greeks)
+    Server->>Server: Localize GEX magnet/attractor search (within ±1.5% of spot)
+    Server->>Server: Calculate Walls, Settlebomb butterfly/spread suggestion, PPI
+    Server->>Server: Extract Greeks for recommended strategy legs and ATM/25D/15D long call/put options
+    Server->>PG: INSERT INTO option_suggestions_history (spot, recorded_legs JSON)
+    PG-->>Server: Log Success
 ```

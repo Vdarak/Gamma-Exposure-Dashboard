@@ -22,7 +22,7 @@ The backend uses a hybrid storage model:
 ### 1. PostgreSQL (Dealers GEX snapshots + Trading Journal)
 * **Client Driver**: `pg` (node-postgres Pool) defined under [connection.ts](../backend/src/db/connection.ts).
 * **Usage**: Storing option snapshots (`option_snapshots` and `option_data` tables) and user trade entries (`journal_trades` table).
-* **Initialization**: Schema migrations and database connections are checked at boot via `initializeDatabase()` in [init.ts](../backend/src/db/init.ts).
+* **Initialization**: Schema migrations and database connections are checked at boot via `initializeDatabase()` in [init.ts](../backend/src/db/init.ts). This includes automatic column migrations (e.g. adding the `recorded_legs` column to the `option_suggestions_history` table if missing).
 
 ### 2. DuckDB (Historical Backtesting Engine)
 * **Client Driver**: Native Node.js `duckdb` bindings.
@@ -41,7 +41,11 @@ Automated tasks are scheduled using `node-cron`:
      * **US Markets**: 9:30 AM to 4:00 PM EST (not weekends).
      * **India Markets**: 9:15 AM to 3:30 PM IST (converted to UTC equivalent, not weekends).
    * Fetches, normalizes, and stores option chain data for active markets.
-2. **Interest Rates Scraper (`0 3,10,13,20 * * *`)**
+2. **Option Suggestion Snapshot Recorder (`*/15 * * * 1-5`)**
+   * Runs **every 15 minutes** during US weekday market sessions (9:45 AM to 4:00 PM EST / 8:45 AM to 3:00 PM CT).
+   * Identifies the localized GEX magnet and wall touch probabilities.
+   * Logs institutional-grade option prints (bid, ask, IV, volume, OI, Greeks of ATM/OTM long call/put contracts and recommended strategy legs) in the `option_suggestions_history` table.
+3. **Interest Rates Scraper (`0 3,10,13,20 * * *`)**
    * Runs **4 times daily** (at SOD and EOD for both markets: 03:00, 10:30, 13:00, and 20:30 UTC).
    * Fetches risk-free rates (US yields and Indian G-Sec) to use in options calculations (e.g. Delta, IV).
 
@@ -78,3 +82,9 @@ Automated tasks are scheduled using `node-cron`:
 | `/api/quant/quantum-tunneling`| `GET`| `ticker` | `quantEngineService.ts` -> `getQuantumTunneling()` | Computes quantum tunneling wall barrier breakthrough stats |
 | `/api/quant/cot-flow`       | `GET` | `ticker` (optional) | `quantEngineService.ts` -> `getHistoricalCot()` | Retrieves weekly CFTC Commitments of Traders positions |
 | `/api/collect-now`          | `POST`| None | `dataCollector.ts` | Triggers immediate scraper scrape for all tickers |
+| `/api/suggestions/history` | `GET` | `ticker` | `server.ts` | Retrieves the history of options engine suggestions including recorded trade leg prints |
+| `/api/suggestions/collect` | `POST` | `{ ticker }` | `server.ts` | Manually triggers options suggestion recording and chain print captures |
+| `/api/waitlist/signup` | `POST` | `{ email, tier }` | `server.ts` | Adds an email to the waitlist signup database |
+| `/api/billing/create-checkout-session` | `POST` | `{ email, tier }` | `server.ts` | Creates Stripe Checkout Session or returns a simulated checkout URL |
+| `/api/billing/sim-payment-success` | `POST` | `{ sessionId }` | `server.ts` | Processes developer simulator successful checkouts |
+| `/api/billing/webhook` | `POST` | Raw webhook payload | `server.ts` | Listens to Stripe checkout successful payment webhooks |
