@@ -55,6 +55,12 @@ export function BacktestDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [tickerDateRange, setTickerDateRange] = useState<{ minDate: string; maxDate: string } | null>(null);
+  
+  // 0DTE Options Suggestion Backtester state
+  const [assetClass, setAssetClass] = useState<'equity' | 'option'>('equity');
+  const [optionsStrategyClass, setOptionsStrategyClass] = useState<string>('multileg');
+  const [optionStopLoss, setOptionStopLoss] = useState<number>(50);
+  const [optionTakeProfit, setOptionTakeProfit] = useState<number>(50);
 
   // Form states
   const [ticker, setTicker] = useState('SPY');
@@ -155,19 +161,44 @@ export function BacktestDashboard() {
     fetchDateRange();
   }, [ticker]);
 
-  const runSimulation = async (configToRun: BacktestConfig) => {
+  const runSimulation = async (configToRun: any) => {
     setIsRunning(true);
     setError(null);
 
     try {
       const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001').replace(/\/+$/, '');
-      const response = await fetch(`${BACKEND_URL}/api/backtest/run`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(configToRun),
-      });
+      let response;
+
+      if (assetClass === 'option') {
+        const isMultiLeg = optionsStrategyClass === 'multileg';
+        const url = isMultiLeg 
+          ? `${BACKEND_URL}/api/backtest/options/multileg`
+          : `${BACKEND_URL}/api/backtest/options/single-leg`;
+          
+        response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ticker: ticker,
+            startDate: startDate,
+            endDate: endDate,
+            initialCapital: initialCapital,
+            strategyClass: optionsStrategyClass,
+            takeProfitPercent: optionTakeProfit,
+            stopLossPercent: optionStopLoss
+          }),
+        });
+      } else {
+        response = await fetch(`${BACKEND_URL}/api/backtest/run`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(configToRun),
+        });
+      }
 
       const json = await response.json();
       if (response.ok && json.success) {
@@ -175,7 +206,7 @@ export function BacktestDashboard() {
         localStorage.setItem('last_backtest_result', JSON.stringify(json.data));
         setActiveTab('overview');
         setLeftSidebarTab('settings'); // Make the settings panel take over the chat
-        toast.success(`Backtest completed for ${configToRun.ticker}!`);
+        toast.success(`Backtest completed for ${ticker}!`);
       } else {
         setError(json.error || 'Failed to complete backtest');
         toast.error(json.error || 'Backtest failed');
@@ -191,27 +222,31 @@ export function BacktestDashboard() {
 
   const handleRunBacktest = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    const config: BacktestConfig = {
-      ticker,
-      assetClass: 'equity',
-      startDate,
-      endDate,
-      initialCapital,
-      timeframe,
-      commission,
-      slippagePercent,
-      strategyType,
-      indicators,
-      entryRules: { indicators: entryRules },
-      exitRules: {
-        stopLossPercent: stopLossPercent || undefined,
-        trailingStopPercent: trailingStopPercent || undefined,
-        takeProfitPercent: takeProfitPercent || undefined,
-        timeBasedExitDays: timeBasedExitDays || undefined,
-        indicators: exitRules
-      }
-    };
-    await runSimulation(config);
+    if (assetClass === 'option') {
+      await runSimulation({});
+    } else {
+      const config: BacktestConfig = {
+        ticker,
+        assetClass: 'equity',
+        startDate,
+        endDate,
+        initialCapital,
+        timeframe,
+        commission,
+        slippagePercent,
+        strategyType,
+        indicators,
+        entryRules: { indicators: entryRules },
+        exitRules: {
+          stopLossPercent: stopLossPercent || undefined,
+          trailingStopPercent: trailingStopPercent || undefined,
+          takeProfitPercent: takeProfitPercent || undefined,
+          timeBasedExitDays: timeBasedExitDays || undefined,
+          indicators: exitRules
+        }
+      };
+      await runSimulation(config);
+    }
   };
 
   const handleSendChatMessage = async (e?: React.FormEvent) => {
@@ -430,45 +465,165 @@ export function BacktestDashboard() {
 
 
                 {/* Sidebar Tab Content */}
-                <div className="flex-1 min-h-0 overflow-y-auto terminal-scrollbar mb-4">
+                <div className="flex-1 min-h-0 overflow-y-auto terminal-scrollbar mb-4 flex flex-col gap-3">
                   {leftSidebarTab === 'settings' ? (
-                    <BacktestConfigForm
-                      availableTickers={availableTickers}
-                      isLoadingTickers={isLoadingTickers}
-                      ticker={ticker}
-                      setTicker={setTicker}
-                      tickerDateRange={tickerDateRange}
-                      startDate={startDate}
-                      setStartDate={setStartDate}
-                      endDate={endDate}
-                      setEndDate={setEndDate}
-                      initialCapital={initialCapital}
-                      setInitialCapital={setInitialCapital}
-                      timeframe={timeframe}
-                      setTimeframe={setTimeframe}
-                      commission={commission}
-                      setCommission={setCommission}
-                      slippagePercent={slippagePercent}
-                      setSlippagePercent={setSlippagePercent}
-                      strategyType={strategyType}
-                      setStrategyType={setStrategyType}
-                      indicators={indicators}
-                      setIndicators={setIndicators}
-                      entryRules={entryRules}
-                      setEntryRules={setEntryRules}
-                      exitRules={exitRules}
-                      setExitRules={setExitRules}
-                      stopLossPercent={stopLossPercent}
-                      setStopLossPercent={setStopLossPercent}
-                      trailingStopPercent={trailingStopPercent}
-                      setTrailingStopPercent={setTrailingStopPercent}
-                      takeProfitPercent={takeProfitPercent}
-                      setTakeProfitPercent={setTakeProfitPercent}
-                      timeBasedExitDays={timeBasedExitDays}
-                      setTimeBasedExitDays={setTimeBasedExitDays}
-                      onSubmit={handleRunBacktest}
-                      isRunning={isRunning}
-                    />
+                    <>
+                      {/* Segment Controller (Asset Switcher) */}
+                      <div className="flex bg-[#121215] border border-[#25252E] rounded p-0.5 w-full flex-shrink-0 font-mono text-[9px] uppercase font-bold select-none">
+                        <button
+                          type="button"
+                          onClick={() => setAssetClass('equity')}
+                          className={`flex-1 py-1.5 rounded transition-all ${assetClass === 'equity' ? 'bg-terminal-green text-black font-bold' : 'text-[#888] hover:text-white'}`}
+                        >
+                          Equity (OHLCV Bars)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAssetClass('option')}
+                          className={`flex-1 py-1.5 rounded transition-all ${assetClass === 'option' ? 'bg-terminal-green text-black font-bold' : 'text-[#888] hover:text-white'}`}
+                        >
+                          0DTE Options Engine
+                        </button>
+                      </div>
+
+                      {assetClass === 'equity' ? (
+                        <BacktestConfigForm
+                          availableTickers={availableTickers}
+                          isLoadingTickers={isLoadingTickers}
+                          ticker={ticker}
+                          setTicker={setTicker}
+                          tickerDateRange={tickerDateRange}
+                          startDate={startDate}
+                          setStartDate={setStartDate}
+                          endDate={endDate}
+                          setEndDate={setEndDate}
+                          initialCapital={initialCapital}
+                          setInitialCapital={setInitialCapital}
+                          timeframe={timeframe}
+                          setTimeframe={setTimeframe}
+                          commission={commission}
+                          setCommission={setCommission}
+                          slippagePercent={slippagePercent}
+                          setSlippagePercent={setSlippagePercent}
+                          strategyType={strategyType}
+                          setStrategyType={setStrategyType}
+                          indicators={indicators}
+                          setIndicators={setIndicators}
+                          entryRules={entryRules}
+                          setEntryRules={setEntryRules}
+                          exitRules={exitRules}
+                          setExitRules={setExitRules}
+                          stopLossPercent={stopLossPercent}
+                          setStopLossPercent={setStopLossPercent}
+                          trailingStopPercent={trailingStopPercent}
+                          setTrailingStopPercent={setTrailingStopPercent}
+                          takeProfitPercent={takeProfitPercent}
+                          setTakeProfitPercent={setTakeProfitPercent}
+                          timeBasedExitDays={timeBasedExitDays}
+                          setTimeBasedExitDays={setTimeBasedExitDays}
+                          onSubmit={handleRunBacktest}
+                          isRunning={isRunning}
+                        />
+                      ) : (
+                        <form onSubmit={handleRunBacktest} className="bg-[#08080A] border border-[#15151A] rounded-lg p-4 font-mono text-[#949494] text-xs space-y-4">
+                          <h4 className="text-[10px] font-bold text-terminal-green uppercase border-b border-[#1A1A1E] pb-1">0DTE OPTIONS BACKTESTER</h4>
+                          
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[9px] text-[#555] uppercase">Ticker</label>
+                              <Select value={ticker} onValueChange={setTicker}>
+                                <SelectTrigger className="h-7 bg-black border-[#222] text-[#E5E5E5] text-xs">
+                                  <SelectValue placeholder="TICKER" />
+                                </SelectTrigger>
+                                <SelectContent className="bg-black border-[#222]">
+                                  <SelectItem value="SPX" className="text-xs">SPX (S&P 500)</SelectItem>
+                                  <SelectItem value="GLD" className="text-xs">GLD (Gold Trust)</SelectItem>
+                                  <SelectItem value="TSLA" className="text-xs">TSLA (Tesla)</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[9px] text-[#555] uppercase">Capital ($)</label>
+                              <input
+                                type="number"
+                                value={initialCapital}
+                                onChange={(e) => setInitialCapital(parseInt(e.target.value) || 10000)}
+                                className="h-7 bg-black border border-[#222] rounded px-1.5 text-[#E5E5E5] outline-none focus:border-terminal-green/30 text-xs font-mono"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[9px] text-[#555] uppercase">Start Date</label>
+                              <input
+                                type="date"
+                                value={startDate}
+                                onChange={(e) => setStartDate(e.target.value)}
+                                className="h-7 bg-black border border-[#222] rounded px-1.5 text-[#E5E5E5] outline-none focus:border-terminal-green/30 text-xs font-mono w-full"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[9px] text-[#555] uppercase">End Date</label>
+                              <input
+                                type="date"
+                                value={endDate}
+                                onChange={(e) => setEndDate(e.target.value)}
+                                className="h-7 bg-black border border-[#222] rounded px-1.5 text-[#E5E5E5] outline-none focus:border-terminal-green/30 text-xs font-mono w-full"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[9px] text-[#555] uppercase">Strategy / Options Contract Candidate</label>
+                            <Select value={optionsStrategyClass} onValueChange={setOptionsStrategyClass}>
+                              <SelectTrigger className="h-7 bg-black border-[#222] text-[#E5E5E5] text-xs">
+                                <SelectValue placeholder="Select strategy" />
+                              </SelectTrigger>
+                              <SelectContent className="bg-black border-[#222]">
+                                <SelectItem value="multileg" className="text-xs">Recommended Spreads (Multi-leg)</SelectItem>
+                                <SelectItem value="atm_call" className="text-xs">ATM Long Call Candidate</SelectItem>
+                                <SelectItem value="atm_put" className="text-xs">ATM Long Put Candidate</SelectItem>
+                                <SelectItem value="otm_25d_call" className="text-xs">OTM 25-Delta Call Candidate</SelectItem>
+                                <SelectItem value="otm_25d_put" className="text-xs">OTM 25-Delta Put Candidate</SelectItem>
+                                <SelectItem value="otm_15d_call" className="text-xs">OTM 15-Delta Call Candidate</SelectItem>
+                                <SelectItem value="otm_15d_put" className="text-xs">OTM 15-Delta Put Candidate</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[9px] text-[#555] uppercase font-bold">Take Profit (%)</label>
+                              <input
+                                type="number"
+                                value={optionTakeProfit}
+                                onChange={(e) => setOptionTakeProfit(parseInt(e.target.value) || 50)}
+                                className="h-7 bg-black border border-[#222] rounded px-1.5 text-[#E5E5E5] outline-none focus:border-terminal-green/30 text-xs font-mono"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[9px] text-[#555] uppercase font-bold">Stop Loss (%)</label>
+                              <input
+                                type="number"
+                                value={optionStopLoss}
+                                onChange={(e) => setOptionStopLoss(parseInt(e.target.value) || 50)}
+                                className="h-7 bg-black border border-[#222] rounded px-1.5 text-[#E5E5E5] outline-none focus:border-terminal-green/30 text-xs font-mono"
+                              />
+                            </div>
+                          </div>
+
+                          <button
+                            type="submit"
+                            disabled={isRunning}
+                            className="w-full mt-2 py-2 bg-terminal-green hover:bg-[#10B981] text-black hover:text-black font-bold uppercase rounded border border-transparent hover:border-terminal-green flex items-center justify-center gap-1.5 transition-all text-xs"
+                          >
+                            <Play className="w-3.5 h-3.5 fill-black" /> Run 0DTE Options Backtest
+                          </button>
+                        </form>
+                      )}
+                    </>
                   ) : (
                     <div className="flex flex-col h-full border border-[#15151A] bg-[#08080A] rounded overflow-hidden">
                       <div className="flex-1 overflow-y-auto p-4 space-y-3 font-mono text-xs terminal-scrollbar">
@@ -769,44 +924,162 @@ export function BacktestDashboard() {
 
                 {/* Collapsible config form panel */}
                 {isCustomSettingsOpen && (
-                  <div className="border border-[#15151A] bg-[#08080A]/40 p-4 rounded-lg mt-3 overflow-y-auto max-h-[350px] terminal-scrollbar">
-                    <BacktestConfigForm
-                      availableTickers={availableTickers}
-                      isLoadingTickers={isLoadingTickers}
-                      ticker={ticker}
-                      setTicker={setTicker}
-                      tickerDateRange={tickerDateRange}
-                      startDate={startDate}
-                      setStartDate={setStartDate}
-                      endDate={endDate}
-                      setEndDate={setEndDate}
-                      initialCapital={initialCapital}
-                      setInitialCapital={setInitialCapital}
-                      timeframe={timeframe}
-                      setTimeframe={setTimeframe}
-                      commission={commission}
-                      setCommission={setCommission}
-                      slippagePercent={slippagePercent}
-                      setSlippagePercent={setSlippagePercent}
-                      strategyType={strategyType}
-                      setStrategyType={setStrategyType}
-                      indicators={indicators}
-                      setIndicators={setIndicators}
-                      entryRules={entryRules}
-                      setEntryRules={setEntryRules}
-                      exitRules={exitRules}
-                      setExitRules={setExitRules}
-                      stopLossPercent={stopLossPercent}
-                      setStopLossPercent={setStopLossPercent}
-                      trailingStopPercent={trailingStopPercent}
-                      setTrailingStopPercent={setTrailingStopPercent}
-                      takeProfitPercent={takeProfitPercent}
-                      setTakeProfitPercent={setTakeProfitPercent}
-                      timeBasedExitDays={timeBasedExitDays}
-                      setTimeBasedExitDays={setTimeBasedExitDays}
-                      onSubmit={handleRunBacktest}
-                      isRunning={isRunning}
-                    />
+                  <div className="border border-[#15151A] bg-[#08080A]/40 p-4 rounded-lg mt-3 overflow-y-auto max-h-[350px] terminal-scrollbar flex flex-col gap-3">
+                    {/* Segment Controller (Asset Switcher) */}
+                    <div className="flex bg-[#121215] border border-[#25252E] rounded p-0.5 w-full flex-shrink-0 font-mono text-[9px] uppercase font-bold select-none">
+                      <button
+                        type="button"
+                        onClick={() => setAssetClass('equity')}
+                        className={`flex-1 py-1.5 rounded transition-all ${assetClass === 'equity' ? 'bg-terminal-green text-black font-bold' : 'text-[#888] hover:text-white'}`}
+                      >
+                        Equity (OHLCV Bars)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAssetClass('option')}
+                        className={`flex-1 py-1.5 rounded transition-all ${assetClass === 'option' ? 'bg-terminal-green text-black font-bold' : 'text-[#888] hover:text-white'}`}
+                      >
+                        0DTE Options Engine
+                      </button>
+                    </div>
+
+                    {assetClass === 'equity' ? (
+                      <BacktestConfigForm
+                        availableTickers={availableTickers}
+                        isLoadingTickers={isLoadingTickers}
+                        ticker={ticker}
+                        setTicker={setTicker}
+                        tickerDateRange={tickerDateRange}
+                        startDate={startDate}
+                        setStartDate={setStartDate}
+                        endDate={endDate}
+                        setEndDate={setEndDate}
+                        initialCapital={initialCapital}
+                        setInitialCapital={setInitialCapital}
+                        timeframe={timeframe}
+                        setTimeframe={setTimeframe}
+                        commission={commission}
+                        setCommission={setCommission}
+                        slippagePercent={slippagePercent}
+                        setSlippagePercent={setSlippagePercent}
+                        strategyType={strategyType}
+                        setStrategyType={setStrategyType}
+                        indicators={indicators}
+                        setIndicators={setIndicators}
+                        entryRules={entryRules}
+                        setEntryRules={setEntryRules}
+                        exitRules={exitRules}
+                        setExitRules={setExitRules}
+                        stopLossPercent={stopLossPercent}
+                        setStopLossPercent={setStopLossPercent}
+                        trailingStopPercent={trailingStopPercent}
+                        setTrailingStopPercent={setTrailingStopPercent}
+                        takeProfitPercent={takeProfitPercent}
+                        setTakeProfitPercent={setTakeProfitPercent}
+                        timeBasedExitDays={timeBasedExitDays}
+                        setTimeBasedExitDays={setTimeBasedExitDays}
+                        onSubmit={handleRunBacktest}
+                        isRunning={isRunning}
+                      />
+                    ) : (
+                      <form onSubmit={handleRunBacktest} className="bg-[#08080A] border border-[#15151A] rounded-lg p-4 font-mono text-[#949494] text-xs space-y-4">
+                        <h4 className="text-[10px] font-bold text-terminal-green uppercase border-b border-[#1A1A1E] pb-1">0DTE OPTIONS BACKTESTER</h4>
+                        
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[9px] text-[#555] uppercase">Ticker</label>
+                            <Select value={ticker} onValueChange={setTicker}>
+                              <SelectTrigger className="h-7 bg-black border-[#222] text-[#E5E5E5] text-xs">
+                                <SelectValue placeholder="TICKER" />
+                              </SelectTrigger>
+                              <SelectContent className="bg-black border-[#222]">
+                                <SelectItem value="SPX" className="text-xs">SPX (S&P 500)</SelectItem>
+                                <SelectItem value="GLD" className="text-xs">GLD (Gold Trust)</SelectItem>
+                                <SelectItem value="TSLA" className="text-xs">TSLA (Tesla)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[9px] text-[#555] uppercase">Capital ($)</label>
+                            <input
+                              type="number"
+                              value={initialCapital}
+                              onChange={(e) => setInitialCapital(parseInt(e.target.value) || 10000)}
+                              className="h-7 bg-black border border-[#222] rounded px-1.5 text-[#E5E5E5] outline-none focus:border-terminal-green/30 text-xs font-mono"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[9px] text-[#555] uppercase">Start Date</label>
+                            <input
+                              type="date"
+                              value={startDate}
+                              onChange={(e) => setStartDate(e.target.value)}
+                              className="h-7 bg-black border border-[#222] rounded px-1.5 text-[#E5E5E5] outline-none focus:border-terminal-green/30 text-xs font-mono w-full"
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[9px] text-[#555] uppercase">End Date</label>
+                            <input
+                              type="date"
+                              value={endDate}
+                              onChange={(e) => setEndDate(e.target.value)}
+                              className="h-7 bg-black border border-[#222] rounded px-1.5 text-[#E5E5E5] outline-none focus:border-terminal-green/30 text-xs font-mono w-full"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[9px] text-[#555] uppercase">Strategy / Options Contract Candidate</label>
+                          <Select value={optionsStrategyClass} onValueChange={setOptionsStrategyClass}>
+                            <SelectTrigger className="h-7 bg-black border-[#222] text-[#E5E5E5] text-xs">
+                              <SelectValue placeholder="Select strategy" />
+                            </SelectTrigger>
+                            <SelectContent className="bg-black border-[#222]">
+                              <SelectItem value="multileg" className="text-xs">Recommended Spreads (Multi-leg)</SelectItem>
+                              <SelectItem value="atm_call" className="text-xs">ATM Long Call Candidate</SelectItem>
+                              <SelectItem value="atm_put" className="text-xs">ATM Long Put Candidate</SelectItem>
+                              <SelectItem value="otm_25d_call" className="text-xs">OTM 25-Delta Call Candidate</SelectItem>
+                              <SelectItem value="otm_25d_put" className="text-xs">OTM 25-Delta Put Candidate</SelectItem>
+                              <SelectItem value="otm_15d_call" className="text-xs">OTM 15-Delta Call Candidate</SelectItem>
+                              <SelectItem value="otm_15d_put" className="text-xs">OTM 15-Delta Put Candidate</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[9px] text-[#555] uppercase font-bold">Take Profit (%)</label>
+                            <input
+                              type="number"
+                              value={optionTakeProfit}
+                              onChange={(e) => setOptionTakeProfit(parseInt(e.target.value) || 50)}
+                              className="h-7 bg-black border border-[#222] rounded px-1.5 text-[#E5E5E5] outline-none focus:border-terminal-green/30 text-xs font-mono"
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[9px] text-[#555] uppercase font-bold">Stop Loss (%)</label>
+                            <input
+                              type="number"
+                              value={optionStopLoss}
+                              onChange={(e) => setOptionStopLoss(parseInt(e.target.value) || 50)}
+                              className="h-7 bg-black border border-[#222] rounded px-1.5 text-[#E5E5E5] outline-none focus:border-terminal-green/30 text-xs font-mono"
+                            />
+                          </div>
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={isRunning}
+                          className="w-full mt-2 py-2 bg-terminal-green hover:bg-[#10B981] text-black hover:text-black font-bold uppercase rounded border border-transparent hover:border-terminal-green flex items-center justify-center gap-1.5 transition-all text-xs"
+                        >
+                          <Play className="w-3.5 h-3.5 fill-black" /> Run 0DTE Options Backtest
+                        </button>
+                      </form>
+                    )}
                   </div>
                 )}
               </div>

@@ -29,6 +29,7 @@ import {
 import { getOptionsFlowData } from './services/optionsFlowService';
 import { getAvailableTickers, getTickerDateRange } from './backtester/duckdbService';
 import { runBacktest } from './backtester/engine';
+import { runOptionsBacktest } from './backtester/optionsEngine';
 import { getStoredRates, updateRates } from './services/ratesService';
 import { AIAnalystService } from './services/aiAnalystService';
 import { getGarchForecast, getProbabilityMap, getQuantumTunneling } from './services/quantEngineService';
@@ -542,6 +543,62 @@ app.post('/api/backtest/run', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Run a multi-leg options backtest strategy simulation
+ */
+app.post('/api/backtest/options/multileg', async (req: Request, res: Response) => {
+  try {
+    const config = req.body;
+    if (!config || !config.ticker || !config.startDate || !config.endDate || !config.initialCapital) {
+      return res.status(400).json({ error: 'Missing required backtest parameters' });
+    }
+    const result = await runOptionsBacktest({
+      ticker: config.ticker,
+      startDate: config.startDate,
+      endDate: config.endDate,
+      strategyClass: 'multileg',
+      takeProfitPercent: Number(config.takeProfitPercent) || 50,
+      stopLossPercent: Number(config.stopLossPercent) || 50,
+      initialCapital: Number(config.initialCapital) || 10000
+    });
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error: any) {
+    console.error('Error in /api/backtest/options/multileg:', error);
+    res.status(500).json({ error: error.message || 'Failed to run options multileg backtest' });
+  }
+});
+
+/**
+ * Run a single-leg options backtest strategy simulation
+ */
+app.post('/api/backtest/options/single-leg', async (req: Request, res: Response) => {
+  try {
+    const config = req.body;
+    if (!config || !config.ticker || !config.startDate || !config.endDate || !config.initialCapital || !config.strategyClass) {
+      return res.status(400).json({ error: 'Missing required backtest parameters including strategyClass (e.g. atm_call)' });
+    }
+    const result = await runOptionsBacktest({
+      ticker: config.ticker,
+      startDate: config.startDate,
+      endDate: config.endDate,
+      strategyClass: config.strategyClass,
+      takeProfitPercent: Number(config.takeProfitPercent) || 100,
+      stopLossPercent: Number(config.stopLossPercent) || 50,
+      initialCapital: Number(config.initialCapital) || 10000
+    });
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error: any) {
+    console.error('Error in /api/backtest/options/single-leg:', error);
+    res.status(500).json({ error: error.message || 'Failed to run options single-leg backtest' });
+  }
+});
+
 // ============= JOURNAL API ROUTES =============
 
 /**
@@ -1046,7 +1103,7 @@ app.get('/api/suggestions/history', async (req: Request, res: Response) => {
   try {
     const ticker = (req.query.ticker as string || 'SPX').toUpperCase();
     const result = await pool.query(
-      `SELECT id, ticker, timestamp, spot_price as "spotPrice", suggestion_type as "suggestionType", title, description, strikes, entry_trigger as "entryTrigger", risk_reward as "riskReward", confidence_score as "confidenceScore", ppi
+      `SELECT id, ticker, timestamp, spot_price as "spotPrice", suggestion_type as "suggestionType", title, description, strikes, entry_trigger as "entryTrigger", risk_reward as "riskReward", confidence_score as "confidenceScore", ppi, recorded_legs as "recordedLegs"
        FROM option_suggestions_history
        WHERE ticker = $1
        ORDER BY timestamp DESC

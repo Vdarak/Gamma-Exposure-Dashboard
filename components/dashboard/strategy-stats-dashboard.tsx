@@ -429,9 +429,9 @@ export function StrategyStatsDashboard() {
               const timestampStr = new Date(s.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) + ' ' + new Date(s.timestamp).toLocaleDateString([], { month: 'short', day: '2-digit' });
               
               let recordedLegs: any = null;
-              if (s.recorded_legs) {
+              if (s.recordedLegs) {
                 try {
-                  recordedLegs = typeof s.recorded_legs === 'string' ? JSON.parse(s.recorded_legs) : s.recorded_legs;
+                  recordedLegs = typeof s.recordedLegs === 'string' ? JSON.parse(s.recordedLegs) : s.recordedLegs;
                 } catch (e) {
                   console.error("Failed to parse recorded legs for suggestion " + s.id, e);
                 }
@@ -451,20 +451,20 @@ export function StrategyStatsDashboard() {
                       <span className="text-[10px] text-[#666]">{timestampStr}</span>
                       <div className="flex flex-col">
                         <span className="font-bold text-white tracking-wide">{s.title}</span>
-                        <span className="text-[10px] text-terminal-green font-bold">SPOT: ${Number(s.spot_price).toFixed(2)}</span>
+                        <span className="text-[10px] text-terminal-green font-bold">SPOT: ${Number(s.spotPrice).toFixed(2)}</span>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-4">
                       <div className="flex gap-2">
                         <span className="bg-[#121215] border border-[#25252E] px-2 py-0.5 rounded text-[9px] uppercase text-[#888]">
-                          TYPE: {s.suggestion_type}
+                          TYPE: {s.suggestionType}
                         </span>
                         <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${s.ppi >= 55 ? 'bg-terminal-green/10 text-terminal-green border border-terminal-green/20' : 'bg-white/5 text-[#888] border border-white/5'}`}>
                           PPI: {s.ppi}%
                         </span>
                         <span className="bg-[#121215] border border-[#25252E] px-2 py-0.5 rounded text-[9px] text-[#3399ff]">
-                          CONF: {s.confidence_score}%
+                          CONF: {s.confidenceScore}%
                         </span>
                       </div>
                       {isExpanded ? <ChevronUp className="w-4 h-4 text-white" /> : <ChevronDown className="w-4 h-4 text-[#555]" />}
@@ -484,11 +484,11 @@ export function StrategyStatsDashboard() {
                         <div className="flex flex-col gap-2 bg-black/50 border border-white/5 p-3 rounded text-[10px]">
                           <div className="flex justify-between">
                             <span className="text-[#666] uppercase text-[9px]">Entry Trigger:</span>
-                            <span className="text-white font-bold">{s.entry_trigger || 'N/A'}</span>
+                            <span className="text-white font-bold">{s.entryTrigger || 'N/A'}</span>
                           </div>
                           <div className="flex justify-between border-t border-white/5 pt-2">
                             <span className="text-[#666] uppercase text-[9px]">Risk/Reward Parameters:</span>
-                            <span className="text-terminal-green font-bold">{s.risk_reward || 'N/A'}</span>
+                            <span className="text-terminal-green font-bold">{s.riskReward || 'N/A'}</span>
                           </div>
                           <div className="flex justify-between border-t border-white/5 pt-2">
                             <span className="text-[#666] uppercase text-[9px]">Target Striking Range:</span>
