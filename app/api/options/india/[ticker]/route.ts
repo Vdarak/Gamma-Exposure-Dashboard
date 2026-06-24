@@ -364,6 +364,52 @@ async function getNSEOptionsData(ticker: string): Promise<any[]> {
 }
 
 // Function to parse NSE API response into our expected format
+function parseNSEExpiryToISO(expiryValue: unknown): string | null {
+  if (typeof expiryValue !== 'string' || !expiryValue.trim()) {
+    return null
+  }
+
+  const raw = expiryValue.trim()
+
+  // Handle common NSE format like 30-Jun-2026
+  const match = raw.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/)
+  if (match) {
+    const day = Number(match[1])
+    const monthAbbr = match[2].toUpperCase()
+    const year = Number(match[3])
+    const monthMap: Record<string, number> = {
+      JAN: 0,
+      FEB: 1,
+      MAR: 2,
+      APR: 3,
+      MAY: 4,
+      JUN: 5,
+      JUL: 6,
+      AUG: 7,
+      SEP: 8,
+      OCT: 9,
+      NOV: 10,
+      DEC: 11,
+    }
+
+    const month = monthMap[monthAbbr]
+    if (month !== undefined && day >= 1 && day <= 31) {
+      const date = new Date(Date.UTC(year, month, day))
+      if (!Number.isNaN(date.getTime())) {
+        return date.toISOString()
+      }
+    }
+  }
+
+  // Fallback for ISO-like values
+  const fallbackDate = new Date(raw)
+  if (!Number.isNaN(fallbackDate.getTime())) {
+    return fallbackDate.toISOString()
+  }
+
+  return null
+}
+
 function parseNSEOptionsData(nseData: any, ticker: string): any[] {
   const options: any[] = []
   
@@ -374,13 +420,19 @@ function parseNSEOptionsData(nseData: any, ticker: string): any[] {
     for (const record of records) {
       const strikePrice = record.strikePrice
       const expiryDate = record.expiryDate
+      const expirationIso = parseNSEExpiryToISO(expiryDate)
+
+      if (!expirationIso) {
+        console.warn(`Skipping invalid NSE expiry for ${ticker}: strike=${strikePrice}, expiry=${String(expiryDate)}`)
+        continue
+      }
       
       // Parse Call options
       if (record.CE) {
         const callOption = record.CE
         options.push({
           strike: strikePrice,
-          expiration: new Date(expiryDate).toISOString(),
+          expiration: expirationIso,
           type: 'C',
           iv: callOption.impliedVolatility || 0,
           gamma: callOption.gamma || 0,
@@ -399,7 +451,7 @@ function parseNSEOptionsData(nseData: any, ticker: string): any[] {
         const putOption = record.PE
         options.push({
           strike: strikePrice,
-          expiration: new Date(expiryDate).toISOString(),
+          expiration: expirationIso,
           type: 'P',
           iv: putOption.impliedVolatility || 0,
           gamma: putOption.gamma || 0,
