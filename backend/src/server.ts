@@ -439,6 +439,163 @@ app.get('/api/stats', async (req: Request, res: Response) => {
   }
 });
 
+function escapeCsvValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  const stringValue = value instanceof Date
+    ? value.toISOString()
+    : typeof value === 'object'
+      ? JSON.stringify(value)
+      : String(value);
+
+  if (/[",\n\r]/.test(stringValue)) {
+    return `"${stringValue.replace(/"/g, '""')}"`;
+  }
+
+  return stringValue;
+}
+
+/**
+ * Download collected option chain data for analysis.
+ * Supports CSV (default) and JSON.
+ */
+app.get('/api/export/options', async (req: Request, res: Response) => {
+  try {
+    const { ticker, market, format, startDate, endDate, hoursBack } = req.query;
+
+    const selectedFormat = typeof format === 'string' && format.toLowerCase() === 'json' ? 'json' : 'csv';
+    const selectedTicker = typeof ticker === 'string' && ticker.trim() ? ticker.trim().toUpperCase() : undefined;
+    const selectedMarket = typeof market === 'string' && market.trim()
+      ? market.trim().toUpperCase()
+      : undefined;
+
+    let query = `
+      SELECT
+        s.id as snapshot_id,
+        s.ticker,
+        s.timestamp,
+        s.spot_price,
+        s.data_count,
+        s.market,
+        o.id as option_id,
+        o.strike,
+        o.option_type,
+        o.expiration,
+        o.last_price,
+        o.bid,
+        o.ask,
+        o.volume,
+        o.open_interest,
+        o.implied_volatility,
+        o.delta,
+        o.gamma,
+        o.theta,
+        o.vega,
+        o.rho,
+        o.change_in_oi,
+        o.total_buy_qty,
+        o.total_sell_qty
+      FROM option_snapshots s
+      JOIN option_data o ON s.id = o.snapshot_id
+      WHERE 1=1
+    `;
+
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if (selectedTicker) {
+      query += ` AND s.ticker = $${paramIndex++}`;
+      params.push(selectedTicker);
+    }
+
+    if (selectedMarket) {
+      query += ` AND s.market = $${paramIndex++}`;
+      params.push(selectedMarket);
+    }
+
+    if (typeof startDate === 'string' && typeof endDate === 'string') {
+      query += ` AND s.timestamp BETWEEN $${paramIndex++} AND $${paramIndex++}`;
+      params.push(new Date(startDate), new Date(endDate));
+    } else if (typeof hoursBack === 'string' && hoursBack.trim()) {
+      const hours = Number(hoursBack);
+      if (Number.isFinite(hours) && hours > 0) {
+        const cutoff = new Date();
+        cutoff.setHours(cutoff.getHours() - hours);
+        query += ` AND s.timestamp >= $${paramIndex++}`;
+        params.push(cutoff);
+      }
+    }
+
+    query += ` ORDER BY s.ticker, s.timestamp ASC, o.expiration ASC, o.strike ASC, o.option_type ASC`;
+
+    const result = await pool.query(query, params);
+
+    const rows = result.rows.map((row: any) => ({
+      snapshot_id: row.snapshot_id,
+      ticker: row.ticker,
+      timestamp: new Date(row.timestamp).toISOString(),
+      spot_price: row.spot_price,
+      data_count: row.data_count,
+      market: row.market,
+      option_id: row.option_id,
+      strike: row.strike,
+      option_type: row.option_type,
+      expiration: new Date(row.expiration).toISOString().split('T')[0],
+      last_price: row.last_price,
+      bid: row.bid,
+      ask: row.ask,
+      volume: row.volume,
+      open_interest: row.open_interest,
+      implied_volatility: row.implied_volatility,
+      delta: row.delta,
+      gamma: row.gamma,
+      theta: row.theta,
+      vega: row.vega,
+      rho: row.rho,
+      change_in_oi: row.change_in_oi,
+      total_buy_qty: row.total_buy_qty,
+      total_sell_qty: row.total_sell_qty,
+    }));
+
+    if (selectedFormat === 'json') {
+      return res.json({
+        success: true,
+        count: rows.length,
+        data: rows,
+        filters: {
+          ticker: selectedTicker ?? null,
+          market: selectedMarket ?? null,
+          startDate: typeof startDate === 'string' ? startDate : null,
+          endDate: typeof endDate === 'string' ? endDate : null,
+          hoursBack: typeof hoursBack === 'string' ? hoursBack : null,
+        },
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const headers = [
+      'snapshot_id', 'ticker', 'timestamp', 'spot_price', 'data_count', 'market', 'option_id',
+      'strike', 'option_type', 'expiration', 'last_price', 'bid', 'ask', 'volume', 'open_interest',
+      'implied_volatility', 'delta', 'gamma', 'theta', 'vega', 'rho', 'change_in_oi', 'total_buy_qty', 'total_sell_qty'
+    ];
+
+    const csv = [
+      headers.join(','),
+      ...rows.map(row => headers.map(header => escapeCsvValue((row as any)[header])).join(',')),
+    ].join('\n');
+
+    const safeTicker = selectedTicker || 'all';
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="option-data-${safeTicker}-${Date.now()}.csv"`);
+    return res.send(csv);
+  } catch (error) {
+    console.error('Error in /api/export/options:', error);
+    res.status(500).json({ error: 'Failed to export option chain data' });
+  }
+});
+
 /**
  * Get available expiries for a ticker
  */

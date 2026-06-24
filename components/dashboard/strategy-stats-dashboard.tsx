@@ -1,9 +1,11 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { TrendingUp, TrendingDown, Award, Activity, BarChart3, BookOpen, Shuffle, AlertCircle, ChevronDown, ChevronUp, RefreshCw, FileText, Database } from "lucide-react"
+import { TrendingUp, TrendingDown, Award, Activity, BarChart3, BookOpen, Shuffle, AlertCircle, ChevronDown, ChevronUp, RefreshCw, FileText, Database, Download } from "lucide-react"
 import type { JournalTrade } from "@/lib/backend-api"
 import dynamic from "next/dynamic"
+import { toast } from 'sonner'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false })
 
@@ -15,6 +17,13 @@ export function StrategyStatsDashboard() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [exportTicker, setExportTicker] = useState('ALL')
+  const [exportMarket, setExportMarket] = useState<'ALL' | 'USA' | 'INDIA'>('ALL')
+  const [exportFormat, setExportFormat] = useState<'csv' | 'json'>('csv')
+  const [exportRange, setExportRange] = useState<'all' | '24h' | '7d' | 'custom'>('all')
+  const [exportStartDate, setExportStartDate] = useState('')
+  const [exportEndDate, setExportEndDate] = useState('')
+  const [exporting, setExporting] = useState(false)
 
   async function loadData(showSpinner = true) {
     try {
@@ -58,6 +67,68 @@ export function StrategyStatsDashboard() {
   useEffect(() => {
     loadData()
   }, [])
+
+  async function handleDownloadDataset() {
+    try {
+      setExporting(true)
+
+      const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001').replace(/\/+$/, '')
+      const params = new URLSearchParams()
+
+      if (exportTicker.trim() && exportTicker.trim().toUpperCase() !== 'ALL') {
+        params.set('ticker', exportTicker.trim().toUpperCase())
+      }
+
+      if (exportMarket !== 'ALL') {
+        params.set('market', exportMarket)
+      }
+
+      params.set('format', exportFormat)
+
+      if (exportRange === '24h') {
+        params.set('hoursBack', '24')
+      } else if (exportRange === '7d') {
+        params.set('hoursBack', String(24 * 7))
+      } else if (exportRange === 'custom') {
+        if (!exportStartDate || !exportEndDate) {
+          toast.error('Choose both start and end dates for a custom export')
+          return
+        }
+        params.set('startDate', exportStartDate)
+        params.set('endDate', exportEndDate)
+      }
+
+      const response = await fetch(`${BACKEND_URL}/api/export/options?${params.toString()}`)
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Failed to export dataset' }))
+        throw new Error(errorData.error || 'Failed to export dataset')
+      }
+
+      const blob = await response.blob()
+      const objectUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      const safeTicker = exportTicker.trim() && exportTicker.trim().toUpperCase() !== 'ALL'
+        ? exportTicker.trim().toUpperCase()
+        : 'all'
+      const safeMarket = exportMarket.toLowerCase()
+      const safeRange = exportRange
+      const extension = exportFormat === 'json' ? 'json' : 'csv'
+
+      link.href = objectUrl
+      link.download = `option-data-${safeTicker}-${safeMarket}-${safeRange}.${extension}`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(objectUrl)
+
+      toast.success('Dataset download started')
+    } catch (err: any) {
+      console.error('Failed to export dataset', err)
+      toast.error(err.message || 'Failed to export dataset')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   // Calculate Metrics for Journal Trades
   const journalMetrics = useMemo(() => {
@@ -292,6 +363,105 @@ export function StrategyStatsDashboard() {
               </p>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* ─── DATASET EXPORT ─── */}
+      <div className="glass-panel p-5 rounded-lg border border-white/5 flex flex-col gap-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+          <div>
+            <h3 className="text-xs font-bold text-white tracking-wider flex items-center gap-1.5 font-display">
+              <Download className="w-4 h-4 text-terminal-green" />
+              RAILWAY DATA EXPORT
+            </h3>
+            <p className="text-[#666] text-[9px] uppercase mt-0.5 font-mono">Download the collected snapshot dataset for offline analysis</p>
+          </div>
+          <button
+            onClick={handleDownloadDataset}
+            disabled={exporting}
+            className="text-[9px] border border-[#25252E] hover:border-terminal-green text-terminal-green px-3 py-1 rounded bg-[#121215] transition-all uppercase flex items-center gap-1.5 font-mono disabled:opacity-60"
+          >
+            <Download className={`w-3 h-3 ${exporting ? 'animate-pulse' : ''}`} />
+            {exporting ? 'EXPORTING...' : 'DOWNLOAD DATASET'}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[9px] text-[#666] uppercase font-bold">Ticker</span>
+            <input
+              value={exportTicker}
+              onChange={(e) => setExportTicker(e.target.value.toUpperCase())}
+              placeholder="ALL"
+              className="h-10 rounded-md border border-white/10 bg-black/40 px-3 text-xs text-white outline-none focus:border-terminal-green"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[9px] text-[#666] uppercase font-bold">Market</span>
+            <Select value={exportMarket} onValueChange={(value) => setExportMarket(value as 'ALL' | 'USA' | 'INDIA')}>
+              <SelectTrigger className="h-10 border-white/10 bg-black/40 text-xs text-white">
+                <SelectValue placeholder="ALL" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">ALL</SelectItem>
+                <SelectItem value="USA">USA</SelectItem>
+                <SelectItem value="INDIA">INDIA</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[9px] text-[#666] uppercase font-bold">Range</span>
+            <Select value={exportRange} onValueChange={(value) => setExportRange(value as 'all' | '24h' | '7d' | 'custom')}>
+              <SelectTrigger className="h-10 border-white/10 bg-black/40 text-xs text-white">
+                <SelectValue placeholder="All data" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All data</SelectItem>
+                <SelectItem value="24h">Last 24h</SelectItem>
+                <SelectItem value="7d">Last 7d</SelectItem>
+                <SelectItem value="custom">Custom range</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[9px] text-[#666] uppercase font-bold">Format</span>
+            <Select value={exportFormat} onValueChange={(value) => setExportFormat(value as 'csv' | 'json')}>
+              <SelectTrigger className="h-10 border-white/10 bg-black/40 text-xs text-white">
+                <SelectValue placeholder="CSV" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="csv">CSV</SelectItem>
+                <SelectItem value="json">JSON</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[9px] text-[#666] uppercase font-bold">Custom Dates</span>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="date"
+                value={exportStartDate}
+                onChange={(e) => setExportStartDate(e.target.value)}
+                disabled={exportRange !== 'custom'}
+                className="h-10 rounded-md border border-white/10 bg-black/40 px-2 text-[11px] text-white outline-none focus:border-terminal-green disabled:opacity-40"
+              />
+              <input
+                type="date"
+                value={exportEndDate}
+                onChange={(e) => setExportEndDate(e.target.value)}
+                disabled={exportRange !== 'custom'}
+                className="h-10 rounded-md border border-white/10 bg-black/40 px-2 text-[11px] text-white outline-none focus:border-terminal-green disabled:opacity-40"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="text-[9px] text-[#666] uppercase font-mono leading-relaxed">
+          Leave fields at <span className="text-terminal-green">ALL</span> to export the full Railway dataset, or narrow it by ticker, market, date range, and format.
         </div>
       </div>
 
