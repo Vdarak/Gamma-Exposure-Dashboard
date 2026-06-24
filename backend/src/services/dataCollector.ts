@@ -55,22 +55,37 @@ interface NSEOptionData {
 }
 
 interface NSEResponse {
-  records: {
-    data: Array<{
+  records?: {
+    data?: Array<{
       strikePrice: number;
       expiryDate: string;
       CE?: NSEOptionData;
       PE?: NSEOptionData;
     }>;
-    underlyingValue: number;
+    underlyingValue?: number;
+    expiryDates?: string[];
   };
   filtered?: {
-    data: Array<{
+    data?: Array<{
       strikePrice: number;
       expiryDate: string;
       CE?: NSEOptionData;
       PE?: NSEOptionData;
     }>;
+  };
+  data?: Array<{
+    strikePrice: number;
+    expiryDate: string;
+    CE?: NSEOptionData;
+    PE?: NSEOptionData;
+  }>;
+  underlyingValue?: number;
+}
+
+interface NSEContractInfoResponse {
+  expiryDates?: string[];
+  records?: {
+    expiryDates?: string[];
   };
 }
 
@@ -92,6 +107,8 @@ const httpAgent = new http.Agent({
   keepAlive: true,
   keepAliveMsecs: 30000,
 });
+
+const NSE_INDEX_SYMBOLS = new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX']);
 
 /**
  * Fetch option chain data from CBOE API (US Market)
@@ -214,6 +231,11 @@ async function fetchOptionChainFromCBOE(ticker: string): Promise<CBOEResponse | 
  */
 async function fetchOptionChainFromNSE(ticker: string): Promise<NSEResponse | null> {
   const maxRetries = 3;
+  const isIndex = NSE_INDEX_SYMBOLS.has(ticker.toUpperCase());
+  const rawMaxExpiries = Number(process.env.NSE_MAX_EXPIRIES || '4');
+  const maxExpiries = Number.isFinite(rawMaxExpiries)
+    ? Math.min(Math.max(Math.floor(rawMaxExpiries), 1), 12)
+    : 4;
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -257,15 +279,9 @@ async function fetchOptionChainFromNSE(ticker: string): Promise<NSEResponse | nu
       // Wait to mimic human behavior
       await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 1000));
 
-      // Step 2: Use cookies to fetch API data
-      let apiUrl: string;
-      if (ticker === 'NIFTY' || ticker === 'BANKNIFTY' || ticker === 'FINNIFTY') {
-        apiUrl = `https://www.nseindia.com/api/option-chain-indices?symbol=${ticker}`;
-      } else {
-        apiUrl = `https://www.nseindia.com/api/option-chain-equities?symbol=${ticker}`;
-      }
-
-      console.log(`   [NSE ${ticker}] Fetching from: ${apiUrl}`);
+      // Step 2: Fetch contract-info and get available expiry dates
+      const contractInfoUrl = `https://www.nseindia.com/api/option-chain-contract-info?symbol=${ticker}`;
+      console.log(`   [NSE ${ticker}] Fetching contract info: ${contractInfoUrl}`);
       
       const apiHeaders = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -284,7 +300,7 @@ async function fetchOptionChainFromNSE(ticker: string): Promise<NSEResponse | nu
         'Connection': 'keep-alive',
       };
 
-      const response = await axios.get(apiUrl, {
+      const contractInfoResponse = await axios.get(contractInfoUrl, {
         headers: apiHeaders,
         timeout: 15000,
         maxRedirects: 5,
@@ -292,8 +308,81 @@ async function fetchOptionChainFromNSE(ticker: string): Promise<NSEResponse | nu
         httpsAgent,
       });
 
-      console.log(`   [NSE ${ticker}] ✅ Successfully fetched data (status: ${response.status})`);
-      return response.data;
+      const contractInfoData = contractInfoResponse.data as NSEContractInfoResponse;
+      const expiryDates = contractInfoData.expiryDates || contractInfoData.records?.expiryDates || [];
+
+      if (!expiryDates.length) {
+        throw new Error('No expiry dates returned from option-chain-contract-info');
+      }
+
+      const selectedExpiries = expiryDates.slice(0, maxExpiries);
+      const typeParam = isIndex ? 'Indices' : 'Equity';
+      const combinedData: NonNullable<NSEResponse['data']> = [];
+      let underlyingValue = 0;
+
+      // Step 3: Fetch options data from option-chain-v3 for selected expiries
+      for (const expiry of selectedExpiries) {
+        const apiUrl = `https://www.nseindia.com/api/option-chain-v3?type=${typeParam}&symbol=${ticker}&expiry=${encodeURIComponent(expiry)}`;
+        console.log(`   [NSE ${ticker}] Fetching v3 for ${expiry}: ${apiUrl}`);
+
+        const response = await axios.get(apiUrl, {
+          headers: apiHeaders,
+          timeout: 15000,
+          maxRedirects: 5,
+          httpAgent,
+          httpsAgent,
+        });
+
+        const responseData = response.data as NSEResponse;
+        const rows = responseData.data || responseData.records?.data || [];
+        combinedData.push(...rows);
+
+        if (!underlyingValue) {
+          underlyingValue =
+            responseData.underlyingValue ||
+            responseData.records?.underlyingValue ||
+            rows.find(r => r.CE?.underlyingValue || r.PE?.underlyingValue)?.CE?.underlyingValue ||
+            rows.find(r => r.PE?.underlyingValue)?.PE?.underlyingValue ||
+            0;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 400 + Math.random() * 400));
+      }
+
+      if (!combinedData.length) {
+        throw new Error('No option-chain-v3 rows returned for selected expiries');
+      }
+
+      // Deduplicate by expiry + strike if NSE returns overlapping rows.
+      const dedupedByStrikeExpiry = new Map<string, NonNullable<NSEResponse['data']>[number]>();
+      for (const row of combinedData) {
+        const key = `${row.expiryDate}|${row.strikePrice}`;
+        const existing = dedupedByStrikeExpiry.get(key);
+
+        if (!existing) {
+          dedupedByStrikeExpiry.set(key, row);
+          continue;
+        }
+
+        dedupedByStrikeExpiry.set(key, {
+          ...existing,
+          CE: existing.CE || row.CE,
+          PE: existing.PE || row.PE,
+        });
+      }
+
+      const recordsData = Array.from(dedupedByStrikeExpiry.values());
+      console.log(`   [NSE ${ticker}] ✅ Successfully fetched data (${recordsData.length} rows across ${selectedExpiries.length} expiry(s))`);
+
+      return {
+        records: {
+          data: recordsData,
+          underlyingValue,
+          expiryDates,
+        },
+        data: recordsData,
+        underlyingValue,
+      };
       
     } catch (error: any) {
       const isLastAttempt = attempt === maxRetries;
@@ -413,7 +502,7 @@ function calculateBlackScholesGreeks(
   sigma: number,  // Implied volatility
   type: 'C' | 'P' // Call or Put
 ): { delta: number; gamma: number; theta: number; vega: number } {
-  if (T <= 0 || sigma <= 0) {
+  if (S <= 0 || K <= 0 || T <= 0 || sigma <= 0) {
     return { delta: 0, gamma: 0, theta: 0, vega: 0 };
   }
 
@@ -448,7 +537,7 @@ function calculateBlackScholesGreeks(
  */
 function normalizeNSEOptionData(nseData: NSEResponse, spotPrice: number): OptionData[] {
   const options: OptionData[] = [];
-  const data = nseData.filtered?.data || nseData.records.data;
+  const data = nseData.filtered?.data || nseData.records?.data || nseData.data || [];
   const riskFreeRate = 0.065; // India risk-free rate ~6.5%
 
   data.forEach(strike => {
@@ -474,7 +563,7 @@ function normalizeNSEOptionData(nseData: NSEResponse, spotPrice: number): Option
 
     // Add Call option if available
     if (strike.CE) {
-      const iv = strike.CE.impliedVolatility / 100;
+      const iv = (strike.CE.impliedVolatility || 0) / 100;
       const greeks = calculateBlackScholesGreeks(spotPrice, strike.strikePrice, timeToExpiry, riskFreeRate, iv, 'C');
 
       options.push({
@@ -500,7 +589,7 @@ function normalizeNSEOptionData(nseData: NSEResponse, spotPrice: number): Option
 
     // Add Put option if available
     if (strike.PE) {
-      const iv = strike.PE.impliedVolatility / 100;
+      const iv = (strike.PE.impliedVolatility || 0) / 100;
       const greeks = calculateBlackScholesGreeks(spotPrice, strike.strikePrice, timeToExpiry, riskFreeRate, iv, 'P');
 
       options.push({
@@ -701,12 +790,18 @@ export async function fetchAndStoreOptionData(
         // Fetch from NSE
         const nseData = await fetchOptionChainFromNSE(ticker);
 
-        if (!nseData || !nseData.records || !nseData.records.data || nseData.records.data.length === 0) {
+        const nseRows = nseData?.records?.data || nseData?.data || [];
+        if (!nseData || nseRows.length === 0) {
           console.error(`❌ No option data received for ${ticker} from NSE`);
           return false;
         }
 
-        spotPrice = nseData.records.underlyingValue || 0;
+        spotPrice =
+          nseData.records?.underlyingValue ||
+          nseData.underlyingValue ||
+          nseRows.find(row => row.CE?.underlyingValue)?.CE?.underlyingValue ||
+          nseRows.find(row => row.PE?.underlyingValue)?.PE?.underlyingValue ||
+          0;
         normalizedOptions = normalizeNSEOptionData(nseData, spotPrice);
       }
       

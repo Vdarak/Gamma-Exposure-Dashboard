@@ -180,6 +180,10 @@ async function getNSEOptionsData(ticker: string): Promise<any[]> {
   try {
     // Determine if it's an index or equity
     const isIndex = isIndexSymbol(ticker)
+    const rawMaxExpiries = Number(process.env.NSE_MAX_EXPIRIES || "4")
+    const maxExpiries = Number.isFinite(rawMaxExpiries)
+      ? Math.min(Math.max(Math.floor(rawMaxExpiries), 1), 12)
+      : 4
     
     // Step 1: Hit the option-chain page to get cookies
     console.log(`Step 1: Getting cookies from NSE option-chain page for ${ticker}`)
@@ -231,12 +235,9 @@ async function getNSEOptionsData(ticker: string): Promise<any[]> {
         throw new Error('No valid cookies received from NSE')
       }
       
-      // Step 2: Now use the cookies to hit the actual API
-      const apiEndpoint = isIndex 
-        ? `https://www.nseindia.com/api/option-chain-indices?symbol=${ticker}`
-        : `https://www.nseindia.com/api/option-chain-equities?symbol=${ticker}`
-
-      console.log(`Step 2: Fetching NSE options data from: ${apiEndpoint}`)
+      // Step 2: Get available expiries for this symbol
+      const contractInfoEndpoint = `https://www.nseindia.com/api/option-chain-contract-info?symbol=${ticker}`
+      console.log(`Step 2: Fetching contract info from: ${contractInfoEndpoint}`)
 
       const apiHeaders = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -258,7 +259,7 @@ async function getNSEOptionsData(ticker: string): Promise<any[]> {
       const controller2 = new AbortController()
       const timeoutId2 = setTimeout(() => controller2.abort(), 15000) // 15 second timeout
 
-      const response = await fetch(apiEndpoint, {
+      const contractInfoResponse = await fetch(contractInfoEndpoint, {
         headers: apiHeaders,
         method: 'GET',
         signal: controller2.signal,
@@ -267,20 +268,81 @@ async function getNSEOptionsData(ticker: string): Promise<any[]> {
       })
 
       clearTimeout(timeoutId2)
-      console.log(`NSE API response status: ${response.status}`)
-
-      if (response.ok) {
-        const nseData = await response.json()
-        console.log(`NSE API response received, parsing data for ${ticker}`)
-        console.log('Full NSE Data structure:', JSON.stringify(nseData, null, 2))
-        const parsedOptions = parseNSEOptionsData(nseData, ticker)
-        console.log(`Parsed ${parsedOptions.length} options for ${ticker}`)
-        return parsedOptions
-      } else {
-        const errorText = await response.text()
-        console.error(`NSE API failed with status: ${response.status}, response: ${errorText}`)
-        throw new Error(`NSE API returned status ${response.status}: ${errorText}`)
+      if (!contractInfoResponse.ok) {
+        const errorText = await contractInfoResponse.text()
+        throw new Error(`NSE contract-info returned status ${contractInfoResponse.status}: ${errorText}`)
       }
+
+      const contractInfoData = await contractInfoResponse.json()
+      const expiryDates = contractInfoData?.expiryDates || contractInfoData?.records?.expiryDates || []
+
+      if (!Array.isArray(expiryDates) || expiryDates.length === 0) {
+        throw new Error(`No expiry dates returned for ${ticker}`)
+      }
+
+      const selectedExpiries = expiryDates.slice(0, maxExpiries)
+      const typeParam = isIndex ? 'Indices' : 'Equity'
+      const aggregatedRows: any[] = []
+
+      // Step 3: Fetch option-chain-v3 for selected expiries and combine rows
+      for (const expiry of selectedExpiries) {
+        const v3Endpoint = `https://www.nseindia.com/api/option-chain-v3?type=${typeParam}&symbol=${ticker}&expiry=${encodeURIComponent(expiry)}`
+        console.log(`Step 3: Fetching options for ${ticker} ${expiry} from: ${v3Endpoint}`)
+
+        const controller3 = new AbortController()
+        const timeoutId3 = setTimeout(() => controller3.abort(), 15000)
+
+        const v3Response = await fetch(v3Endpoint, {
+          headers: apiHeaders,
+          method: 'GET',
+          signal: controller3.signal,
+          redirect: 'follow',
+          referrerPolicy: 'no-referrer-when-downgrade',
+        })
+
+        clearTimeout(timeoutId3)
+
+        if (!v3Response.ok) {
+          const errorText = await v3Response.text()
+          throw new Error(`NSE option-chain-v3 returned status ${v3Response.status}: ${errorText}`)
+        }
+
+        const v3Data = await v3Response.json()
+        const rows = v3Data?.data || v3Data?.records?.data || []
+        if (Array.isArray(rows) && rows.length > 0) {
+          aggregatedRows.push(...rows)
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 350 + Math.random() * 350))
+      }
+
+      const dedupe = new Map<string, any>()
+      for (const row of aggregatedRows) {
+        const key = `${row.expiryDate}|${row.strikePrice}`
+        const prev = dedupe.get(key)
+        if (!prev) {
+          dedupe.set(key, row)
+          continue
+        }
+
+        dedupe.set(key, {
+          ...prev,
+          CE: prev.CE || row.CE,
+          PE: prev.PE || row.PE,
+        })
+      }
+
+      const normalizedNseData = {
+        records: {
+          data: Array.from(dedupe.values()),
+          expiryDates,
+        },
+      }
+
+      console.log(`NSE v3 aggregation completed for ${ticker}: ${normalizedNseData.records.data.length} rows across ${selectedExpiries.length} expiry(s)`)
+      const parsedOptions = parseNSEOptionsData(normalizedNseData, ticker)
+      console.log(`Parsed ${parsedOptions.length} options for ${ticker}`)
+      return parsedOptions
     } catch (fetchError) {
       clearTimeout(timeoutId)
       if (fetchError instanceof Error && fetchError.name === 'AbortError') {
@@ -307,7 +369,7 @@ function parseNSEOptionsData(nseData: any, ticker: string): any[] {
   
   try {
     // NSE API returns data in records.data array
-    const records = nseData?.records?.data || []
+    const records = nseData?.records?.data || nseData?.data || []
     
     for (const record of records) {
       const strikePrice = record.strikePrice

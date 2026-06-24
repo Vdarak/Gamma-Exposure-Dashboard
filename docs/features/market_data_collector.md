@@ -19,10 +19,13 @@ The project supports automated data collection for two major markets:
 * **Ticker list**: `NIFTY`, `BANKNIFTY`, `RELIANCE` (extensible via `.env` variable `INDIA_TICKERS`).
 * **Primary Source (Dhan API)**: Officially integrated broker API. If credentials are present, fetched via `dhanService.ts`.
 * **Fallback Source (NSE Scraper)**: Scrapes option chains directly from the NSE website:
-  * **Cookies Fetching Step**: First, the scraper hits `https://www.nseindia.com/option-chain` to retrieve session cookies (`set-cookie` header).
-  * **API Call Step**: Attaches cookies and references NSE headers to request either:
-    * Index: `https://www.nseindia.com/api/option-chain-indices?symbol=${ticker}`
-    * Equity: `https://www.nseindia.com/api/option-chain-equities?symbol=${ticker}`
+  * **Step 1 (Session cookies)**: Hit `https://www.nseindia.com/option-chain` to retrieve fresh session cookies (`set-cookie` header).
+  * **Step 2 (Contract metadata)**: Use those cookies to call `https://www.nseindia.com/api/option-chain-contract-info?symbol=${ticker}` and read available expiries.
+  * **Step 3 (Options payload)**: Fetch `option-chain-v3` per expiry and combine rows:
+    * Index symbols: `https://www.nseindia.com/api/option-chain-v3?type=Indices&symbol=${ticker}&expiry=${expiry}`
+    * Equity symbols: `https://www.nseindia.com/api/option-chain-v3?type=Equity&symbol=${ticker}&expiry=${expiry}`
+  * **Expiry window control**: Number of expiries fetched is controlled by `.env` variable `NSE_MAX_EXPIRIES` (default `4`, clamped to `1..12`).
+  * **Post-processing**: Rows are deduplicated by `(expiryDate, strikePrice)` before normalization/storage.
 
 ---
 
