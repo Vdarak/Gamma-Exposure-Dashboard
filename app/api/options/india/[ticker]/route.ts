@@ -180,10 +180,7 @@ async function getNSEOptionsData(ticker: string): Promise<any[]> {
   try {
     // Determine if it's an index or equity
     const isIndex = isIndexSymbol(ticker)
-    const rawMaxExpiries = Number(process.env.NSE_MAX_EXPIRIES || "4")
-    const maxExpiries = Number.isFinite(rawMaxExpiries)
-      ? Math.min(Math.max(Math.floor(rawMaxExpiries), 1), 12)
-      : 4
+    const rawMaxExpiries = process.env.NSE_MAX_EXPIRIES?.trim()
     
     // Step 1: Hit the option-chain page to get cookies
     console.log(`Step 1: Getting cookies from NSE option-chain page for ${ticker}`)
@@ -280,7 +277,16 @@ async function getNSEOptionsData(ticker: string): Promise<any[]> {
         throw new Error(`No expiry dates returned for ${ticker}`)
       }
 
-      const selectedExpiries = expiryDates.slice(0, maxExpiries)
+      let selectedExpiries = expiryDates
+      if (rawMaxExpiries && rawMaxExpiries.toLowerCase() !== 'all') {
+        const parsedCap = Number(rawMaxExpiries)
+        if (Number.isFinite(parsedCap) && parsedCap > 0) {
+          selectedExpiries = expiryDates.slice(0, Math.floor(parsedCap))
+        } else {
+          console.warn(`Invalid NSE_MAX_EXPIRIES value "${rawMaxExpiries}". Falling back to all expiries.`)
+        }
+      }
+
       const typeParam = isIndex ? 'Indices' : 'Equity'
       const aggregatedRows: any[] = []
 
@@ -310,10 +316,10 @@ async function getNSEOptionsData(ticker: string): Promise<any[]> {
         const v3Data = await v3Response.json()
         const rows = v3Data?.data || v3Data?.records?.data || []
         if (Array.isArray(rows) && rows.length > 0) {
-          // NSE v3 can omit expiryDate in each row since expiry is already in the request.
+          // This endpoint is expiry-scoped; stamp every row with requested expiry to normalize mixed NSE date formats.
           const normalizedRows = rows.map((row: any) => ({
             ...row,
-            expiryDate: row?.expiryDate || row?.CE?.expiryDate || row?.PE?.expiryDate || expiry,
+            expiryDate: expiry,
           }))
           aggregatedRows.push(...normalizedRows)
         }

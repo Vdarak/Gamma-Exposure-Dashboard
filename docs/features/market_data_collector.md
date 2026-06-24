@@ -24,7 +24,7 @@ The project supports automated data collection for two major markets:
   * **Step 3 (Options payload)**: Fetch `option-chain-v3` per expiry and combine rows:
     * Index symbols: `https://www.nseindia.com/api/option-chain-v3?type=Indices&symbol=${ticker}&expiry=${expiry}`
     * Equity symbols: `https://www.nseindia.com/api/option-chain-v3?type=Equity&symbol=${ticker}&expiry=${expiry}`
-  * **Expiry window control**: Number of expiries fetched is controlled by `.env` variable `NSE_MAX_EXPIRIES` (default `4`, clamped to `1..12`).
+  * **Expiry window control**: By default, all expiries returned by NSE contract-info are fetched. Set `.env` variable `NSE_MAX_EXPIRIES` to a positive integer (or `all`) to explicitly cap (or force all) expiry fetches.
   * **Post-processing**: Rows are deduplicated by `(expiryDate, strikePrice)` before normalization/storage.
 
 ---

@@ -232,10 +232,7 @@ async function fetchOptionChainFromCBOE(ticker: string): Promise<CBOEResponse | 
 async function fetchOptionChainFromNSE(ticker: string): Promise<NSEResponse | null> {
   const maxRetries = 3;
   const isIndex = NSE_INDEX_SYMBOLS.has(ticker.toUpperCase());
-  const rawMaxExpiries = Number(process.env.NSE_MAX_EXPIRIES || '4');
-  const maxExpiries = Number.isFinite(rawMaxExpiries)
-    ? Math.min(Math.max(Math.floor(rawMaxExpiries), 1), 12)
-    : 4;
+  const rawMaxExpiries = process.env.NSE_MAX_EXPIRIES?.trim();
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -315,7 +312,16 @@ async function fetchOptionChainFromNSE(ticker: string): Promise<NSEResponse | nu
         throw new Error('No expiry dates returned from option-chain-contract-info');
       }
 
-      const selectedExpiries = expiryDates.slice(0, maxExpiries);
+      let selectedExpiries = expiryDates;
+      if (rawMaxExpiries && rawMaxExpiries.toLowerCase() !== 'all') {
+        const parsedCap = Number(rawMaxExpiries);
+        if (Number.isFinite(parsedCap) && parsedCap > 0) {
+          selectedExpiries = expiryDates.slice(0, Math.floor(parsedCap));
+        } else {
+          console.warn(`   [NSE ${ticker}] Invalid NSE_MAX_EXPIRIES value "${rawMaxExpiries}". Falling back to all expiries.`);
+        }
+      }
+
       const typeParam = isIndex ? 'Indices' : 'Equity';
       const combinedData: NonNullable<NSEResponse['data']> = [];
       let underlyingValue = 0;
@@ -337,7 +343,7 @@ async function fetchOptionChainFromNSE(ticker: string): Promise<NSEResponse | nu
         const rows = responseData.data || responseData.records?.data || [];
         const normalizedRows = rows.map(row => ({
           ...row,
-          expiryDate: row.expiryDate || row.CE?.expiryDate || row.PE?.expiryDate || expiry,
+          expiryDate: expiry,
         }));
         combinedData.push(...normalizedRows);
 
