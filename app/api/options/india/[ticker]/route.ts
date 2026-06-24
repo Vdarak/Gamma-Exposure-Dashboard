@@ -310,7 +310,12 @@ async function getNSEOptionsData(ticker: string): Promise<any[]> {
         const v3Data = await v3Response.json()
         const rows = v3Data?.data || v3Data?.records?.data || []
         if (Array.isArray(rows) && rows.length > 0) {
-          aggregatedRows.push(...rows)
+          // NSE v3 can omit expiryDate in each row since expiry is already in the request.
+          const normalizedRows = rows.map((row: any) => ({
+            ...row,
+            expiryDate: row?.expiryDate || row?.CE?.expiryDate || row?.PE?.expiryDate || expiry,
+          }))
+          aggregatedRows.push(...normalizedRows)
         }
 
         await new Promise(resolve => setTimeout(resolve, 350 + Math.random() * 350))

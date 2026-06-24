@@ -335,14 +335,18 @@ async function fetchOptionChainFromNSE(ticker: string): Promise<NSEResponse | nu
 
         const responseData = response.data as NSEResponse;
         const rows = responseData.data || responseData.records?.data || [];
-        combinedData.push(...rows);
+        const normalizedRows = rows.map(row => ({
+          ...row,
+          expiryDate: row.expiryDate || row.CE?.expiryDate || row.PE?.expiryDate || expiry,
+        }));
+        combinedData.push(...normalizedRows);
 
         if (!underlyingValue) {
           underlyingValue =
             responseData.underlyingValue ||
             responseData.records?.underlyingValue ||
-            rows.find(r => r.CE?.underlyingValue || r.PE?.underlyingValue)?.CE?.underlyingValue ||
-            rows.find(r => r.PE?.underlyingValue)?.PE?.underlyingValue ||
+            normalizedRows.find(r => r.CE?.underlyingValue || r.PE?.underlyingValue)?.CE?.underlyingValue ||
+            normalizedRows.find(r => r.PE?.underlyingValue)?.PE?.underlyingValue ||
             0;
         }
 
