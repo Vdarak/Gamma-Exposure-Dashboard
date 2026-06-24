@@ -457,6 +457,114 @@ function escapeCsvValue(value: unknown): string {
   return stringValue;
 }
 
+function parseExportDate(value: string | undefined): Date | null {
+  if (!value || !value.trim()) {
+    return null;
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function buildExportQuery(options: {
+  selectedTicker?: string;
+  selectedMarket?: string;
+  startDate?: Date;
+  endDate?: Date;
+  hoursBack?: number;
+  limit: number;
+  offset: number;
+}) {
+  let query = `
+    SELECT
+      s.id as snapshot_id,
+      s.ticker,
+      s.timestamp,
+      s.spot_price,
+      s.data_count,
+      s.market,
+      o.id as option_id,
+      o.strike,
+      o.option_type,
+      o.expiration,
+      o.last_price,
+      o.bid,
+      o.ask,
+      o.volume,
+      o.open_interest,
+      o.implied_volatility,
+      o.delta,
+      o.gamma,
+      o.theta,
+      o.vega,
+      o.rho,
+      o.change_in_oi,
+      o.total_buy_qty,
+      o.total_sell_qty
+    FROM option_snapshots s
+    JOIN option_data o ON s.id = o.snapshot_id
+    WHERE 1=1
+  `;
+
+  const params: any[] = [];
+  let paramIndex = 1;
+
+  if (options.selectedTicker) {
+    query += ` AND s.ticker = $${paramIndex++}`;
+    params.push(options.selectedTicker);
+  }
+
+  if (options.selectedMarket) {
+    query += ` AND s.market = $${paramIndex++}`;
+    params.push(options.selectedMarket);
+  }
+
+  if (options.startDate && options.endDate) {
+    query += ` AND s.timestamp BETWEEN $${paramIndex++} AND $${paramIndex++}`;
+    params.push(options.startDate, options.endDate);
+  } else if (typeof options.hoursBack === 'number' && Number.isFinite(options.hoursBack) && options.hoursBack > 0) {
+    const cutoff = new Date();
+    cutoff.setHours(cutoff.getHours() - options.hoursBack);
+    query += ` AND s.timestamp >= $${paramIndex++}`;
+    params.push(cutoff);
+  }
+
+  query += ` ORDER BY s.ticker, s.timestamp ASC, o.expiration ASC, o.strike ASC, o.option_type ASC, o.id ASC`;
+  query += ` LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
+  params.push(options.limit, options.offset);
+
+  return { query, params };
+}
+
+function formatExportRow(row: any) {
+  return {
+    snapshot_id: row.snapshot_id,
+    ticker: row.ticker,
+    timestamp: new Date(row.timestamp).toISOString(),
+    spot_price: row.spot_price,
+    data_count: row.data_count,
+    market: row.market,
+    option_id: row.option_id,
+    strike: row.strike,
+    option_type: row.option_type,
+    expiration: new Date(row.expiration).toISOString().split('T')[0],
+    last_price: row.last_price,
+    bid: row.bid,
+    ask: row.ask,
+    volume: row.volume,
+    open_interest: row.open_interest,
+    implied_volatility: row.implied_volatility,
+    delta: row.delta,
+    gamma: row.gamma,
+    theta: row.theta,
+    vega: row.vega,
+    rho: row.rho,
+    change_in_oi: row.change_in_oi,
+    total_buy_qty: row.total_buy_qty,
+    total_sell_qty: row.total_sell_qty,
+  };
+}
+
 /**
  * Download collected option chain data for analysis.
  * Supports CSV (default) and JSON.
@@ -471,128 +579,119 @@ app.get('/api/export/options', async (req: Request, res: Response) => {
       ? market.trim().toUpperCase()
       : undefined;
 
-    let query = `
-      SELECT
-        s.id as snapshot_id,
-        s.ticker,
-        s.timestamp,
-        s.spot_price,
-        s.data_count,
-        s.market,
-        o.id as option_id,
-        o.strike,
-        o.option_type,
-        o.expiration,
-        o.last_price,
-        o.bid,
-        o.ask,
-        o.volume,
-        o.open_interest,
-        o.implied_volatility,
-        o.delta,
-        o.gamma,
-        o.theta,
-        o.vega,
-        o.rho,
-        o.change_in_oi,
-        o.total_buy_qty,
-        o.total_sell_qty
-      FROM option_snapshots s
-      JOIN option_data o ON s.id = o.snapshot_id
-      WHERE 1=1
-    `;
+    const parsedStartDate = typeof startDate === 'string' ? parseExportDate(startDate) : null;
+    const parsedEndDate = typeof endDate === 'string' ? parseExportDate(endDate) : null;
 
-    const params: any[] = [];
-    let paramIndex = 1;
-
-    if (selectedTicker) {
-      query += ` AND s.ticker = $${paramIndex++}`;
-      params.push(selectedTicker);
+    if ((parsedStartDate && !parsedEndDate) || (!parsedStartDate && parsedEndDate)) {
+      return res.status(400).json({ error: 'Both startDate and endDate are required for a custom date range' });
     }
 
-    if (selectedMarket) {
-      query += ` AND s.market = $${paramIndex++}`;
-      params.push(selectedMarket);
+    if (typeof startDate === 'string' && startDate.trim() && !parsedStartDate) {
+      return res.status(400).json({ error: 'Invalid startDate parameter' });
     }
 
-    if (typeof startDate === 'string' && typeof endDate === 'string') {
-      query += ` AND s.timestamp BETWEEN $${paramIndex++} AND $${paramIndex++}`;
-      params.push(new Date(startDate), new Date(endDate));
-    } else if (typeof hoursBack === 'string' && hoursBack.trim()) {
-      const hours = Number(hoursBack);
-      if (Number.isFinite(hours) && hours > 0) {
-        const cutoff = new Date();
-        cutoff.setHours(cutoff.getHours() - hours);
-        query += ` AND s.timestamp >= $${paramIndex++}`;
-        params.push(cutoff);
-      }
+    if (typeof endDate === 'string' && endDate.trim() && !parsedEndDate) {
+      return res.status(400).json({ error: 'Invalid endDate parameter' });
     }
 
-    query += ` ORDER BY s.ticker, s.timestamp ASC, o.expiration ASC, o.strike ASC, o.option_type ASC`;
+    const parsedHoursBack = typeof hoursBack === 'string' && hoursBack.trim()
+      ? Number(hoursBack)
+      : undefined;
 
-    const result = await pool.query(query, params);
-
-    const rows = result.rows.map((row: any) => ({
-      snapshot_id: row.snapshot_id,
-      ticker: row.ticker,
-      timestamp: new Date(row.timestamp).toISOString(),
-      spot_price: row.spot_price,
-      data_count: row.data_count,
-      market: row.market,
-      option_id: row.option_id,
-      strike: row.strike,
-      option_type: row.option_type,
-      expiration: new Date(row.expiration).toISOString().split('T')[0],
-      last_price: row.last_price,
-      bid: row.bid,
-      ask: row.ask,
-      volume: row.volume,
-      open_interest: row.open_interest,
-      implied_volatility: row.implied_volatility,
-      delta: row.delta,
-      gamma: row.gamma,
-      theta: row.theta,
-      vega: row.vega,
-      rho: row.rho,
-      change_in_oi: row.change_in_oi,
-      total_buy_qty: row.total_buy_qty,
-      total_sell_qty: row.total_sell_qty,
-    }));
-
-    if (selectedFormat === 'json') {
-      return res.json({
-        success: true,
-        count: rows.length,
-        data: rows,
-        filters: {
-          ticker: selectedTicker ?? null,
-          market: selectedMarket ?? null,
-          startDate: typeof startDate === 'string' ? startDate : null,
-          endDate: typeof endDate === 'string' ? endDate : null,
-          hoursBack: typeof hoursBack === 'string' ? hoursBack : null,
-        },
-        timestamp: new Date().toISOString(),
-      });
+    if (typeof parsedHoursBack === 'number' && (!Number.isFinite(parsedHoursBack) || parsedHoursBack <= 0)) {
+      return res.status(400).json({ error: 'Invalid hoursBack parameter' });
     }
 
-    const headers = [
+    const exportHeaders = [
       'snapshot_id', 'ticker', 'timestamp', 'spot_price', 'data_count', 'market', 'option_id',
       'strike', 'option_type', 'expiration', 'last_price', 'bid', 'ask', 'volume', 'open_interest',
       'implied_volatility', 'delta', 'gamma', 'theta', 'vega', 'rho', 'change_in_oi', 'total_buy_qty', 'total_sell_qty'
     ];
 
-    const csv = [
-      headers.join(','),
-      ...rows.map(row => headers.map(header => escapeCsvValue((row as any)[header])).join(',')),
-    ].join('\n');
-
     const safeTicker = selectedTicker || 'all';
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="option-data-${safeTicker}-${Date.now()}.csv"`);
-    return res.send(csv);
+    const safeMarket = selectedMarket || 'all';
+    const safeRange = parsedStartDate && parsedEndDate ? 'custom' : (typeof parsedHoursBack === 'number' ? `${parsedHoursBack}h` : 'all');
+    const filenameBase = `option-data-${safeTicker}-${safeMarket}-${safeRange}-${Date.now()}`;
+    const batchSize = Math.max(500, Number(process.env.EXPORT_BATCH_SIZE || '5000'));
+    let offset = 0;
+    let totalRows = 0;
+
+    res.status(200);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}.${selectedFormat === 'json' ? 'json' : 'csv'}"`);
+
+    if (selectedFormat === 'json') {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.write(`{"success":true,"filters":${JSON.stringify({
+        ticker: selectedTicker ?? null,
+        market: selectedMarket ?? null,
+        startDate: parsedStartDate ? parsedStartDate.toISOString() : null,
+        endDate: parsedEndDate ? parsedEndDate.toISOString() : null,
+        hoursBack: typeof parsedHoursBack === 'number' ? parsedHoursBack : null,
+      })},"data":[`);
+    } else {
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.write(`${exportHeaders.join(',')}\n`);
+    }
+
+    res.flushHeaders?.();
+
+    while (true) {
+      const { query, params } = buildExportQuery({
+        selectedTicker,
+        selectedMarket,
+        startDate: parsedStartDate ?? undefined,
+        endDate: parsedEndDate ?? undefined,
+        hoursBack: parsedHoursBack,
+        limit: batchSize,
+        offset,
+      });
+
+      const result = await pool.query(query, params);
+      const batchRows = result.rows;
+
+      if (batchRows.length === 0) {
+        break;
+      }
+
+      for (const row of batchRows) {
+        const exportRow = formatExportRow(row);
+
+        if (selectedFormat === 'json') {
+          if (totalRows > 0) {
+            res.write(',');
+          }
+          res.write(JSON.stringify(exportRow));
+        } else {
+          res.write(exportHeaders.map(header => escapeCsvValue((exportRow as any)[header])).join(',') + '\n');
+        }
+
+        totalRows++;
+      }
+
+      if (batchRows.length < batchSize) {
+        break;
+      }
+
+      offset += batchSize;
+    }
+
+    if (selectedFormat === 'json') {
+      res.end(`],"count":${totalRows},"timestamp":${JSON.stringify(new Date().toISOString())}}`);
+    } else {
+      res.end();
+    }
+
+    return;
   } catch (error) {
     console.error('Error in /api/export/options:', error);
-    res.status(500).json({ error: 'Failed to export option chain data' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to export option chain data' });
+      return;
+    }
+
+    res.destroy();
   }
 });
 

@@ -98,14 +98,7 @@ export function StrategyStatsDashboard() {
         params.set('endDate', exportEndDate)
       }
 
-      const response = await fetch(`${BACKEND_URL}/api/export/options?${params.toString()}`)
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Failed to export dataset' }))
-        throw new Error(errorData.error || 'Failed to export dataset')
-      }
-
-      const blob = await response.blob()
-      const objectUrl = URL.createObjectURL(blob)
+      const downloadUrl = `${BACKEND_URL}/api/export/options?${params.toString()}`
       const link = document.createElement('a')
       const safeTicker = exportTicker.trim() && exportTicker.trim().toUpperCase() !== 'ALL'
         ? exportTicker.trim().toUpperCase()
@@ -114,12 +107,13 @@ export function StrategyStatsDashboard() {
       const safeRange = exportRange
       const extension = exportFormat === 'json' ? 'json' : 'csv'
 
-      link.href = objectUrl
+      link.href = downloadUrl
+      link.target = '_blank'
+      link.rel = 'noopener noreferrer'
       link.download = `option-data-${safeTicker}-${safeMarket}-${safeRange}.${extension}`
       document.body.appendChild(link)
       link.click()
       link.remove()
-      URL.revokeObjectURL(objectUrl)
 
       toast.success('Dataset download started')
     } catch (err: any) {
