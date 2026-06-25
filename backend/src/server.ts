@@ -472,6 +472,7 @@ function buildExportQuery(options: {
   startDate?: Date;
   endDate?: Date;
   hoursBack?: number;
+  only0dte?: boolean;
   limit: number;
   offset: number;
 }) {
@@ -529,6 +530,12 @@ function buildExportQuery(options: {
     params.push(cutoff);
   }
 
+  // 0DTE filter: only include option_data rows whose expiration matches the snapshot's local market date.
+  // US snapshots: convert UTC timestamp to America/New_York. India snapshots: use Asia/Kolkata (IST).
+  if (options.only0dte) {
+    query += ` AND o.expiration = DATE(s.timestamp AT TIME ZONE (CASE WHEN s.market = 'INDIA' THEN 'Asia/Kolkata' ELSE 'America/New_York' END))`;
+  }
+
   query += ` ORDER BY s.ticker, s.timestamp ASC, o.expiration ASC, o.strike ASC, o.option_type ASC, o.id ASC`;
   query += ` LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
   params.push(options.limit, options.offset);
@@ -571,13 +578,15 @@ function formatExportRow(row: any) {
  */
 app.get('/api/export/options', async (req: Request, res: Response) => {
   try {
-    const { ticker, market, format, startDate, endDate, hoursBack } = req.query;
+    const { ticker, market, format, startDate, endDate, hoursBack, only0dte } = req.query;
 
     const selectedFormat = typeof format === 'string' && format.toLowerCase() === 'json' ? 'json' : 'csv';
     const selectedTicker = typeof ticker === 'string' && ticker.trim() ? ticker.trim().toUpperCase() : undefined;
     const selectedMarket = typeof market === 'string' && market.trim()
       ? market.trim().toUpperCase()
       : undefined;
+    // only0dte=true restricts option_data rows to same-day expiry (0DTE) only
+    const selectedOnly0dte = only0dte === 'true' || only0dte === '1';
 
     const parsedStartDate = typeof startDate === 'string' ? parseExportDate(startDate) : null;
     const parsedEndDate = typeof endDate === 'string' ? parseExportDate(endDate) : null;
@@ -611,7 +620,8 @@ app.get('/api/export/options', async (req: Request, res: Response) => {
     const safeTicker = selectedTicker || 'all';
     const safeMarket = selectedMarket || 'all';
     const safeRange = parsedStartDate && parsedEndDate ? 'custom' : (typeof parsedHoursBack === 'number' ? `${parsedHoursBack}h` : 'all');
-    const filenameBase = `option-data-${safeTicker}-${safeMarket}-${safeRange}-${Date.now()}`;
+    const safe0dte = selectedOnly0dte ? '-0dte' : '';
+    const filenameBase = `option-data-${safeTicker}-${safeMarket}-${safeRange}${safe0dte}-${Date.now()}`;
     const batchSize = Math.max(500, Number(process.env.EXPORT_BATCH_SIZE || '5000'));
     let offset = 0;
     let totalRows = 0;
@@ -629,6 +639,7 @@ app.get('/api/export/options', async (req: Request, res: Response) => {
         startDate: parsedStartDate ? parsedStartDate.toISOString() : null,
         endDate: parsedEndDate ? parsedEndDate.toISOString() : null,
         hoursBack: typeof parsedHoursBack === 'number' ? parsedHoursBack : null,
+        only0dte: selectedOnly0dte,
       })},"data":[`);
     } else {
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -644,6 +655,7 @@ app.get('/api/export/options', async (req: Request, res: Response) => {
         startDate: parsedStartDate ?? undefined,
         endDate: parsedEndDate ?? undefined,
         hoursBack: parsedHoursBack,
+        only0dte: selectedOnly0dte,
         limit: batchSize,
         offset,
       });

@@ -23,6 +23,7 @@ export function StrategyStatsDashboard() {
   const [exportRange, setExportRange] = useState<'all' | '24h' | '7d' | 'custom'>('all')
   const [exportStartDate, setExportStartDate] = useState('')
   const [exportEndDate, setExportEndDate] = useState('')
+  const [export0dte, setExport0dte] = useState(true)
   const [exporting, setExporting] = useState(false)
 
   async function loadData(showSpinner = true) {
@@ -98,6 +99,10 @@ export function StrategyStatsDashboard() {
         params.set('endDate', exportEndDate)
       }
 
+      if (export0dte) {
+        params.set('only0dte', 'true')
+      }
+
       const downloadUrl = `${BACKEND_URL}/api/export/options?${params.toString()}`
       const link = document.createElement('a')
       const safeTicker = exportTicker.trim() && exportTicker.trim().toUpperCase() !== 'ALL'
@@ -110,7 +115,7 @@ export function StrategyStatsDashboard() {
       link.href = downloadUrl
       link.target = '_blank'
       link.rel = 'noopener noreferrer'
-      link.download = `option-data-${safeTicker}-${safeMarket}-${safeRange}.${extension}`
+      link.download = `option-data-${safeTicker}-${safeMarket}-${safeRange}${export0dte ? '-0dte' : ''}.${extension}`
       document.body.appendChild(link)
       link.click()
       link.remove()
@@ -454,8 +459,33 @@ export function StrategyStatsDashboard() {
           </div>
         </div>
 
+        {/* 0DTE Toggle */}
+        <div className="flex items-center justify-between border border-white/5 rounded px-4 py-3 bg-black/20">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] font-bold text-white uppercase tracking-wider">0DTE Only Mode</span>
+            <span className="text-[9px] text-[#555] font-mono">
+              Export only same-day expiry contracts per snapshot — dramatically smaller file, ideal for intraday analysis
+            </span>
+          </div>
+          <button
+            onClick={() => setExport0dte(v => !v)}
+            className={`relative inline-flex h-5 w-10 flex-shrink-0 cursor-pointer rounded-full border-2 transition-colors duration-200 ease-in-out focus:outline-none ${
+              export0dte ? 'border-terminal-green bg-terminal-green/20' : 'border-white/10 bg-black/40'
+            }`}
+          >
+            <span
+              className={`pointer-events-none inline-block h-3.5 w-3.5 transform rounded-full shadow ring-0 transition duration-200 ease-in-out mt-px ${
+                export0dte ? 'translate-x-4 bg-terminal-green' : 'translate-x-0.5 bg-white/30'
+              }`}
+            />
+          </button>
+        </div>
+
         <div className="text-[9px] text-[#666] uppercase font-mono leading-relaxed">
-          Leave fields at <span className="text-terminal-green">ALL</span> to export the full Railway dataset, or narrow it by ticker, market, date range, and format.
+          {export0dte
+            ? <span>🟢 <span className="text-terminal-green">0DTE mode ON</span> — only same-day expiry contracts per snapshot will be exported.</span>
+            : <span>Leave fields at <span className="text-terminal-green">ALL</span> to export the full Railway dataset, or narrow it by ticker, market, date range, and format.</span>
+          }
         </div>
       </div>
 
