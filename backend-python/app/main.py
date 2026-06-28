@@ -43,15 +43,19 @@ app = FastAPI(
 
 # CORS middleware configuration
 origins = [
-    settings.frontend_url,
+    settings.frontend_url.rstrip("/"),
     "http://localhost:3000",
     "http://localhost:3001",
     "https://gamma-exposure-dashboard.vercel.app"
 ]
 
+# Allow any Vercel domain or sub-domain, as well as localhost on any port
+allow_origin_regex = r"https://.*\.vercel\.app|http://localhost:\d+"
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=allow_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
