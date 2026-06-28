@@ -69,7 +69,7 @@ class JugaadDataService:
 
             # Upsert on conflict
             stmt = stmt.on_conflict_do_update(
-                constraint="uq_india_equity_daily",
+                index_elements=["ticker", "timestamp"],
                 set_={
                     "open": stmt.excluded.open,
                     "high": stmt.excluded.high,
@@ -152,7 +152,7 @@ class JugaadDataService:
             )
 
             stmt = stmt.on_conflict_do_update(
-                constraint="uq_india_fo_daily",
+                index_elements=["ticker", "timestamp", "expiry", "strike_price", "option_type"],
                 set_={
                     "open": stmt.excluded.open,
                     "high": stmt.excluded.high,

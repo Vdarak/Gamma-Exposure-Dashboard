@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import math
 from datetime import date, datetime, timedelta
 from typing import List, Dict, Any, Optional
 from scipy.interpolate import interp1d

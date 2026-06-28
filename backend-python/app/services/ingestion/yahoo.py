@@ -111,7 +111,7 @@ class YahooFinanceService:
                 timestamp=ts,
                 spot_price=spot_price
             ).on_conflict_do_update(
-                constraint="uq_spot_price_history",
+                index_elements=["ticker", "timestamp"],
                 set_={"spot_price": spot_price}
             )
             await self.db.execute(stmt)
