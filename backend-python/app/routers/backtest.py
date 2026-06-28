@@ -119,3 +119,31 @@ async def parse_strategy(req: StrategyDescriptionRequest):
     except Exception as e:
         logger.error(f"Error parsing strategy: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class PortfolioBacktestRequest(BaseModel):
+    strategies: list[dict]
+    rebalanceFrequency: str
+    driftThresholdPercent: float
+    initialCapital: float
+    startDate: str
+    endDate: str
+    benchmark: str
+    commission: float
+    slippage: float
+
+@router.post("/portfolio/run")
+async def execute_portfolio_backtest(config: PortfolioBacktestRequest, db: AsyncSession = Depends(get_db)):
+    """Executes a multi-strategy and multi-asset portfolio backtest simulation."""
+    try:
+        from app.services.backtester.portfolio_engine import PortfolioBacktestEngine
+        engine = PortfolioBacktestEngine(db, loader)
+        result = await engine.run_portfolio_backtest(config.model_dump())
+        return {
+            "success": True,
+            "data": result
+        }
+    except Exception as e:
+        logger.error(f"Error executing portfolio backtest: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+

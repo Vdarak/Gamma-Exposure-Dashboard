@@ -6,6 +6,7 @@ import { BacktestConfigForm } from './backtest-config-form';
 import { BacktestMetricsGrid } from './backtest-metrics-grid';
 import { BacktestCharts } from './backtest-charts';
 import { BacktestTradeLog } from './backtest-trade-log';
+import { PortfolioTesterDashboard } from './portfolio-tester-dashboard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from 'sonner';
@@ -58,7 +59,7 @@ export function BacktestDashboard() {
   const [tickerDateRange, setTickerDateRange] = useState<{ minDate: string; maxDate: string } | null>(null);
   
   // 0DTE Options Suggestion Backtester state
-  const [assetClass, setAssetClass] = useState<'equity' | 'option'>('equity');
+  const [assetClass, setAssetClass] = useState<'equity' | 'option' | 'portfolio'>('equity');
   const [optionsStrategyClass, setOptionsStrategyClass] = useState<string>('multileg');
   const [optionStopLoss, setOptionStopLoss] = useState<number>(50);
   const [optionTakeProfit, setOptionTakeProfit] = useState<number>(50);
@@ -381,6 +382,41 @@ export function BacktestDashboard() {
     }
   };
 
+  if (assetClass === 'portfolio') {
+    return (
+      <div className="flex flex-col h-full w-full bg-[#020203]">
+        <div className="px-4 pt-4 pb-0 flex-shrink-0">
+          <div className="flex bg-[#121215] border border-[#25252E] rounded p-0.5 max-w-[450px] font-mono text-[9px] uppercase font-bold select-none">
+            <button
+              type="button"
+              onClick={() => setAssetClass('equity')}
+              className="flex-1 py-1.5 rounded transition-all text-[#888] hover:text-white"
+            >
+              Equity (OHLCV)
+            </button>
+            <button
+              type="button"
+              onClick={() => setAssetClass('option')}
+              className="flex-1 py-1.5 rounded transition-all text-[#888] hover:text-white"
+            >
+              0DTE Options
+            </button>
+            <button
+              type="button"
+              onClick={() => setAssetClass('portfolio')}
+              className="flex-1 py-1.5 rounded transition-all bg-terminal-green text-black font-bold"
+            >
+              Portfolio Tester
+            </button>
+          </div>
+        </div>
+        <div className="flex-1 min-h-0">
+          <PortfolioTesterDashboard availableTickers={availableTickers} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-[#020203] overflow-y-auto lg:overflow-hidden select-none relative">
       {isRunning && (
@@ -476,14 +512,21 @@ export function BacktestDashboard() {
                           onClick={() => setAssetClass('equity')}
                           className={`flex-1 py-1.5 rounded transition-all ${assetClass === 'equity' ? 'bg-terminal-green text-black font-bold' : 'text-[#888] hover:text-white'}`}
                         >
-                          Equity (OHLCV Bars)
+                          Equity (OHLCV)
                         </button>
                         <button
                           type="button"
                           onClick={() => setAssetClass('option')}
                           className={`flex-1 py-1.5 rounded transition-all ${assetClass === 'option' ? 'bg-terminal-green text-black font-bold' : 'text-[#888] hover:text-white'}`}
                         >
-                          0DTE Options Engine
+                          0DTE Options
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAssetClass('portfolio')}
+                          className={`flex-1 py-1.5 rounded transition-all ${(assetClass as string) === 'portfolio' ? 'bg-terminal-green text-black font-bold' : 'text-[#888] hover:text-white'}`}
+                        >
+                          Portfolio Tester
                         </button>
                       </div>
 
@@ -933,14 +976,21 @@ export function BacktestDashboard() {
                         onClick={() => setAssetClass('equity')}
                         className={`flex-1 py-1.5 rounded transition-all ${assetClass === 'equity' ? 'bg-terminal-green text-black font-bold' : 'text-[#888] hover:text-white'}`}
                       >
-                        Equity (OHLCV Bars)
+                        Equity (OHLCV)
                       </button>
                       <button
                         type="button"
                         onClick={() => setAssetClass('option')}
                         className={`flex-1 py-1.5 rounded transition-all ${assetClass === 'option' ? 'bg-terminal-green text-black font-bold' : 'text-[#888] hover:text-white'}`}
                       >
-                        0DTE Options Engine
+                        0DTE Options
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAssetClass('portfolio')}
+                        className={`flex-1 py-1.5 rounded transition-all ${(assetClass as string) === 'portfolio' ? 'bg-terminal-green text-black font-bold' : 'text-[#888] hover:text-white'}`}
+                      >
+                        Portfolio Tester
                       </button>
                     </div>
 

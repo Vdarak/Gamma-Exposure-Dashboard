@@ -154,3 +154,55 @@ async def test_rates_endpoint():
         assert "usRiskFreeRate" in data
         assert "indiaRiskFreeRate" in data
         assert "source" in data
+
+@pytest.mark.asyncio
+async def test_portfolio_backtest_route():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        payload = {
+            "strategies": [
+                {
+                    "id": "strat1",
+                    "name": "SPY Strategy",
+                    "type": "equity",
+                    "ticker": "SPY",
+                    "weight": 0.5,
+                    "config": {
+                        "timeframe": "1d",
+                        "strategyType": "long",
+                        "indicators": [],
+                        "entryRules": {"indicators": []},
+                        "exitRules": {"indicators": []}
+                    }
+                },
+                {
+                    "id": "strat2",
+                    "name": "SPY Short Strategy",
+                    "type": "equity",
+                    "ticker": "SPY",
+                    "weight": 0.5,
+                    "config": {
+                        "timeframe": "1d",
+                        "strategyType": "short",
+                        "indicators": [],
+                        "entryRules": {"indicators": []},
+                        "exitRules": {"indicators": []}
+                    }
+                }
+            ],
+            "rebalanceFrequency": "weekly",
+            "driftThresholdPercent": 5.0,
+            "initialCapital": 100000.0,
+            "startDate": "2023-01-01",
+            "endDate": "2023-06-30",
+            "benchmark": "SPY",
+            "commission": 0.05,
+            "slippage": 0.1
+        }
+        res = await ac.post("/api/backtest/portfolio/run", json=payload)
+        assert res.status_code == 200
+        data = res.json()
+        assert data["success"] is True
+        assert "data" in data
+        assert "initialCapital" in data["data"]
+        assert "equityCurve" in data["data"]

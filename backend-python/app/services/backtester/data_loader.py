@@ -298,3 +298,72 @@ class DuckDBDataLoader:
                 }
                 for r in results
             ]
+
+    def load_benchmark_data(self, ticker: str, start_date: str, end_date: str) -> list[dict]:
+        """
+        Loads daily closing prices for the benchmark.
+        Falls back to yfinance if local parquet/CSV file is not found.
+        """
+        t = ticker.upper()
+        
+        # 1. Try local storage first
+        try:
+            return self.load_historical_data(t, "1d", start_date, end_date)
+        except FileNotFoundError:
+            logger.info(f"Local benchmark data for {t} not found. Fetching from yfinance...")
+            
+        # 2. Fall back to yfinance
+        try:
+            import yfinance as yf
+            df = yf.download(t, start=start_date, end=end_date, progress=False)
+            if df.empty:
+                raise ValueError(f"No yfinance data found for benchmark {t}")
+            
+            # Flatten multiindex columns if present
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+                
+            df = df.reset_index()
+            res = []
+            for _, row in df.iterrows():
+                dt = row["Date"]
+                if hasattr(dt, "strftime"):
+                    date_str = dt.strftime("%Y-%m-%d")
+                else:
+                    date_str = str(dt).split(" ")[0]
+                
+                # Fetch columns (safely unpack single-values from pandas Series if multiindex residual)
+                def get_float(val):
+                    if hasattr(val, "iloc"):
+                        return float(val.iloc[0])
+                    return float(val) if pd.notna(val) else 0.0
+
+                close_val = get_float(row.get("Close", row.get("Adj Close", 0)))
+                open_val = get_float(row.get("Open", 0))
+                high_val = get_float(row.get("High", 0))
+                low_val = get_float(row.get("Low", 0))
+                vol_val = get_float(row.get("Volume", 0))
+                
+                res.append({
+                    "timestamp": date_str,
+                    "open": open_val,
+                    "high": high_val,
+                    "low": low_val,
+                    "close": close_val,
+                    "volume": vol_val
+                })
+            return res
+        except Exception as e:
+            logger.error(f"Failed to fetch benchmark {t} from yfinance: {e}")
+            dates = pd.date_range(start=start_date, end=end_date, freq='B')
+            return [
+                {
+                    "timestamp": d.strftime("%Y-%m-%d"),
+                    "open": 100.0,
+                    "high": 100.0,
+                    "low": 100.0,
+                    "close": 100.0,
+                    "volume": 0.0
+                }
+                for d in dates
+            ]
