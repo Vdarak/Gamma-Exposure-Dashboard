@@ -1,0 +1,87 @@
+[project]
+name = "gamma-exposure-backend"
+version = "2.0.0"
+requires-python = ">=3.11"
+
+dependencies = [
+    # ── Core Framework ──
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.5.0",
+
+    # ── Database ──
+    "asyncpg>=0.30.0",              # Async PostgreSQL (3x faster than psycopg2)
+    "sqlalchemy>=2.0.25",           # ORM + Core
+    "greenlet",                     # Async dependency for SQLAlchemy ORM
+    "alembic>=1.14.0",              # Database migrations
+    "duckdb>=1.1.0",                # Backtester OHLCV data
+
+    # ── HTTP & Async ──
+    "httpx>=0.27.0",                # Async HTTP client (replaces axios)
+    "aiofiles>=24.1.0",             # Async file I/O
+
+    # ── Data Collection ──
+    "yfinance>=0.2.40",             # Yahoo Finance data
+    "nsepython>=2.8",               # NSE option chains (India)
+    "jugaad-data>=0.25",            # NSE historical data (India)
+    "dhanhq>=2.0",                  # Dhan broker API (India)
+
+    # ── Data Science Core ──
+    "numpy>=1.26.0",
+    "pandas>=2.2.0",
+    "pyarrow",                      # Parquet support for pandas EOD exports
+    "scipy>=1.14.0",
+
+    # ── Greeks & Quant Math ──
+    "opengreeks>=0.2.0",            # Rust-powered Greeks (180x faster)
+    "arch>=7.1.0",                  # GARCH / volatility models (replaces hand-coded)
+    "QuantLib>=1.34",               # Industrial-grade pricing (optional, for exotics)
+
+    # ── Technical Indicators ──
+    "pandas-ta>=0.3.14b",           # 130+ technical indicators
+
+    # ── Backtesting ──
+    "vectorbt>=0.26.2",             # Vectorized backtesting engine
+
+    # ── ML Models ──
+    "scikit-learn>=1.5.0",          # Isolation Forest, preprocessing
+    "xgboost>=2.1.0",               # Gradient boosting classifier
+    "statsmodels>=0.14.0",          # ARIMA, time series
+    "joblib>=1.4.0",                # Model serialization
+
+    # ── Deep Learning ──
+    "torch>=2.4.0",
+    "pytorch-lightning>=2.4.0",
+    "pytorch-forecasting>=1.2.0",
+
+    # ── AI / LLM ──
+    "google-genai>=1.0.0",          # Official Gemini SDK (replaces raw REST calls)
+
+    # ── Scheduling ──
+    "apscheduler>=3.10.0",          # Cron job scheduler (replaces node-cron)
+
+    # ── Billing ──
+    "stripe>=10.0.0",               # Stripe SDK
+
+    # ── Utilities ──
+    "orjson>=3.10.0",               # 10x faster JSON serialization
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8.0",                  # Linter + formatter
+    "ipykernel>=6.29",              # Jupyter support
+]
+
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"

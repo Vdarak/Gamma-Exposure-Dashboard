@@ -112,7 +112,7 @@ export function BacktestDashboard() {
     async function fetchTickers() {
       try {
         setIsLoadingTickers(true);
-        const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001').replace(/\/+$/, '');
+        const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000').replace(/\/+$/, '');
         const response = await fetch(`${BACKEND_URL}/api/backtest/tickers`);
         if (response.ok) {
           const json = await response.json();
@@ -135,7 +135,7 @@ export function BacktestDashboard() {
     async function fetchDateRange() {
       if (!ticker) return;
       try {
-        const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001').replace(/\/+$/, '');
+        const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000').replace(/\/+$/, '');
         const response = await fetch(`${BACKEND_URL}/api/backtest/ticker-info?ticker=${ticker}`);
         if (response.ok) {
           const json = await response.json();
@@ -167,7 +167,7 @@ export function BacktestDashboard() {
     setError(null);
 
     try {
-      const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001').replace(/\/+$/, '');
+      const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000').replace(/\/+$/, '');
       let response;
 
       if (assetClass === 'option') {
@@ -262,7 +262,7 @@ export function BacktestDashboard() {
     setIsChatLoading(true);
 
     try {
-      const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001').replace(/\/+$/, '');
+      const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000').replace(/\/+$/, '');
       const response = await fetch(`${BACKEND_URL}/api/backtest/parse-strategy`, {
         method: 'POST',
         headers: {

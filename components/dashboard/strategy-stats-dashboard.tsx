@@ -31,7 +31,7 @@ export function StrategyStatsDashboard() {
       if (showSpinner) setLoading(true)
       else setRefreshing(true)
       
-      const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001').replace(/\/+$/, '')
+      const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000').replace(/\/+$/, '')
       
       // 1. Fetch live journal trades from the backend
       const response = await fetch(`${BACKEND_URL}/api/journal/trades`)
@@ -73,7 +73,7 @@ export function StrategyStatsDashboard() {
     try {
       setExporting(true)
 
-      const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001').replace(/\/+$/, '')
+      const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000').replace(/\/+$/, '')
       const params = new URLSearchParams()
 
       if (exportTicker.trim() && exportTicker.trim().toUpperCase() !== 'ALL') {

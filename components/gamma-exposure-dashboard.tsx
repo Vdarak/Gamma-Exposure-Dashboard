@@ -289,7 +289,7 @@ export function GammaExposureDashboard() {
       let startSnapshot = null
       let endSnapshot = null
 
-      const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001').replace(/\/+$/, '')
+      const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000').replace(/\/+$/, '')
 
       const fetchSnapshot = async (ts: string | null) => {
         try {

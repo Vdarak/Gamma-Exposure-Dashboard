@@ -50,7 +50,7 @@ export function EnhancedTimeMachine({
   onDataUpdate,
   backendUrl 
 }: EnhancedTimeMachineProps) {
-  const BACKEND_URL = (backendUrl || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001').replace(/\/+$/, '')
+  const BACKEND_URL = (backendUrl || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000').replace(/\/+$/, '')
   
   // Market and ticker state
   const [market, setMarket] = useState<'us' | 'india'>('india')
