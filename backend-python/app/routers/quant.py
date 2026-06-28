@@ -113,3 +113,52 @@ async def get_gex_flow(
         "success": True,
         "data": data
     }
+
+@router.get("/rates")
+async def get_rates(db: AsyncSession = Depends(get_db)):
+    """Retrieves US and India risk-free rates from the database with default fallbacks."""
+    try:
+        from app.models.quant import InterestRate
+        from sqlalchemy import select
+        from datetime import datetime
+
+        stmt = select(InterestRate)
+        res = await db.execute(stmt)
+        rows = res.scalars().all()
+        
+        us_rate = 0.0525
+        india_rate = 0.0650
+        source = "Defaults (No database entries)"
+        updated_at = datetime.utcnow().isoformat()
+        
+        if rows:
+            sources = []
+            for row in rows:
+                if row.rate_key == "US_RISK_FREE":
+                    us_rate = float(row.rate)
+                    updated_at = row.updated_at.isoformat()
+                elif row.rate_key == "INDIA_RISK_FREE":
+                    india_rate = float(row.rate)
+                if row.source:
+                    sources.append(row.source)
+            if sources:
+                source = " / ".join(list(set(sources)))
+            else:
+                source = "Database"
+                
+        return {
+            "success": True,
+            "usRiskFreeRate": us_rate,
+            "indiaRiskFreeRate": india_rate,
+            "source": source,
+            "updatedAt": updated_at
+        }
+    except Exception as e:
+        from datetime import datetime
+        return {
+            "success": False,
+            "usRiskFreeRate": 0.0525,
+            "indiaRiskFreeRate": 0.0650,
+            "source": f"Error fallback: {str(e)}",
+            "updatedAt": datetime.utcnow().isoformat()
+        }

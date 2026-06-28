@@ -142,3 +142,15 @@ async def test_ml_predictions_endpoint():
             async with AsyncSessionLocal() as session:
                 await session.execute(text("DELETE FROM option_snapshots WHERE id = :id"), {"id": snap_id})
                 await session.commit()
+
+@pytest.mark.asyncio
+async def test_rates_endpoint():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get("/api/rates")
+        assert res.status_code == 200
+        data = res.json()
+        assert "success" in data
+        assert "usRiskFreeRate" in data
+        assert "indiaRiskFreeRate" in data
+        assert "source" in data
