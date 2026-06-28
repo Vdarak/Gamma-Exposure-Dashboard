@@ -275,6 +275,11 @@ async def run_options_backtest(db: AsyncSession, config: dict) -> dict:
 
     logger.info(f"Running options backtest: Ticker={ticker}, Class={strat_class}")
 
+    # Convert start_date and end_date strings to datetimes for strict SQL typing
+    from datetime import datetime, time
+    start_dt = datetime.combine(datetime.strptime(start_date.split("T")[0], "%Y-%m-%d").date(), time.min)
+    end_dt = datetime.combine(datetime.strptime(end_date.split("T")[0], "%Y-%m-%d").date(), time.max)
+
     # Fetch suggestions
     stmt = select(
         OptionSuggestionHistory.id,
@@ -283,8 +288,8 @@ async def run_options_backtest(db: AsyncSession, config: dict) -> dict:
         OptionSuggestionHistory.recorded_legs
     ).where(
         OptionSuggestionHistory.ticker == ticker,
-        OptionSuggestionHistory.timestamp >= start_date,
-        OptionSuggestionHistory.timestamp <= end_date
+        OptionSuggestionHistory.timestamp >= start_dt,
+        OptionSuggestionHistory.timestamp <= end_dt
     ).order_by(OptionSuggestionHistory.timestamp.asc())
 
     res = await db.execute(stmt)
