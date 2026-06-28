@@ -43,12 +43,21 @@ function formatBillions(num: number): string {
   return `${num >= 0 ? '+' : '−'}${(val * 1e9).toFixed(0)}`
 }
 
-// Axis formatter: domain values are in billions (0–2), output shows “+200M” style
+// Axis formatter: domain values are in billions (0–2), output shows “+200M” or "+50k" style
 function formatAxisM(domainVal: number): string {
   if (domainVal === 0) return '0'
   const sign = domainVal > 0 ? '+' : '−'
-  const absM = Math.round(Math.abs(domainVal) * 1000)
-  return `${sign}${absM}M`
+  const absVal = Math.abs(domainVal)
+  
+  if (absVal >= 0.001) {
+    const millions = absVal * 1000
+    const formatted = millions % 1 === 0 ? millions.toFixed(0) : millions.toFixed(1)
+    return `${sign}${formatted}M`
+  } else {
+    const thousands = absVal * 1000000
+    const formatted = thousands % 1 === 0 ? thousands.toFixed(0) : thousands.toFixed(1)
+    return `${sign}${formatted}k`
+  }
 }
 
 interface SyncedStrikeWorkspaceProps {
@@ -540,11 +549,23 @@ export function SyncedStrikeWorkspace({
         ]
       }
     })
-    const peak = Math.max(...vals, 0.01) // at least 10M headroom
-    // Round up to a "clean" value: next multiple of 200M (0.2 in billion-scale)
-    const limit = peak
-    const step = 0.2 // 200M
-    return Math.ceil(limit / step) * step
+    const peak = Math.max(...vals, 0.0001) // at least 100k headroom
+    
+    // Dynamically calculate clean scale limits depending on the order of magnitude
+    const orderOfMagnitude = Math.pow(10, Math.floor(Math.log10(peak))) || 0.0001
+    let step = orderOfMagnitude
+    const ratio = peak / orderOfMagnitude
+    
+    if (ratio > 5) {
+      step = orderOfMagnitude * 2
+    } else if (ratio > 2) {
+      step = orderOfMagnitude
+    } else {
+      step = orderOfMagnitude / 2
+    }
+    
+    if (step <= 0) step = 0.0001
+    return Math.ceil(peak / step) * step
   }, [leftProfileDataCombined, showAbsolute])
 
   // Right chart: ticker-aware max for Volume (contracts) AND Vanna/Charm (billion-scale)
@@ -586,9 +607,22 @@ export function SyncedStrikeWorkspace({
         ]
       }
     })
-    const peak = Math.max(...vals, 0.01)
+    const peak = Math.max(...vals, 0.0001)
     const limit = peak / 0.75
-    const step = 0.2 // 200M in billion-scale
+    
+    const orderOfMagnitude = Math.pow(10, Math.floor(Math.log10(limit))) || 0.0001
+    let step = orderOfMagnitude
+    const ratio = limit / orderOfMagnitude
+    
+    if (ratio > 5) {
+      step = orderOfMagnitude * 2
+    } else if (ratio > 2) {
+      step = orderOfMagnitude
+    } else {
+      step = orderOfMagnitude / 2
+    }
+    
+    if (step <= 0) step = 0.0001
     return Math.ceil(limit / step) * step
   }, [rightProfileDataCombined, displayMode, showAbsolute])
 
