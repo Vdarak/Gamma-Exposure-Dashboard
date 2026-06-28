@@ -225,6 +225,14 @@ class VectorBTEngine:
             except (ValueError, TypeError):
                 return default
 
+        final_capital = get_stat("End Value", initial_capital)
+        total_pnl = final_capital - initial_capital
+        avg_pnl = float(np.mean([t["pnl"] for t in trades_list])) if trades_list else 0.0
+        avg_pnl_percent = float(np.mean([t["return_pct"] for t in trades_list])) if trades_list else 0.0
+        median_pnl = float(np.median([t["pnl"] for t in trades_list])) if trades_list else 0.0
+        max_dd = get_stat("Max Drawdown [%]")
+        return_to_dd = (total_pnl / initial_capital * 100.0) / max_dd if max_dd > 0 else 0.0
+
         result_dict = {
             "ticker": ticker,
             "startDate": start_date,
@@ -233,11 +241,11 @@ class VectorBTEngine:
             "timeframe": timeframe,
             "strategy_name": config.get("strategyType", "long"),
             "initialCapital": initial_capital,
-            "finalCapital": get_stat("End Value", initial_capital),
+            "finalCapital": final_capital,
             "totalReturnPercent": get_stat("Total Return [%]"),
             "benchmark_return_pct": get_stat("Benchmark Return [%]"),
             "totalFees": get_stat("Total Fees Paid"),
-            "maxDrawdownPercent": get_stat("Max Drawdown [%]"),
+            "maxDrawdownPercent": max_dd,
             "ddDurationDays": int(get_stat("Max Drawdown Duration", 0.0)),
             "totalTrades": int(get_stat("Total Trades")),
             "winningTrades": int(get_stat("Total Trades") * get_stat("Win Rate [%]") / 100.0) if get_stat("Total Trades") > 0 else 0,
@@ -259,6 +267,19 @@ class VectorBTEngine:
             "returns_distribution": daily_returns,
             "ohlcv": ohlcv,
             "indicators": indicators_overlay,
-            "tradeMarkers": trade_markers
+            "tradeMarkers": trade_markers,
+            
+            # Rich performance & risk metrics for UI parity
+            "totalPnl": total_pnl,
+            "avgPnl": avg_pnl,
+            "avgPnlPercent": avg_pnl_percent,
+            "medianPnl": median_pnl,
+            "ddStart": start_date,
+            "ddEnd": end_date,
+            "ddRecovery": "N/A",
+            "ddDurationBars": 0,
+            "returnToDrawdown": return_to_dd,
+            "winningStreak": 0,
+            "losingStreak": 0
         }
         return sanitize_floats(result_dict)
