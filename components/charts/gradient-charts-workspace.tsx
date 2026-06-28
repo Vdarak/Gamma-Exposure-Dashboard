@@ -288,16 +288,16 @@ export function GradientChartsWorkspace({
               <div className="flex items-center gap-2">
                 <Clock className="w-3.5 h-3.5 text-terminal-green" />
                 <span className="text-[10px] font-mono text-white font-semibold min-w-[150px]">
-                  {activeSnapshot?.timestamp.toLocaleString([], {
+                  {activeSnapshot?.timestamp ? (activeSnapshot.timestamp instanceof Date ? activeSnapshot.timestamp : new Date(activeSnapshot.timestamp)).toLocaleString([], {
                     month: 'short',
                     day: 'numeric',
                     hour: '2-digit',
                     minute: '2-digit',
                     second: '2-digit'
-                  })}
+                  }) : 'N/A'}
                 </span>
                 <span className="text-[9px] font-mono text-[#888]">
-                  Spot: <span className="text-white font-bold">{activeSnapshot?.spotPrice.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</span>
+                  Spot: <span className="text-white font-bold">{activeSnapshot?.spotPrice !== undefined ? activeSnapshot.spotPrice.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : 'N/A'}</span>
                 </span>
               </div>
               <input

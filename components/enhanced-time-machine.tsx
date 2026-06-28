@@ -515,20 +515,20 @@ export function EnhancedTimeMachine({
 
               <div className="flex justify-between text-xs text-gray-500">
                 <span>
-                  {oldestTimestamp?.toLocaleString('en-US', {
+                  {oldestTimestamp ? (oldestTimestamp instanceof Date ? oldestTimestamp : new Date(oldestTimestamp)).toLocaleString('en-US', {
                     month: 'short',
                     day: 'numeric',
                     hour: '2-digit',
                     minute: '2-digit',
-                  })}
+                  }) : 'N/A'}
                 </span>
                 <span>
-                  {newestTimestamp?.toLocaleString('en-US', {
+                  {newestTimestamp ? (newestTimestamp instanceof Date ? newestTimestamp : new Date(newestTimestamp)).toLocaleString('en-US', {
                     month: 'short',
                     day: 'numeric',
                     hour: '2-digit',
                     minute: '2-digit',
-                  })}
+                  }) : 'N/A'}
                 </span>
               </div>
             </div>
