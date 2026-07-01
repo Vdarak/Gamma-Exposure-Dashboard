@@ -15,6 +15,7 @@ export interface OptionData {
   GEX_BS?: number
   VEX_BS?: number
   CEX_BS?: number
+  DEX_BS?: number
   daysTillExp?: number
 }
 

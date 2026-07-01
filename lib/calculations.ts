@@ -1086,3 +1086,78 @@ export function computeCharmByStrike(
   return result.sort((a, b) => a.strike - b.strike)
 }
 
+function localNormalCDF(x: number): number {
+  const a1 = 0.254829592;
+  const a2 = -0.284496736;
+  const a3 = 1.421413741;
+  const a4 = -1.453152027;
+  const a5 = 1.061405429;
+  const p = 0.3275911;
+
+  const sign = x < 0 ? -1 : 1;
+  x = Math.abs(x) / Math.sqrt(2.0);
+
+  const t = 1.0 / (1.0 + p * x);
+  const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+
+  return 0.5 * (1.0 + sign * y);
+}
+
+function localCalculateBSDelta(S: number, K: number, T: number, r: number, vol: number, isCall: boolean): number {
+  if (T <= 0 || vol <= 0 || S <= 0 || K <= 0) return isCall ? 0.5 : -0.5;
+  const d1 = (Math.log(S / K) + (r + 0.5 * vol * vol) * T) / (vol * Math.sqrt(T));
+  return isCall ? localNormalCDF(d1) : localNormalCDF(d1) - 1;
+}
+
+export interface DeltaByStrike {
+  strike: number
+  delta: number
+}
+
+/**
+ * Computes Delta Exposure aggregated by strike price.
+ * DEX = Delta * OI * 100 * Spot
+ * For calls: positive delta. For puts: negative delta.
+ * Normalized to billions.
+ */
+export function computeDeltaByStrike(
+  spot: number,
+  data: OptionData[],
+  pricingMethod: PricingMethod = 'black-scholes',
+  referenceDate = new Date()
+): DeltaByStrike[] {
+  data.forEach((option) => {
+    const daysDiff = Math.max(1, Math.ceil((option.expiration.getTime() - referenceDate.getTime()) / (1000 * 60 * 60 * 24)))
+    option.daysTillExp = daysDiff === 0 ? 1 / 365.25 : daysDiff / 365.25
+  })
+
+  const deltaByStrike = new Map<number, number>()
+  data.forEach((option) => {
+    let d = option.delta || 0
+    if (d === 0) {
+      const vol = option.iv && option.iv > 0 ? option.iv / 100 : 0.3
+      const isCall = option.type === "C"
+      // Default rate 0.05
+      d = localCalculateBSDelta(spot, option.strike, option.daysTillExp!, 0.05, vol, isCall)
+    }
+
+    // Ensure Calls are positive delta and Puts are negative delta
+    if (option.type === "P" && d > 0) d = -d
+    if (option.type === "C" && d < 0) d = -d
+
+    // Delta Exposure = d * OI * 100 * Spot
+    const dex = d * option.open_interest * CONTRACT_SIZE * spot
+    option.DEX_BS = dex
+
+    const currentDelta = deltaByStrike.get(option.strike) || 0
+    deltaByStrike.set(option.strike, currentDelta + dex)
+  })
+
+  const result: DeltaByStrike[] = []
+  deltaByStrike.forEach((delta, strike) => {
+    result.push({ strike, delta: delta / 1e9 })
+  })
+  return result.sort((a, b) => a.strike - b.strike)
+}
+
+

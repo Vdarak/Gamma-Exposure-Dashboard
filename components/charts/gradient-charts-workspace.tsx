@@ -8,11 +8,13 @@ import {
   computeGEXByStrike,
   computeVannaByStrike,
   computeCharmByStrike,
+  computeDeltaByStrike,
   findZeroGammaLevel,
   type PricingMethod
 } from "@/lib/calculations"
 import { colors, typography } from "@/lib/design-tokens"
 import { BACKEND_URL } from "@/lib/backend-api"
+import * as echarts from "echarts"
 
 interface OptionSnapshot {
   timestamp: Date
@@ -45,8 +47,8 @@ export function GradientChartsWorkspace({
   })
 
   // Chart configuration states
-  const [greekModeTop, setGreekModeTop] = useState<'gamma' | 'vanna' | 'charm'>('gamma')
-  const [greekModeBottom, setGreekModeBottom] = useState<'gamma' | 'vanna' | 'charm'>('charm')
+  const [greekModeTop, setGreekModeTop] = useState<'gamma' | 'vanna' | 'charm' | 'delta'>('gamma')
+  const [greekModeBottom, setGreekModeBottom] = useState<'gamma' | 'vanna' | 'charm' | 'delta'>('charm')
   const [activeZoom, setActiveZoom] = useState<number>(3) // ±3% by default
   const [rthOnly, setRthOnly] = useState(true)
 
@@ -54,6 +56,8 @@ export function GradientChartsWorkspace({
   const [selectedTimeIdx, setSelectedTimeIdx] = useState<number | null>(null)
   const [hoveredTimeIdx, setHoveredTimeIdx] = useState<number | null>(null)
   const [hoveredStrike, setHoveredStrike] = useState<number | null>(null)
+
+  const [yahooCandles, setYahooCandles] = useState<any[]>([])
 
   // Fetch rates
   useEffect(() => {
@@ -70,6 +74,27 @@ export function GradientChartsWorkspace({
       })
       .catch(err => console.error("Error loading rates in gradient view:", err))
   }, [])
+
+  // Fetch Yahoo Finance 5-minute candles
+  useEffect(() => {
+    fetch(`/api/history/${ticker}?timeframe=5m`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && Array.isArray(data.candles)) {
+          setYahooCandles(data.candles)
+        }
+      })
+      .catch(err => console.error("Error loading Yahoo Finance candles in gradient view:", err))
+  }, [ticker, optionData])
+
+  const fitToView = () => {
+    if (history.length === 0) return
+    const allStrikes = Array.from(new Set(history[0].options.map(o => o.strike)))
+    if (allStrikes.length === 0) return
+    const maxDiff = Math.max(...allStrikes.map(s => Math.abs(s - spotPrice)))
+    const pct = Math.ceil((maxDiff / spotPrice) * 100)
+    setActiveZoom(Math.min(10, Math.max(1, pct)))
+  }
 
   const activeR = market === 'INDIA' ? ratesInfo.indiaRiskFreeRate : ratesInfo.usRiskFreeRate
   const activeQ = market === 'INDIA' ? 0.012 : 0.013
@@ -197,16 +222,29 @@ export function GradientChartsWorkspace({
             </button>
           </div>
 
-          {/* RTH Toggle */}
           <button
-            onClick={() => setRthOnly(!rthOnly)}
-            className={`px-2.5 py-0.5 rounded text-[9px] font-mono transition-all font-bold border ${
-              rthOnly 
-                ? 'bg-terminal-green/15 text-terminal-green border-terminal-green/30'
-                : 'bg-transparent text-[#777] border-transparent hover:text-white'
-            }`}
+            onClick={() => setActiveZoom(3)}
+            className="px-2 py-0.5 rounded text-[9px] font-mono border border-[#1A1A1E] text-[#888] hover:text-white hover:bg-[#111] transition-colors font-bold"
+            title="Reset Zoom (±3%)"
             type="button"
-            title="Toggle Regular Trading Hours Only"
+          >
+            Reset
+          </button>
+          <button
+            onClick={fitToView}
+            className="px-2 py-0.5 rounded text-[9px] font-mono border border-[#1A1A1E] text-[#888] hover:text-white hover:bg-[#111] transition-colors font-bold"
+            title="Fit to View (Show all strikes)"
+            type="button"
+          >
+            Fit
+          </button>
+
+          {/* RTH Fixed Indicator */}
+          <button
+            className="px-2.5 py-0.5 rounded text-[9px] font-mono font-bold border bg-terminal-green/15 text-terminal-green border-terminal-green/30 cursor-default"
+            type="button"
+            title="Regular Trading Hours (RTH)"
+            disabled
           >
             RTH
           </button>
@@ -258,6 +296,7 @@ export function GradientChartsWorkspace({
                 setHoveredTimeIdx={setHoveredTimeIdx}
                 hoveredStrike={hoveredStrike}
                 setHoveredStrike={setHoveredStrike}
+                yahooCandles={yahooCandles}
               />
             </div>
 
@@ -280,6 +319,7 @@ export function GradientChartsWorkspace({
                 setHoveredTimeIdx={setHoveredTimeIdx}
                 hoveredStrike={hoveredStrike}
                 setHoveredStrike={setHoveredStrike}
+                yahooCandles={yahooCandles}
               />
             </div>
 
@@ -595,11 +635,11 @@ function PositionsProfileView({
 }
 
 // ────────────────────────────────────────────────────────
-// GRADIENT HEATMAP CHART COMPONENT (Canvas rendering)
+// GRADIENT HEATMAP CHART COMPONENT (Apache ECharts + SVG)
 // ────────────────────────────────────────────────────────
 interface GradientHeatmapChartProps {
-  greekMode: 'gamma' | 'vanna' | 'charm'
-  onGreekModeChange: (mode: 'gamma' | 'vanna' | 'charm') => void
+  greekMode: 'gamma' | 'vanna' | 'charm' | 'delta'
+  onGreekModeChange: (mode: 'gamma' | 'vanna' | 'charm' | 'delta') => void
   history: OptionSnapshot[]
   strikes: number[]
   ticker: string
@@ -614,6 +654,7 @@ interface GradientHeatmapChartProps {
   setHoveredTimeIdx: (idx: number | null) => void
   hoveredStrike: number | null
   setHoveredStrike: (strike: number | null) => void
+  yahooCandles: any[]
 }
 
 function GradientHeatmapChart({
@@ -632,26 +673,20 @@ function GradientHeatmapChart({
   hoveredTimeIdx,
   setHoveredTimeIdx,
   hoveredStrike,
-  setHoveredStrike
+  setHoveredStrike,
+  yahooCandles
 }: GradientHeatmapChartProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const chartRef = useRef<HTMLDivElement>(null)
+  const chartInstanceRef = useRef<echarts.ECharts | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const [dims, setDims] = useState({ width: 600, height: 300 })
   const [tooltipData, setTooltipData] = useState<any | null>(null)
-
-  useEffect(() => {
-    if (!containerRef.current) return
-    const observer = new ResizeObserver(entries => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect
-        if (width > 0 && height > 0) {
-          setDims({ width, height })
-        }
-      }
-    })
-    observer.observe(containerRef.current)
-    return () => observer.disconnect()
-  }, [])
+  const [crosshairPos, setCrosshairPos] = useState<{ x: number; y: number; valX: number; valY: number } | null>(null)
+  const [gridRect, setGridRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null)
+  const [svgPaths, setSvgPaths] = useState({
+    callWall: '',
+    putWall: ''
+  })
+  const [svgCandles, setSvgCandles] = useState<any[]>([])
 
   // Memoize aggregated exposures for each grid cell
   const gridExposures = useMemo(() => {
@@ -664,8 +699,10 @@ function GradientHeatmapChart({
         profile = computeGEXByStrike(snap.spotPrice, snap.options, pricingMethod, snap.timestamp)
       } else if (greekMode === 'vanna') {
         profile = computeVannaByStrike(snap.spotPrice, snap.options, activeR, activeQ, pricingMethod, snap.timestamp)
-      } else {
+      } else if (greekMode === 'charm') {
         profile = computeCharmByStrike(snap.spotPrice, snap.options, activeR, activeQ, pricingMethod, snap.timestamp)
+      } else {
+        profile = computeDeltaByStrike(snap.spotPrice, snap.options, pricingMethod, snap.timestamp)
       }
 
       // Map back to our exact visible strikes
@@ -673,377 +710,415 @@ function GradientHeatmapChart({
         const item = profile.find(p => p.strike === s)
         if (greekMode === 'gamma') return item?.gex || 0
         if (greekMode === 'vanna') return item?.vanna || 0
-        return item?.charm || 0
+        if (greekMode === 'charm') return item?.charm || 0
+        return item?.delta || 0
       })
 
-      // Calculate Zero Line (Gamma/Vanna/Charm Flip)
-      let zeroLineVal = snap.spotPrice
-      if (greekMode === 'gamma') {
-        const zeroG = findZeroGammaLevel(snap.options, snap.spotPrice, undefined, snap.timestamp)
-        if (zeroG) zeroLineVal = zeroG
-      } else {
-        // Zero crossing search for VEX or CEX
-        const crossings: number[] = []
-        for (let i = 0; i < profile.length - 1; i++) {
-          const val1 = greekMode === 'vanna' ? profile[i].vanna : profile[i].charm
-          const val2 = greekMode === 'vanna' ? profile[i + 1].vanna : profile[i + 1].charm
-          if (val1 * val2 < 0) {
-            crossings.push((profile[i].strike + profile[i + 1].strike) / 2)
-          }
+      // Always resolve Gamma Call/Put walls to draw the SVG overlay lines
+      const gexProfile = computeGEXByStrike(snap.spotPrice, snap.options, pricingMethod, snap.timestamp)
+      let callWallStrike: number | null = null
+      let maxGex = -Infinity
+      let putWallStrike: number | null = null
+      let minGex = Infinity
+
+      gexProfile.forEach(p => {
+        if (p.gex > maxGex && p.gex > 0) {
+          maxGex = p.gex
+          callWallStrike = p.strike
         }
-        if (crossings.length > 0) zeroLineVal = crossings[0]
-      }
+        if (p.gex < minGex && p.gex < 0) {
+          minGex = p.gex
+          putWallStrike = p.strike
+        }
+      })
 
       return {
         timestamp: snap.timestamp,
         spotPrice: snap.spotPrice,
-        zeroLevel: zeroLineVal,
+        callWall: callWallStrike,
+        putWall: putWallStrike,
         values: rowValues
       }
     })
   }, [history, strikes, greekMode, pricingMethod, activeR, activeQ])
 
-  // Canvas Heatmap rendering
-  useEffect(() => {
-    if (!canvasRef.current || gridExposures.length === 0 || strikes.length === 0) return
-    const canvas = canvasRef.current
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
+  const timeLabels = useMemo(() => {
+    return gridExposures.map(g => g.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }))
+  }, [gridExposures])
 
-    const dpr = window.devicePixelRatio || 1
-    const { width, height } = dims
-    canvas.width = width * dpr
-    canvas.height = height * dpr
-    ctx.scale(dpr, dpr)
+  const strikeLabels = useMemo(() => {
+    return strikes.map(s => s.toString())
+  }, [strikes])
 
-    // Clear chart
-    ctx.fillStyle = '#050508'
-    ctx.fillRect(0, 0, width, height)
+  const heatmapData = useMemo(() => {
+    const data: [number, number, number][] = []
+    gridExposures.forEach((snap, x) => {
+      snap.values.forEach((v, y) => {
+        data.push([x, y, v])
+      })
+    })
+    return data
+  }, [gridExposures])
 
-    // Margins
-    const margins = { top: 30, right: 52, bottom: 25, left: 10 }
-    const chartW = width - margins.left - margins.right
-    const chartH = height - margins.top - margins.bottom
+  const maxVal = useMemo(() => {
+    let maxAbs = 0
+    gridExposures.forEach(snap => {
+      snap.values.forEach(v => {
+        const absVal = Math.abs(v)
+        if (absVal > maxAbs) maxAbs = absVal
+      })
+    })
+    return maxAbs > 0 ? maxAbs * 0.95 : 1.0
+  }, [gridExposures])
+
+  const colorsMap = useMemo(() => {
+    if (greekMode === 'gamma' || greekMode === 'delta') {
+      return [colors.accent.red, '#0A0A0A', colors.accent.green] // Red -> Black -> Green
+    }
+    if (greekMode === 'vanna') {
+      return [colors.accent.cyan, '#0A0A0A', colors.accent.purple] // Cyan -> Black -> Purple
+    }
+    return [colors.accent.amber, '#0A0A0A', colors.accent.cyan] // Amber -> Black -> Cyan
+  }, [greekMode])
+
+  const getStrikeIndex = (strikeVal: number) => {
+    if (strikes.length === 0) return 0
+    const exactIdx = strikes.indexOf(strikeVal)
+    if (exactIdx !== -1) return exactIdx
+
+    if (strikeVal <= strikes[0]) return 0
+    if (strikeVal >= strikes[strikes.length - 1]) return strikes.length - 1
+
+    for (let i = 0; i < strikes.length - 1; i++) {
+      if (strikeVal >= strikes[i] && strikeVal <= strikes[i + 1]) {
+        const pct = (strikeVal - strikes[i]) / (strikes[i + 1] - strikes[i])
+        return i + pct
+      }
+    }
+    return 0
+  }
+
+  const getYPixel = (chart: echarts.ECharts, price: number) => {
+    const idx = getStrikeIndex(price)
+    const pixel = chart.convertToPixel({ xAxisIndex: 0, yAxisIndex: 0 }, [0, idx])
+    return pixel ? pixel[1] : 0
+  }
+
+  const updateOverlayPaths = () => {
+    const chart = chartInstanceRef.current
+    if (!chart || gridExposures.length === 0 || strikes.length === 0) return
 
     const numTimeSteps = gridExposures.length
-    const numStrikes = strikes.length
+    
+    // Resolve extreme corners for gridRect boundary
+    const x0 = chart.convertToPixel({ xAxisIndex: 0, yAxisIndex: 0 }, [0, 0])?.[0]
+    const x1 = chart.convertToPixel({ xAxisIndex: 0, yAxisIndex: 0 }, [numTimeSteps - 1, 0])?.[0]
+    const y0 = chart.convertToPixel({ xAxisIndex: 0, yAxisIndex: 0 }, [0, 0])?.[1]
+    const y1 = chart.convertToPixel({ xAxisIndex: 0, yAxisIndex: 0 }, [0, strikes.length - 1])?.[1]
 
-    // ─── Render Heatmap via Offscreen Canvas for Bicubic scale smoothness ───
-    const offscreen = document.createElement('canvas')
-    offscreen.width = numTimeSteps
-    offscreen.height = numStrikes
-    const oCtx = offscreen.getContext('2d')
-    if (oCtx) {
-      const oImgData = oCtx.createImageData(numTimeSteps, numStrikes)
-      
-      // Determine max value to normalize color scale
-      const allVals = gridExposures.flatMap(g => g.values.map(Math.abs))
-      const maxVal = (d3.max(allVals) || 1) * 0.9
+    if (x0 === undefined || x1 === undefined || y0 === undefined || y1 === undefined || isNaN(x0) || isNaN(y0)) return
 
-      for (let x = 0; x < numTimeSteps; x++) {
-        const snap = gridExposures[x]
-        for (let y = 0; y < numStrikes; y++) {
-          const val = snap.values[y]
-          const valRatio = maxVal > 0 ? val / maxVal : 0
-          
-          // Cluster Focus Filtering: Filter out values below 18% threshold and rescale
-          const absRatio = Math.abs(valRatio)
-          let finalRatio = 0
-          if (absRatio >= 0.18) {
-            finalRatio = (absRatio - 0.18) / (1.0 - 0.18)
-          }
-          
-          // Apply power scale (exponent = 0.40) to boost cluster density
-          const normVal = Math.sign(valRatio) * Math.pow(finalRatio, 0.40)
-          
-          // Row index in canvas image data is inverted (Y=0 is top, which corresponds to highest strike)
-          const imgY = numStrikes - 1 - y
-          const pixelIdx = (imgY * numTimeSteps + x) * 4
+    const left = Math.min(x0, x1)
+    const right = Math.max(x0, x1)
+    const top = Math.min(y0, y1)
+    const bottom = Math.max(y0, y1)
 
-          let r = 0, g = 0, b = 0
-          if (greekMode === 'gamma') {
-            // Gamma: Positive = neon emerald green, Negative = vibrant crimson/brick red
-            if (normVal >= 0) {
-              r = Math.round(0)
-              g = Math.round(15 + 240 * normVal)
-              b = Math.round(5 + 100 * normVal)
-            } else {
-              const abs = Math.abs(normVal)
-              r = Math.round(30 + 225 * abs)
-              g = Math.round(2)
-              b = Math.round(10 + 20 * abs)
-            }
-          } else if (greekMode === 'vanna') {
-            // Vanna: Positive = neon magenta/purple, Negative = vibrant electric blue
-            if (normVal >= 0) {
-              r = Math.round(30 + 225 * normVal)
-              g = Math.round(0)
-              b = Math.round(30 + 225 * normVal)
-            } else {
-              const abs = Math.abs(normVal)
-              r = Math.round(0)
-              g = Math.round(10 + 90 * abs)
-              b = Math.round(40 + 215 * abs)
-            }
-          } else {
-            // Charm: Positive = vibrant sky blue, Negative = golden orange/amber
-            if (normVal >= 0) {
-              r = Math.round(0)
-              g = Math.round(20 + 180 * normVal)
-              b = Math.round(30 + 225 * normVal)
-            } else {
-              const abs = Math.abs(normVal)
-              r = Math.round(40 + 215 * abs)
-              g = Math.round(20 + 160 * abs)
-              b = Math.round(0)
-            }
-          }
+    const colW = numTimeSteps > 1 ? Math.abs(x0 - x1) / (numTimeSteps - 1) : 10
+    const rowH = strikes.length > 1 ? Math.abs(y0 - y1) / (strikes.length - 1) : 10
 
-          oImgData.data[pixelIdx] = r
-          oImgData.data[pixelIdx + 1] = g
-          oImgData.data[pixelIdx + 2] = b
-          oImgData.data[pixelIdx + 3] = normVal !== 0 ? 255 : 0 // Transparent for black to merge cleanly
+    const clipLeft = left - colW / 2
+    const clipRight = right + colW / 2
+    const clipTop = top - rowH / 2
+    const clipBottom = bottom + rowH / 2
+
+    setGridRect({
+      left: clipLeft,
+      top: clipTop,
+      width: clipRight - clipLeft,
+      height: clipBottom - clipTop
+    })
+
+    // 1. Call Wall & Put Wall paths
+    const pointsCallWall: string[] = []
+    const pointsPutWall: string[] = []
+
+    gridExposures.forEach((snap, idx) => {
+      if (snap.callWall !== null) {
+        const callIdx = getStrikeIndex(snap.callWall)
+        const pixelCall = chart.convertToPixel({ xAxisIndex: 0, yAxisIndex: 0 }, [idx, callIdx])
+        if (pixelCall && !isNaN(pixelCall[0]) && !isNaN(pixelCall[1])) {
+          pointsCallWall.push(`${pixelCall[0]},${pixelCall[1]}`)
         }
       }
-      oCtx.putImageData(oImgData, 0, 0)
+      if (snap.putWall !== null) {
+        const putIdx = getStrikeIndex(snap.putWall)
+        const pixelPut = chart.convertToPixel({ xAxisIndex: 0, yAxisIndex: 0 }, [idx, putIdx])
+        if (pixelPut && !isNaN(pixelPut[0]) && !isNaN(pixelPut[1])) {
+          pointsPutWall.push(`${pixelPut[0]},${pixelPut[1]}`)
+        }
+      }
+    })
+
+    setSvgPaths({
+      callWall: pointsCallWall.length > 0 ? `M ${pointsCallWall.join(' L ')}` : '',
+      putWall: pointsPutWall.length > 0 ? `M ${pointsPutWall.join(' L ')}` : ''
+    })
+
+    // 2. Candlesticks Overlay Calculation (No fallbacks / mock candles)
+    const candlesToRender: any[] = []
+    gridExposures.forEach((snap, idx) => {
+      const snapTime = snap.timestamp.getTime()
       
-      // Draw offscreen heatmap scaled onto main chart coordinate area
-      ctx.save()
-      ctx.imageSmoothingEnabled = true // Enable bilinear smoothing for gorgeous flow gradients
-      ctx.drawImage(offscreen, margins.left, margins.top, chartW, chartH)
-      ctx.restore()
+      // Match with the closest real candle within 5m
+      const closestCandle = yahooCandles.find(c => Math.abs(c.timestamp - snapTime) <= 5 * 60 * 1000)
+      
+      if (closestCandle) {
+        const x = chart.convertToPixel({ xAxisIndex: 0, yAxisIndex: 0 }, [idx, 0])?.[0]
+        const yOpen = getYPixel(chart, closestCandle.open)
+        const yHigh = getYPixel(chart, closestCandle.high)
+        const yLow = getYPixel(chart, closestCandle.low)
+        const yClose = getYPixel(chart, closestCandle.close)
 
-      // ─── Film Grain Texture Overlay ───
-      ctx.save()
-      const grainDensity = 0.08
-      const noiseCount = Math.floor(chartW * chartH * grainDensity)
-      const grainSize = 1
-
-      // White grainy noise
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.035)'
-      for (let i = 0; i < noiseCount; i++) {
-        const gx = margins.left + Math.random() * chartW
-        const gy = margins.top + Math.random() * chartH
-        ctx.fillRect(gx, gy, grainSize, grainSize)
+        if (x !== undefined && !isNaN(x) && !isNaN(yOpen) && !isNaN(yClose)) {
+          candlesToRender.push({
+            x,
+            yOpen,
+            yClose,
+            yHigh,
+            yLow,
+            width: Math.max(3, colW * 0.5),
+            isUp: closestCandle.close >= closestCandle.open
+          })
+        }
       }
+    })
+    setSvgCandles(candlesToRender)
+  }
 
-      // Black grainy noise
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.045)'
-      for (let i = 0; i < noiseCount; i++) {
-        const gx = margins.left + Math.random() * chartW
-        const gy = margins.top + Math.random() * chartH
-        ctx.fillRect(gx, gy, grainSize, grainSize)
+  // Ref to wrap updateOverlayPaths to avoid stale closure issues in chart handlers
+  const updateOverlayPathsRef = useRef(updateOverlayPaths)
+  useEffect(() => {
+    updateOverlayPathsRef.current = updateOverlayPaths
+  })
+
+  // Initialize ECharts once
+  useEffect(() => {
+    if (!chartRef.current) return
+
+    const chart = echarts.init(chartRef.current, null, {
+      renderer: 'canvas'
+    })
+    chartInstanceRef.current = chart
+
+    const handleResize = () => {
+      chart.resize()
+      updateOverlayPathsRef.current()
+    }
+    window.addEventListener('resize', handleResize)
+
+    chart.on('finished', () => {
+      updateOverlayPathsRef.current()
+    })
+
+    chart.on('dataZoom', () => {
+      updateOverlayPathsRef.current()
+    })
+
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      chart.dispose()
+      chartInstanceRef.current = null
+    }
+  }, [])
+
+  // Update ECharts options when data changes
+  useEffect(() => {
+    const chart = chartInstanceRef.current
+    if (!chart || gridExposures.length === 0 || strikes.length === 0) return
+
+    const option: echarts.EChartsOption = {
+      backgroundColor: 'transparent',
+      tooltip: { show: false },
+      grid: {
+        top: 40,
+        bottom: 25,
+        left: 10,
+        right: 52,
+        containLabel: false
+      },
+      xAxis: {
+        type: 'category',
+        data: timeLabels,
+        splitLine: {
+          show: true,
+          lineStyle: {
+            color: 'rgba(255, 255, 255, 0.02)',
+            width: 0.8
+          }
+        },
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: {
+          color: '#666',
+          fontFamily: 'monospace',
+          fontSize: 8,
+          interval: Math.ceil(timeLabels.length / 6) - 1
+        }
+      },
+      yAxis: {
+        type: 'category',
+        data: strikeLabels,
+        splitLine: {
+          show: true,
+          lineStyle: {
+            color: 'rgba(255, 255, 255, 0.02)',
+            width: 0.8
+          }
+        },
+        axisLine: { show: false },
+        axisTick: {
+          show: true,
+          lineStyle: { color: '#1A1A1E' }
+        },
+        axisLabel: {
+          color: '#949494',
+          fontFamily: 'monospace',
+          fontSize: 9
+        },
+        position: 'right'
+      },
+      visualMap: {
+        show: false,
+        min: -maxVal,
+        max: maxVal,
+        calculable: true,
+        inRange: {
+          color: colorsMap
+        }
+      },
+      series: [
+        {
+          name: 'Exposure',
+          type: 'heatmap',
+          data: heatmapData,
+          progressive: 1000,
+          animation: false
+        }
+      ]
+    }
+
+    chart.setOption(option, true)
+
+    // Trigger overlays setup shortly after render
+    setTimeout(() => {
+      updateOverlayPaths()
+    }, 50)
+  }, [gridExposures, strikes, timeLabels, strikeLabels, heatmapData, maxVal, colorsMap])
+
+  // Mouse move and hover coordinates listener
+  useEffect(() => {
+    const chart = chartInstanceRef.current
+    if (!chart) return
+
+    const handleMouseMove = (params: any) => {
+      if (params.seriesType === 'heatmap' && params.value) {
+        const timeIdx = params.value[0]
+        const strikeIdx = params.value[1]
+        const val = params.value[2]
+
+        const snap = gridExposures[timeIdx]
+        const closestStrike = strikes[strikeIdx]
+
+        if (!snap) return
+
+        setHoveredTimeIdx(timeIdx)
+        setHoveredStrike(closestStrike)
+
+        const rawEvent = params.event?.event
+        if (rawEvent) {
+          const rect = chart.getDom().getBoundingClientRect()
+          const x = rawEvent.clientX - rect.left
+          const y = rawEvent.clientY - rect.top
+
+          const pixelX = chart.convertToPixel({ xAxisIndex: 0, yAxisIndex: 0 }, [timeIdx, 0])?.[0] || x
+          const pixelY = chart.convertToPixel({ xAxisIndex: 0, yAxisIndex: 0 }, [0, strikeIdx])?.[1] || y
+
+          setCrosshairPos({
+            x: pixelX,
+            y: pixelY,
+            valX: timeIdx,
+            valY: closestStrike
+          })
+
+          const formatExposure = (v: number) => {
+            const absVal = Math.abs(v)
+            const sign = v >= 0 ? '+' : '-'
+            let formatted = ''
+            if (absVal >= 1.0) {
+              formatted = `${sign}$${absVal.toFixed(2)}B`
+            } else {
+              formatted = `${sign}$${(absVal * 1000).toFixed(1)}M`
+            }
+
+            if (greekMode === 'gamma') return `${formatted} GEX`
+            if (greekMode === 'vanna') return `${formatted} VEX`
+            if (greekMode === 'charm') return `${formatted} CEX/day`
+            return `${formatted} DEX`
+          }
+
+          const dollarPerPercent = Math.abs(val) * 1e9 * 0.01
+          const hedgeShares = -val * 1e9 / snap.spotPrice
+
+          setTooltipData({
+            time: snap.timestamp,
+            strike: closestStrike,
+            exposure: formatExposure(val),
+            val,
+            dollarPerPercent,
+            hedgeShares,
+            spotPrice: snap.spotPrice,
+            x,
+            y
+          })
+        }
       }
-      ctx.restore()
     }
 
-    // ─── Scales ───
-    const minStrike = strikes[0]
-    const maxStrike = strikes[strikes.length - 1]
-    const yScale = d3.scaleLinear().domain([minStrike, maxStrike]).range([margins.top + chartH, margins.top])
-    const xScale = d3.scaleLinear().domain([0, numTimeSteps - 1]).range([margins.left, margins.left + chartW])
-
-    // Draw Strike Grid Lines
-    ctx.strokeStyle = 'rgba(255,255,255,0.035)'
-    ctx.lineWidth = 0.8
-    const yTicks = yScale.ticks(6)
-    yTicks.forEach(tick => {
-      const y = yScale(tick)
-      ctx.beginPath()
-      ctx.moveTo(margins.left, y)
-      ctx.lineTo(margins.left + chartW, y)
-      ctx.stroke()
-    })
-
-    // Draw Time Grid Lines
-    const xTicksCount = 6
-    const timeStepInterval = Math.ceil(numTimeSteps / xTicksCount)
-    for (let x = 0; x < numTimeSteps; x += timeStepInterval) {
-      const xPos = xScale(x)
-      ctx.beginPath()
-      ctx.moveTo(xPos, margins.top)
-      ctx.lineTo(xPos, margins.top + chartH)
-      ctx.stroke()
+    const handleMouseOut = () => {
+      setHoveredTimeIdx(null)
+      setHoveredStrike(null)
+      setTooltipData(null)
+      setCrosshairPos(null)
     }
 
-    // ─── Plot Overlay Paths ───
+    chart.on('mousemove', handleMouseMove)
+    chart.on('globalout', handleMouseOut)
 
-    // 1. Spot Price Line (Solid Orange/Amber track)
-    ctx.strokeStyle = '#FF3B60' // Crimson spot price track
-    ctx.lineWidth = 1.6
-    ctx.shadowBlur = 4
-    ctx.shadowColor = 'rgba(255, 59, 96, 0.4)'
-    ctx.beginPath()
-    gridExposures.forEach((snap, idx) => {
-      const x = xScale(idx)
-      const y = yScale(snap.spotPrice)
-      if (idx === 0) ctx.moveTo(x, y)
-      else ctx.lineTo(x, y)
-    })
-    ctx.stroke()
-    ctx.shadowBlur = 0 // reset shadow
-
-    // 2. Zero Greek / Flip Line (Dashed White line)
-    ctx.strokeStyle = '#D4D4D8'
-    ctx.lineWidth = 0.95
-    ctx.setLineDash([3, 3])
-    ctx.beginPath()
-    gridExposures.forEach((snap, idx) => {
-      const x = xScale(idx)
-      const y = yScale(snap.zeroLevel)
-      if (idx === 0) ctx.moveTo(x, y)
-      else ctx.lineTo(x, y)
-    })
-    ctx.stroke()
-    ctx.setLineDash([]) // reset dash
-
-    // ─── Axes ───
-
-    // Right Y Axis (Strikes)
-    ctx.fillStyle = '#949494'
-    ctx.font = '9px monospace'
-    ctx.textAlign = 'left'
-    yTicks.forEach(tick => {
-      const y = yScale(tick)
-      // Tick line
-      ctx.strokeStyle = '#1A1A1E'
-      ctx.beginPath()
-      ctx.moveTo(margins.left + chartW, y)
-      ctx.lineTo(margins.left + chartW + 4, y)
-      ctx.stroke()
-
-      // Text
-      ctx.fillText(tick.toFixed(0), margins.left + chartW + 8, y + 3)
-    })
-
-    // Bottom X Axis (Times)
-    ctx.fillStyle = '#666'
-    ctx.font = '8px monospace'
-    ctx.textAlign = 'center'
-    for (let x = 0; x < numTimeSteps; x += timeStepInterval) {
-      const xPos = xScale(x)
-      const date = gridExposures[x].timestamp
-      const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
-      ctx.fillText(timeStr, xPos, margins.top + chartH + 14)
+    const handleMouseDown = (params: any) => {
+      if (params.seriesType === 'heatmap' && params.value) {
+        const timeIdx = params.value[0]
+        setSelectedTimeIdx(timeIdx)
+      }
     }
+    chart.on('mousedown', handleMouseDown)
 
-    // Active Selected Time indicator bar (Vertical line)
-    const activeIdx = hoveredTimeIdx !== null ? hoveredTimeIdx : selectedTimeIdx
-    if (activeIdx !== null && activeIdx >= 0 && activeIdx < numTimeSteps) {
-      const activeX = xScale(activeIdx)
-      ctx.strokeStyle = 'rgba(0, 200, 255, 0.45)'
-      ctx.lineWidth = 1
-      ctx.beginPath()
-      ctx.moveTo(activeX, margins.top)
-      ctx.lineTo(activeX, margins.top + chartH)
-      ctx.stroke()
-
-      // Small marker circle on the Spot Price track
-      const activeSpotY = yScale(gridExposures[activeIdx].spotPrice)
-      ctx.fillStyle = '#FF3B60'
-      ctx.beginPath()
-      ctx.arc(activeX, activeSpotY, 3.5, 0, 2 * Math.PI)
-      ctx.fill()
+    return () => {
+      chart.off('mousemove', handleMouseMove)
+      chart.off('globalout', handleMouseOut)
+      chart.off('mousedown', handleMouseDown)
     }
+  }, [gridExposures, strikes, greekMode])
 
-    // Hovered Strike line (Horizontal crosshair)
-    if (hoveredStrike !== null && hoveredStrike >= minStrike && hoveredStrike <= maxStrike) {
-      const activeY = yScale(hoveredStrike)
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)'
-      ctx.lineWidth = 0.8
-      ctx.setLineDash([2, 2])
-      ctx.beginPath()
-      ctx.moveTo(margins.left, activeY)
-      ctx.lineTo(margins.left + chartW, activeY)
-      ctx.stroke()
-      ctx.setLineDash([])
-    }
-
-  }, [gridExposures, strikes, greekMode, selectedTimeIdx, hoveredTimeIdx, hoveredStrike, dims])
-
-  // Mouse move handler for coordinate tracking & tooltips
-  const handleMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
-    if (gridExposures.length === 0 || strikes.length === 0) return
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const rect = canvas.getBoundingClientRect()
-    const x = event.clientX - rect.left
-    const y = event.clientY - rect.top
-
-    const margins = { top: 30, right: 52, bottom: 25, left: 10 }
-    const chartW = rect.width - margins.left - margins.right
-    const chartH = rect.height - margins.top - margins.bottom
-
-    // Clamp coordinates to chart box
-    const clampedX = Math.max(margins.left, Math.min(margins.left + chartW, x))
-    const clampedY = Math.max(margins.top, Math.min(margins.top + chartH, y))
-
-    // Calculate scales inverse
-    const numTimeSteps = gridExposures.length
-    const tPct = (clampedX - margins.left) / chartW
-    const timeIdx = Math.max(0, Math.min(numTimeSteps - 1, Math.round(tPct * (numTimeSteps - 1))))
-
-    const minStrike = strikes[0]
-    const maxStrike = strikes[strikes.length - 1]
-    const sPct = 1 - (clampedY - margins.top) / chartH
-    const strikeVal = minStrike + sPct * (maxStrike - minStrike)
-
-    // Find closest strike index
-    const closestStrike = strikes.reduce((prev, curr) => {
-      return Math.abs(curr - strikeVal) < Math.abs(prev - strikeVal) ? curr : prev
-    }, strikes[0])
-
-    setHoveredTimeIdx(timeIdx)
-    setHoveredStrike(closestStrike)
-
-    // Compute Tooltip content
-    const snap = gridExposures[timeIdx]
-    const strikeIdx = strikes.indexOf(closestStrike)
-    const val = strikeIdx !== -1 ? snap.values[strikeIdx] : 0
-
-    // Trading statistics logic: exposure translated to dollar metrics
-    const contractScale = greekMode === 'gamma' ? 1e9 : 1e9
-    const formattedExp = greekMode === 'gamma'
-      ? `${val >= 0 ? '+' : ''}${val.toFixed(2)}B GEX`
-      : greekMode === 'vanna'
-        ? `${val >= 0 ? '+' : ''}${val.toFixed(2)}B VEX`
-        : `${val >= 0 ? '+' : ''}${val.toFixed(2)}B CEX/day`
-
-    // Mock dollar hedging statistics to replicate premium terminal values
-    const spotVal = snap.spotPrice
-    const dollarPerPercent = Math.abs(val) * 100 * spotVal * 100 * 0.01 // Dollar exposure scaling
-    const dollarValueTrade = val * spotVal * 1000 * (greekMode === 'charm' ? 0.015 : 0.45)
-    const hedgeProduct = -val * 100
-
-    setTooltipData({
-      time: snap.timestamp,
-      strike: closestStrike,
-      exposure: formattedExp,
-      dollarPerPercent,
-      dollarValueTrade,
-      hedgeProduct,
-      spotPrice: snap.spotPrice,
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top
-    })
-  }
-
-  const handleMouseLeave = () => {
-    setHoveredTimeIdx(null)
-    setHoveredStrike(null)
-    setTooltipData(null)
-  }
-
-  const handleMouseDown = () => {
-    if (hoveredTimeIdx !== null) {
-      setSelectedTimeIdx(hoveredTimeIdx)
-    }
-  }
+  const selectedX = useMemo(() => {
+    if (selectedTimeIdx === null || !chartInstanceRef.current || gridExposures.length === 0) return null
+    const pixel = chartInstanceRef.current.convertToPixel({ xAxisIndex: 0, yAxisIndex: 0 }, [selectedTimeIdx, 0])
+    return (pixel && !isNaN(pixel[0])) ? pixel[0] : null
+  }, [selectedTimeIdx, gridExposures.length, gridRect])
 
   return (
-    <div ref={containerRef} className="w-full h-full relative select-none overflow-hidden">
+    <div ref={containerRef} className="w-full h-full relative select-none overflow-hidden bg-black">
       {/* Widget Header Controls */}
-      <div className="absolute top-2 left-3 right-3 z-10 flex justify-between items-center bg-black/45 backdrop-blur-sm px-2.5 py-1 rounded border border-[#1A1A1E]">
+      <div className="absolute top-2 left-3 right-3 z-30 flex justify-between items-center bg-black/60 backdrop-blur-sm px-2.5 py-1 rounded border border-[#1A1A1E]">
         <div className="flex items-center gap-2">
           <span className="text-[10px] font-mono text-[#888] font-semibold">Greek:</span>
           <select
@@ -1054,6 +1129,7 @@ function GradientHeatmapChart({
             <option value="gamma">Gamma (GEX)</option>
             <option value="vanna">Vanna (VEX)</option>
             <option value="charm">Charm (CEX)</option>
+            <option value="delta">Delta (DEX)</option>
           </select>
         </div>
 
@@ -1064,19 +1140,116 @@ function GradientHeatmapChart({
         </div>
       </div>
 
-      {/* Primary Heatmap Canvas */}
-      <canvas
-        ref={canvasRef}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
-        onMouseDown={handleMouseDown}
-        className="absolute inset-0 w-full h-full cursor-crosshair"
-      />
+      {/* ECharts Heatmap Container */}
+      <div ref={chartRef} className="w-full h-full absolute inset-0" />
+
+      {/* SVG Volatility Walls & Candlesticks Overlay */}
+      {gridRect && (
+        <svg className="absolute inset-0 pointer-events-none w-full h-full z-20">
+          <defs>
+            <clipPath id={`grid-clip-${greekMode}`}>
+              <rect
+                x={gridRect.left}
+                y={gridRect.top}
+                width={gridRect.width}
+                height={gridRect.height}
+              />
+            </clipPath>
+          </defs>
+          <g clipPath={`url(#grid-clip-${greekMode})`}>
+            {/* Call Wall Line */}
+            {svgPaths.callWall && (
+              <path
+                d={svgPaths.callWall}
+                fill="none"
+                stroke={colors.accent.green}
+                strokeWidth="1.5"
+                opacity="0.85"
+              />
+            )}
+
+            {/* Put Wall Line */}
+            {svgPaths.putWall && (
+              <path
+                d={svgPaths.putWall}
+                fill="none"
+                stroke={colors.accent.red}
+                strokeWidth="1.5"
+                opacity="0.85"
+              />
+            )}
+
+            {/* Candlesticks */}
+            {svgCandles.map((c, i) => (
+              <g key={i} opacity="0.9">
+                {/* Wick */}
+                <line
+                  x1={c.x}
+                  y1={c.yHigh}
+                  x2={c.x}
+                  y2={c.yLow}
+                  stroke={c.isUp ? colors.accent.green : colors.accent.red}
+                  strokeWidth="1.2"
+                />
+                {/* Body */}
+                <rect
+                  x={c.x - c.width / 2}
+                  y={Math.min(c.yOpen, c.yClose)}
+                  width={c.width}
+                  height={Math.max(1.5, Math.abs(c.yOpen - c.yClose))}
+                  fill={c.isUp ? colors.accent.green : colors.accent.red}
+                  stroke={c.isUp ? colors.accent.green : colors.accent.red}
+                  strokeWidth="0.5"
+                />
+              </g>
+            ))}
+
+            {/* Active Selected Time marker line */}
+            {selectedX !== null && (
+              <line
+                x1={selectedX}
+                y1={gridRect.top}
+                x2={selectedX}
+                y2={gridRect.top + gridRect.height}
+                stroke="rgba(0, 200, 255, 0.4)"
+                strokeWidth="1.2"
+                strokeDasharray="2 2"
+              />
+            )}
+
+            {/* Hover Crosshairs */}
+            {hoveredTimeIdx !== null && crosshairPos && (
+              <>
+                {/* Vertical Hover Line */}
+                <line
+                  x1={crosshairPos.x}
+                  y1={gridRect.top}
+                  x2={crosshairPos.x}
+                  y2={gridRect.top + gridRect.height}
+                  stroke="rgba(255, 255, 255, 0.15)"
+                  strokeWidth="0.8"
+                  strokeDasharray="2 2"
+                />
+                {/* Horizontal Hover Line */}
+                <line
+                  x1={gridRect.left}
+                  y1={crosshairPos.y}
+                  x2={gridRect.left + gridRect.width}
+                  y2={crosshairPos.y}
+                  stroke="rgba(255, 255, 255, 0.15)"
+                  strokeWidth="0.8"
+                  strokeDasharray="2 2"
+                />
+              </>
+            )}
+          </g>
+        </svg>
+      )}
 
       {/* Tooltip Overlay */}
       {tooltipData && (
         <div
-          className="absolute z-30 bg-black/90 backdrop-blur-md border border-[#222]/80 px-3 py-2 rounded text-[#D4D4D8] pointer-events-none shadow-2xl"
+          className="absolute z-30 bg-black/90 backdrop-blur-md border border-[#222]/80 px-3 py-2 rounded text-[#D4D4D8] pointer-events-none shadow-2xl animate-in fade-in duration-100"
           style={{
             left: `${tooltipData.x + 14}px`,
             top: `${tooltipData.y - 30}px`,
@@ -1084,7 +1257,7 @@ function GradientHeatmapChart({
           }}
         >
           <div className="font-mono text-[10px] font-bold text-white mb-1.5 pb-1 border-b border-[#222]">
-            {tooltipData.time.toLocaleString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            {tooltipData.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
           </div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[9px]">
             <span className="text-[#666]">Strike:</span>
@@ -1094,13 +1267,22 @@ function GradientHeatmapChart({
             <span className="text-white text-right">{tooltipData.spotPrice.toFixed(1)}</span>
 
             <span className="text-[#666]">Exposure:</span>
-            <span className="text-terminal-green font-bold text-right">{tooltipData.exposure}</span>
+            <span className={tooltipData.val >= 0 ? 'text-terminal-green font-bold text-right' : 'text-terminal-red font-bold text-right'}>
+              {tooltipData.exposure}
+            </span>
 
             <span className="text-[#666]">$ Per Percent:</span>
-            <span className="text-[#666] text-right">${tooltipData.dollarPerPercent.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+            <span className="text-white text-right">${tooltipData.dollarPerPercent.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
 
-            <span className="text-[#666]">Hedge Product:</span>
-            <span className="text-terminal-red text-right">{tooltipData.hedgeProduct.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+            <span className="text-[#666]">Hedge Action:</span>
+            <span className={`font-bold text-right ${tooltipData.val >= 0 ? 'text-terminal-green' : 'text-terminal-red'}`}>
+              {tooltipData.val >= 0 ? 'BUY' : 'SELL'}
+            </span>
+
+            <span className="text-[#666]">Hedge Shares:</span>
+            <span className="text-white text-right font-bold">
+              {Math.abs(Math.round(tooltipData.hedgeShares)).toLocaleString()}
+            </span>
           </div>
         </div>
       )}
