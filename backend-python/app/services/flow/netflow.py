@@ -70,12 +70,16 @@ class OptionsNetFlowService:
         # Value: {bought_volume: 0.0, written_volume: 0.0, last_price: 0.0, bid: 0, ask: 0}
         intraday_flow = {}
 
-        # Cache option contracts for each snapshot to avoid querying the DB in a loop
-        snap_contracts = {}
-        for snap in snapshots:
-            opts_stmt = select(OptionData).where(OptionData.snapshot_id == snap.id)
-            opts_res = await self.db.execute(opts_stmt)
-            snap_contracts[snap.id] = opts_res.scalars().all()
+        # Fetch all option contracts for all day's snapshots in one query
+        snap_ids = [snap.id for snap in snapshots]
+        opts_stmt = select(OptionData).where(OptionData.snapshot_id.in_(snap_ids))
+        opts_res = await self.db.execute(opts_stmt)
+        all_contracts = opts_res.scalars().all()
+
+        # Group by snapshot_id in memory
+        snap_contracts = {snap_id: [] for snap_id in snap_ids}
+        for contract in all_contracts:
+            snap_contracts[contract.snapshot_id].append(contract)
 
         # Run Lee-Ready tick test over successive snapshots
         for idx in range(len(snapshots) - 1):

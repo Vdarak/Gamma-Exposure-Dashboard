@@ -54,23 +54,21 @@ async def test_options_net_flow_service_with_mock_db():
     mock_opt_s2_c105.bid = Decimal("1.18")
     mock_opt_s2_c105.ask = Decimal("1.28")
 
-    # Mock option data results
-    mock_opt_s1_res = MagicMock()
-    mock_opt_s1_res.scalars.return_value.all.return_value = [mock_opt_s1_c105]
-
-    mock_opt_s2_res = MagicMock()
-    mock_opt_s2_res.scalars.return_value.all.return_value = [mock_opt_s2_c105]
+    # Mock option data result containing all contracts for target day snapshots
+    mock_opts_res = MagicMock()
+    mock_opts_res.scalars.return_value.all.return_value = [mock_opt_s1_c105, mock_opt_s2_c105]
 
     mock_prior_snap_res = MagicMock()
     mock_prior_snap_res.scalar_one_or_none.return_value = None
 
     # Chain mock returns
     # Since query_date is passed, the latest date query is SKIPPED.
-    # First query is snapshots query.
+    # 1. Snapshots list query
+    # 2. All day option contracts in_ query
+    # 3. Prior EOD close snapshot query
     mock_execute.side_effect = [
         mock_snaps_res,      # Snapshots list
-        mock_opt_s1_res,     # S1 option contracts (inside the loop for snap in snapshots)
-        mock_opt_s2_res,     # S2 option contracts
+        mock_opts_res,       # All day option contracts (in_ query)
         mock_prior_snap_res  # Prior EOD close snapshot
     ]
 
