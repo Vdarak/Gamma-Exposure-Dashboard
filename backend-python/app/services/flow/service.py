@@ -351,7 +351,7 @@ class OptionsFlowService:
             elif bullish_sentiment_percent < 45.0:
                 dominant_sentiment = "Bearish"
 
-            put_call_ratio = totalPutVol / total_call_vol if total_call_vol > 0 else 0.0
+            put_call_ratio = total_put_vol / total_call_vol if total_call_vol > 0 else 0.0
             total_vol = total_call_vol + total_put_vol
             call_percentage = (total_call_vol / total_vol) * 100.0 if total_vol > 0 else 50.0
             put_percentage = (total_put_vol / total_vol) * 100.0 if total_vol > 0 else 50.0
