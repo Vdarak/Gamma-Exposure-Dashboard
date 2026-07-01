@@ -131,8 +131,16 @@ class DataRetrievalService:
         snap_stmt = select(OptionSnapshot).where(OptionSnapshot.ticker == t)
         
         if hours_back:
-            cutoff = datetime.utcnow() - timedelta(hours=hours_back)
-            snap_stmt = snap_stmt.where(OptionSnapshot.timestamp >= cutoff)
+            # Find the latest snapshot timestamp for this ticker to anchor our relative query window
+            latest_stmt = select(func.max(OptionSnapshot.timestamp)).where(OptionSnapshot.ticker == t)
+            latest_res = await self.db.execute(latest_stmt)
+            latest_ts = latest_res.scalar()
+            
+            if latest_ts:
+                cutoff = latest_ts - timedelta(hours=hours_back)
+                snap_stmt = snap_stmt.where(OptionSnapshot.timestamp >= cutoff)
+            else:
+                return []
         elif start_date and end_date:
             snap_stmt = snap_stmt.where(OptionSnapshot.timestamp.between(start_date, end_date))
             
