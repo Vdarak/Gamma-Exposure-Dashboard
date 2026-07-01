@@ -484,6 +484,8 @@ export interface NetFlowResponse {
   date: string
   ticker: string
   spotPrice: number
+  spotRange?: { min: number; max: number }
+  snapshotCount?: number
   source: string
   data: NetFlowStrikeData[]
   message?: string
@@ -494,10 +496,11 @@ export interface NetFlowResponse {
  */
 export async function getOptionsNetFlow(
   ticker: string,
-  date?: string
+  date?: string,
+  spotPercent: number = 15
 ): Promise<NetFlowResponse> {
   try {
-    let url = `${BACKEND_URL}/api/options/netflow?ticker=${ticker}`
+    let url = `${BACKEND_URL}/api/options/netflow?ticker=${ticker}&spotPercent=${spotPercent}`
     if (date) {
       url += `&date=${encodeURIComponent(date)}`
     }

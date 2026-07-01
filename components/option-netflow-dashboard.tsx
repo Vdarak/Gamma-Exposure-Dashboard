@@ -1,22 +1,22 @@
 "use client"
 
-import React, { useState, useEffect, useMemo, useCallback } from "react"
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
+import * as d3 from "d3"
 import { 
   RefreshCw, 
-  TrendingUp, 
-  ArrowUpDown, 
-  Calendar, 
-  DollarSign, 
   Activity,
   AlertCircle,
   HelpCircle
 } from "lucide-react"
-import dynamic from "next/dynamic"
-import { getOptionsNetFlow, NetFlowStrikeData, NetFlowResponse } from "@/lib/backend-api"
+import { getOptionsNetFlow, NetFlowStrikeData } from "@/lib/backend-api"
 import { colors, typography } from "@/lib/design-tokens"
-
-// Dynamically import Plotly to avoid Next.js SSR errors
-const Plot = dynamic(() => import("react-plotly.js"), { ssr: false })
+import { 
+  styleAxis, 
+  drawGridLinesX, 
+  drawHorizontalRefLine, 
+  positionTooltip,
+  HORIZONTAL_MARGINS 
+} from "@/lib/d3-helpers"
 
 interface OptionNetFlowDashboardProps {
   ticker: string
@@ -27,22 +27,44 @@ export function OptionNetFlowDashboard({ ticker, selectedExpiries }: OptionNetFl
   const [data, setData] = useState<NetFlowStrikeData[]>([])
   const [spotPrice, setSpotPrice] = useState<number>(0.0)
   const [source, setSource] = useState<string>("")
-  const [selectedDate, setSelectedDate] = useState<string>("")
-  const [viewMode, setViewMode] = useState<"contracts" | "premium">("contracts")
+  const [snapshotCount, setSnapshotCount] = useState<number>(0)
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
+  
+
+  // Refs for D3
+  const containerRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const svgRef = useRef<SVGSVGElement>(null)
+  const volSvgRef = useRef<SVGSVGElement>(null)
+  const tooltipRef = useRef<HTMLDivElement>(null)
+  const [dims, setDims] = useState({ width: 800, height: 600 })
+
+  // Resize observer
+  useEffect(() => {
+    if (!containerRef.current) return
+    const observer = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect
+        if (width > 0 && height > 0) setDims({ width, height })
+      }
+    })
+    observer.observe(containerRef.current)
+    return () => observer.disconnect()
+  }, [])
 
   // Fetch Net Flow data
-  const fetchNetFlow = useCallback(async (t: string, dateStr?: string) => {
+  const fetchNetFlow = useCallback(async (t: string) => {
     try {
       setIsLoading(true)
       setError(null)
-      const res = await getOptionsNetFlow(t, dateStr)
+      // Server now filters to ±15% strikes to minimize payload size
+      const res = await getOptionsNetFlow(t, undefined, 15)
       if (res.success) {
         setData(res.data)
         setSpotPrice(res.spotPrice)
         setSource(res.source)
-        setSelectedDate(res.date)
+        setSnapshotCount(res.snapshotCount ?? 0)
       } else {
         setError(res.message || "Failed to load net flow data.")
         setData([])
@@ -61,32 +83,51 @@ export function OptionNetFlowDashboard({ ticker, selectedExpiries }: OptionNetFl
     fetchNetFlow(ticker)
   }, [ticker, fetchNetFlow])
 
-  // Filter option net flow data based on selected expiries
+  // Filter option net flow data based on selected expiries (from dashboard header selector)
   const filteredData = useMemo(() => {
     if (!selectedExpiries || selectedExpiries.length === 0) return data
     return data.filter(item => selectedExpiries.includes(item.expiration))
   }, [data, selectedExpiries])
 
-  // Aggregate flow by strike for the Plotly chart
-  // This aggregates calls and puts for each strike
+  // Aggregate flow by strike for the charts
   const aggregatedStrikeData = useMemo(() => {
-    const strikeMap: Record<number, { strike: number, callNetContracts: number, putNetContracts: number, callNetPremium: number, putNetPremium: number }> = {}
+    const strikeMap: Record<number, { 
+      strike: number, 
+      expiration: string,
+      callNetContracts: number, 
+      putNetContracts: number, 
+      callNetPremium: number, 
+      putNetPremium: number,
+      volume: number,
+      openInterest: number,
+      oiChange: number,
+      eodSentiment: string
+    }> = {}
     
     filteredData.forEach(item => {
       const strike = item.strike
       if (!strikeMap[strike]) {
         strikeMap[strike] = {
           strike,
+          expiration: item.expiration,
           callNetContracts: 0,
           putNetContracts: 0,
           callNetPremium: 0,
-          putNetPremium: 0
+          putNetPremium: 0,
+          volume: 0,
+          openInterest: 0,
+          oiChange: 0,
+          eodSentiment: item.eodSentiment
         }
       }
       
       const isCall = item.type === "C"
       const contracts = item.netContracts
       const premium = item.netPremium
+      
+      strikeMap[strike].volume += item.volume
+      strikeMap[strike].openInterest += item.openInterest
+      strikeMap[strike].oiChange += item.oiChange
       
       if (isCall) {
         strikeMap[strike].callNetContracts += contracts
@@ -97,17 +138,16 @@ export function OptionNetFlowDashboard({ ticker, selectedExpiries }: OptionNetFl
       }
     })
     
-    // Convert to array and sort by strike
     return Object.values(strikeMap).sort((a, b) => a.strike - b.strike)
   }, [filteredData])
 
-  // Top Activity Analysis
+  // Top Activity Leaderboard (based on absolute premium flow)
   const topActivity = useMemo(() => {
     const sorted = [...filteredData].sort((a, b) => Math.abs(b.netPremium) - Math.abs(a.netPremium))
     return sorted.slice(0, 10)
   }, [filteredData])
 
-  // Total summary statistics
+  // Net aggregates for the summary cards
   const summaryStats = useMemo(() => {
     let callNetContracts = 0
     let putNetContracts = 0
@@ -136,151 +176,342 @@ export function OptionNetFlowDashboard({ ticker, selectedExpiries }: OptionNetFl
     }
   }, [filteredData])
 
-  // Plotly chart parameters
-  const chartParams = useMemo(() => {
-    if (aggregatedStrikeData.length === 0) return null
+  // Server already returns ±15% strikes — use all aggregated data directly
+  const scrollableStrikes = useMemo(() => {
+    return aggregatedStrikeData.map(item => item.strike)
+  }, [aggregatedStrikeData])
 
-    // For visualization, filter strikes within +/- 15% of spot price to avoid chart clutter
-    const strikesToShow = aggregatedStrikeData.filter(
-      item => item.strike >= spotPrice * 0.85 && item.strike <= spotPrice * 1.15
-    )
+  // ATM Strike for centering
+  const atmStrike = useMemo(() => {
+    if (scrollableStrikes.length === 0) return spotPrice
+    return scrollableStrikes.reduce((prev, curr) => 
+      Math.abs(curr - spotPrice) < Math.abs(prev - spotPrice) ? curr : prev, scrollableStrikes[0])
+  }, [scrollableStrikes, spotPrice])
 
-    const strikePrices = strikesToShow.map(item => item.strike)
-    
-    // Choose Net Contracts or Net Premium
-    const callValues = strikesToShow.map(item => 
-      viewMode === "contracts" ? item.callNetContracts : item.callNetPremium
-    )
-    
-    // Negate Puts so buying puts (bearish) goes left and writing puts (bullish) goes right
-    const putValuesForPlot = strikesToShow.map(item => {
-      const val = viewMode === "contracts" ? item.putNetContracts : item.putNetPremium
-      return -val
-    })
-    
-    // Raw Puts Net Flow for tooltips
-    const putRawValues = strikesToShow.map(item => 
-      viewMode === "contracts" ? item.putNetContracts : item.putNetPremium
-    )
+  // Fixed height per bar for perfect readability & scrolling matching GEX chart
+  const barHeight = 44
+  const chartHeight = scrollableStrikes.length * barHeight
 
-    return {
-      data: [
-        {
-          type: "bar",
-          x: callValues,
-          y: strikePrices,
-          orientation: "h",
-          name: "Call Net Flow",
-          marker: {
-            color: callValues.map(val => val >= 0 ? colors.accent.green : colors.accent.red),
-            line: { width: 0.5, color: "#111" }
-          },
-          hoverlabel: {
-            bgcolor: "#111111",
-            bordercolor: "#1A1A1A",
-            font: { family: typography.fontMono, size: 10, color: "#E5E5E5" }
-          },
-          hovertemplate: `Strike: $%{y}<br>Call Net Flow: %{x:$,.0f}<extra></extra>`
-        },
-        {
-          type: "bar",
-          x: putValuesForPlot,
-          y: strikePrices,
-          orientation: "h",
-          name: "Put Net Flow",
-          customdata: putRawValues,
-          marker: {
-            color: putValuesForPlot.map(val => val >= 0 ? colors.accent.green : colors.accent.red),
-            line: { width: 0.5, color: "#111" }
-          },
-          hoverlabel: {
-            bgcolor: "#111111",
-            bordercolor: "#1A1A1A",
-            font: { family: typography.fontMono, size: 10, color: "#E5E5E5" }
-          },
-          hovertemplate: `Strike: $%{y}<br>Put Net Flow: %{customdata:$,.0f}<extra></extra>`
-        }
-      ],
-      layout: {
-        barmode: "group",
-        dragmode: "pan",
-        autosize: true,
-        height: 520,
-        showlegend: false, // REMOVE LEGEND
-        margin: { l: 70, r: 20, t: 30, b: 50 },
-        paper_bgcolor: "#0A0A0A", // Card surface
-        plot_bgcolor: "#0A0A0A",
-        font: {
-          family: typography.fontMono,
-          color: colors.text.secondary,
-          size: 10
-        },
-        xaxis: {
-          title: viewMode === "contracts" 
-            ? "Net Contracts (Bullish → | ← Bearish)" 
-            : "Net Premium Flow (Bullish → | ← Bearish)",
-          gridcolor: "#1A1A1A",
-          zerolinecolor: "#2A2A2A",
-          zerolinewidth: 1.5,
-          tickfont: { color: colors.text.muted },
-          titlefont: { color: colors.text.secondary },
-          tickformat: viewMode === "contracts" ? "," : "$,.0f"
-        },
-        yaxis: {
-          title: "Strike Price ($)",
-          gridcolor: "#1A1A1A",
-          zerolinecolor: "#1A1A1A",
-          tickfont: { color: colors.text.muted },
-          titlefont: { color: colors.text.secondary },
-          tickmode: "linear",
-          tick0: 0,
-          dtick: Math.max(1.0, Math.round(spotPrice * 0.01))
-        },
-        shapes: [
-          // Current Spot Price Line (Amber #FFB800)
-          {
-            type: "line",
-            xref: "paper",
-            yref: "y",
-            x0: 0,
-            x1: 1,
-            y0: spotPrice,
-            y1: spotPrice,
-            line: {
-              color: colors.accent.amber,
-              width: 1.5,
-              dash: "dashdot"
-            }
-          }
-        ],
-        annotations: [
-          {
-            xref: "paper",
-            yref: "y",
-            x: 0.95,
-            y: spotPrice,
-            text: `SPOT ${spotPrice.toFixed(0)}`,
-            showarrow: false,
-            font: {
-              color: colors.accent.amber,
-              size: 9,
-              family: typography.fontMono
-            },
-            bgcolor: "#0A0A0A",
-            bordercolor: colors.accent.amber,
-            borderwidth: 0.5,
-            borderpad: 2
-          }
-        ]
-      }
+  // Auto-scroll to center ATM strike on load/zoom changes
+  useEffect(() => {
+    if (!scrollContainerRef.current || !spotPrice || scrollableStrikes.length === 0) return
+
+    const atmIndex = [...scrollableStrikes].reverse().findIndex(s => s === atmStrike)
+    if (atmIndex !== -1) {
+      const yPos = HORIZONTAL_MARGINS.top + atmIndex * barHeight
+      const containerHeight = scrollContainerRef.current.clientHeight || 500
+      scrollContainerRef.current.scrollTop = yPos - containerHeight / 2
     }
-  }, [aggregatedStrikeData, spotPrice, viewMode])
+  }, [spotPrice, scrollableStrikes, atmStrike])
+
+  // ─── D3 Rendering: Net Contracts (Left SVG) & Net Premium (Right SVG) ───
+  useEffect(() => {
+    if (!svgRef.current || !volSvgRef.current || scrollableStrikes.length === 0) return
+
+    const chartWidth = dims.width / 2 - 8
+    const margin = HORIZONTAL_MARGINS
+    const width = chartWidth - margin.left - margin.right
+    if (width <= 0 || chartHeight <= 0) return
+
+    const d3Svg = d3.select(svgRef.current)
+    const d3VolSvg = d3.select(volSvgRef.current)
+
+    // Clear previous renders
+    d3Svg.selectAll('*').remove()
+    d3VolSvg.selectAll('*').remove()
+
+    d3Svg.attr('width', chartWidth).attr('height', chartHeight + margin.top + margin.bottom)
+    d3VolSvg.attr('width', chartWidth).attr('height', chartHeight + margin.top + margin.bottom)
+
+    const gContracts = d3Svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
+    const gPremium = d3VolSvg.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
+
+    // Shared Y Scale (Strikes)
+    const yScale = d3.scaleBand()
+      .domain([...scrollableStrikes].reverse().map(String))
+      .range([0, chartHeight])
+      .padding(0.2)
+
+    // Compute max absolute values for scales
+    const activeStrikesData = aggregatedStrikeData.filter(item => scrollableStrikes.includes(item.strike))
+    
+    const maxContractsVal = d3.max(activeStrikesData.map(item => 
+      Math.max(Math.abs(item.callNetContracts), Math.abs(item.putNetContracts))
+    )) || 100
+    const xScaleContracts = d3.scaleLinear()
+      .domain([-maxContractsVal * 1.15, maxContractsVal * 1.15])
+      .range([0, width])
+
+    const maxPremiumVal = d3.max(activeStrikesData.map(item => 
+      Math.max(Math.abs(item.callNetPremium), Math.abs(item.putNetPremium))
+    )) || 5000
+    const xScalePremium = d3.scaleLinear()
+      .domain([-maxPremiumVal * 1.15, maxPremiumVal * 1.15])
+      .range([0, width])
+
+    // Grids
+    drawGridLinesX(gContracts, xScaleContracts, chartHeight, 6)
+    drawGridLinesX(gPremium, xScalePremium, chartHeight, 6)
+
+    // Zero reference lines
+    gContracts.append('line')
+      .attr('x1', xScaleContracts(0)).attr('x2', xScaleContracts(0))
+      .attr('y1', 0).attr('y2', chartHeight)
+      .attr('stroke', '#222').attr('stroke-width', 1.2)
+
+    gPremium.append('line')
+      .attr('x1', xScalePremium(0)).attr('x2', xScalePremium(0))
+      .attr('y1', 0).attr('y2', chartHeight)
+      .attr('stroke', '#222').attr('stroke-width', 1.2)
+
+    // Draw Bars for Net Contracts (Left)
+    activeStrikesData.forEach(item => {
+      const strikeStr = String(item.strike)
+      const bandY = yScale(strikeStr)
+      if (bandY === undefined) return
+      
+      const singleBarHeight = yScale.bandwidth() / 2 - 1
+
+      // Call contracts bar (plotted directly: positive extends right, negative left)
+      const callVal = item.callNetContracts
+      const callX = callVal >= 0 ? xScaleContracts(0) : xScaleContracts(callVal)
+      const callW = Math.abs(xScaleContracts(callVal) - xScaleContracts(0))
+      const callColor = callVal >= 0 ? colors.accent.green : colors.accent.red
+
+      gContracts.append('rect')
+        .attr('class', 'bar-call-contracts')
+        .attr('y', bandY)
+        .attr('x', callX)
+        .attr('width', Math.max(1, callW))
+        .attr('height', singleBarHeight)
+        .attr('fill', callColor)
+        .attr('opacity', 0.85)
+        .attr('rx', 1)
+
+      // Put contracts bar (plotted negated: positive buying puts goes left, negative writing puts goes right)
+      const putVal = item.putNetContracts
+      const putValForPlot = -putVal
+      const putX = putValForPlot >= 0 ? xScaleContracts(0) : xScaleContracts(putValForPlot)
+      const putW = Math.abs(xScaleContracts(putValForPlot) - xScaleContracts(0))
+      const putColor = putValForPlot >= 0 ? colors.accent.green : colors.accent.red
+
+      gContracts.append('rect')
+        .attr('class', 'bar-put-contracts')
+        .attr('y', bandY + yScale.bandwidth() / 2)
+        .attr('x', putX)
+        .attr('width', Math.max(1, putW))
+        .attr('height', singleBarHeight)
+        .attr('fill', putColor)
+        .attr('opacity', 0.85)
+        .attr('rx', 1)
+    })
+
+    // Draw Bars for Net Premium (Right)
+    activeStrikesData.forEach(item => {
+      const strikeStr = String(item.strike)
+      const bandY = yScale(strikeStr)
+      if (bandY === undefined) return
+
+      const singleBarHeight = yScale.bandwidth() / 2 - 1
+
+      // Call premium bar (plotted directly: positive right, negative left)
+      const callVal = item.callNetPremium
+      const callX = callVal >= 0 ? xScalePremium(0) : xScalePremium(callVal)
+      const callW = Math.abs(xScalePremium(callVal) - xScalePremium(0))
+      const callColor = callVal >= 0 ? colors.accent.green : colors.accent.red
+
+      gPremium.append('rect')
+        .attr('class', 'bar-call-premium')
+        .attr('y', bandY)
+        .attr('x', callX)
+        .attr('width', Math.max(1, callW))
+        .attr('height', singleBarHeight)
+        .attr('fill', callColor)
+        .attr('opacity', 0.85)
+        .attr('rx', 1)
+
+      // Put premium bar (plotted negated: positive left, negative right)
+      const putVal = item.putNetPremium
+      const putValForPlot = -putVal
+      const putX = putValForPlot >= 0 ? xScalePremium(0) : xScalePremium(putValForPlot)
+      const putW = Math.abs(xScalePremium(putValForPlot) - xScalePremium(0))
+      const putColor = putValForPlot >= 0 ? colors.accent.green : colors.accent.red
+
+      gPremium.append('rect')
+        .attr('class', 'bar-put-premium')
+        .attr('y', bandY + yScale.bandwidth() / 2)
+        .attr('x', putX)
+        .attr('width', Math.max(1, putW))
+        .attr('height', singleBarHeight)
+        .attr('fill', putColor)
+        .attr('opacity', 0.85)
+        .attr('rx', 1)
+    })
+
+    // Spot Price Reference Lines
+    const getClosestStrike = (val: number) => scrollableStrikes.reduce((prev, curr) =>
+      Math.abs(curr - val) < Math.abs(prev - val) ? curr : prev, scrollableStrikes[0])
+
+    const spotStrikeYStr = String(getClosestStrike(spotPrice))
+    const spotY = yScale(spotStrikeYStr)
+    if (spotY !== undefined && spotPrice > 0) {
+      const lineY = spotY + yScale.bandwidth() / 2
+      drawHorizontalRefLine(gContracts, lineY, width, colors.accent.amber, `SPOT ${spotPrice.toFixed(0)}`)
+      drawHorizontalRefLine(gPremium, lineY, width, colors.accent.amber, `SPOT ${spotPrice.toFixed(0)}`)
+    }
+
+    // Axes Left (Contracts)
+    const yAxisL = d3.axisLeft(yScale).tickSize(0)
+    const yAxisGL = gContracts.append('g').call(yAxisL)
+    styleAxis(yAxisGL, { fontSize: 10 })
+
+    const xAxisL = d3.axisBottom(xScaleContracts).ticks(6).tickFormat(d3.format(","))
+    const xAxisGL = gContracts.append('g').attr('transform', `translate(0,${chartHeight})`).call(xAxisL)
+    styleAxis(xAxisGL)
+
+    // Axes Right (Premium)
+    const yAxisR = d3.axisLeft(yScale).tickSize(0)
+    const yAxisGR = gPremium.append('g').call(yAxisR)
+    styleAxis(yAxisGR, { fontSize: 10 })
+
+    const xAxisR = d3.axisBottom(xScalePremium).ticks(6).tickFormat(d => {
+      const val = Math.abs(d as number)
+      const sign = (d as number) >= 0 ? '+' : '-'
+      if (val >= 1e6) return `${sign}${(val / 1e6).toFixed(1)}M`
+      if (val >= 1e3) return `${sign}${(val / 1e3).toFixed(0)}k`
+      return `${sign}${val}`
+    })
+    const xAxisGR = gPremium.append('g').attr('transform', `translate(0,${chartHeight})`).call(xAxisR)
+    styleAxis(xAxisGR)
+
+    // X-axis Labels
+    gContracts.append('text')
+      .attr('x', width / 2).attr('y', chartHeight + 32)
+      .attr('text-anchor', 'middle')
+      .attr('fill', colors.text.secondary)
+      .style('font-family', typography.fontSans)
+      .style('font-size', '10px')
+      .style('font-weight', '600')
+      .text('Net Contracts (Bullish → | ← Bearish)')
+
+    gPremium.append('text')
+      .attr('x', width / 2).attr('y', chartHeight + 32)
+      .attr('text-anchor', 'middle')
+      .attr('fill', colors.text.secondary)
+      .style('font-family', typography.fontSans)
+      .style('font-size', '10px')
+      .style('font-weight', '600')
+      .text('Net Premium Flow (Bullish → | ← Bearish)')
+
+    // ─── Synchronized Hover Interactions ───
+    const hoverLineContracts = gContracts.append('line')
+      .attr('stroke', '#333').attr('stroke-width', 1).attr('stroke-dasharray', '2,2')
+      .attr('x1', 0).attr('x2', width).attr('y1', 0).attr('y2', 0)
+      .style('opacity', 0).style('pointer-events', 'none')
+
+    const hoverLinePremium = gPremium.append('line')
+      .attr('stroke', '#333').attr('stroke-width', 1).attr('stroke-dasharray', '2,2')
+      .attr('x1', 0).attr('x2', width).attr('y1', 0).attr('y2', 0)
+      .style('opacity', 0).style('pointer-events', 'none')
+
+    const setupHover = (overlayG: d3.Selection<SVGGElement, unknown, null, undefined>) => {
+      overlayG.append('rect')
+        .attr('width', width)
+        .attr('height', chartHeight)
+        .attr('fill', 'transparent')
+        .style('cursor', 'crosshair')
+        .on('mousemove', (event: MouseEvent) => {
+          const [, my] = d3.pointer(event)
+          const bandStep = yScale.step()
+          const idx = Math.floor(my / bandStep)
+          if (idx < 0 || idx >= scrollableStrikes.length) return
+
+          const strikeStr = yScale.domain()[idx]
+          const strikeObj = activeStrikesData.find(s => String(s.strike) === strikeStr)
+          if (!strikeObj) return
+
+          const lineY = yScale(strikeStr)! + yScale.bandwidth() / 2
+
+          // Sync hover lines
+          hoverLineContracts.attr('y1', lineY).attr('y2', lineY).style('opacity', 1)
+          hoverLinePremium.attr('y1', lineY).attr('y2', lineY).style('opacity', 1)
+
+          // Custom Tooltip HTML
+          if (tooltipRef.current && containerRef.current) {
+            const containerRect = containerRef.current.getBoundingClientRect()
+            
+            const formatContractsDiff = (val: number) => {
+              const sign = val >= 0 ? '+' : ''
+              const color = val >= 0 ? colors.accent.green : colors.accent.red
+              return `<span style="color:${color}">${sign}${val.toLocaleString()}</span>`
+            }
+
+            const formatPremiumDiff = (val: number) => {
+              const sign = val >= 0 ? '+' : '-'
+              const absVal = Math.abs(val)
+              const formatted = absVal >= 1e6 
+                ? `$${(absVal / 1e6).toFixed(2)}M` 
+                : absVal >= 1e3 
+                  ? `$${(absVal / 1e3).toFixed(1)}k` 
+                  : `$${absVal.toFixed(0)}`
+              const color = val >= 0 ? colors.accent.green : colors.accent.red
+              return `<span style="color:${color}">${sign}${formatted}</span>`
+            }
+
+            tooltipRef.current.innerHTML = `
+              <div style="font-family:${typography.fontSans};font-size:11px;color:${colors.text.primary};font-weight:700;border-bottom:1px solid #1A1A1A;padding-bottom:4px;margin-bottom:6px">
+                Strike $${strikeObj.strike.toFixed(1)}
+              </div>
+              <div style="font-family:${typography.fontMono};font-size:10px;display:flex;flex-direction:column;gap:3px">
+                <div style="display:flex;justify-content:between;gap:20px">
+                  <span style="color:${colors.text.secondary}">Call Net Vol:</span>
+                  <span style="font-weight:bold">${formatContractsDiff(strikeObj.callNetContracts)}</span>
+                </div>
+                <div style="display:flex;justify-content:between;gap:20px">
+                  <span style="color:${colors.text.secondary}">Put Net Vol:</span>
+                  <span style="font-weight:bold">${formatContractsDiff(strikeObj.putNetContracts)}</span>
+                </div>
+                <div style="display:flex;justify-content:between;gap:20px;margin-top:2px;border-top:1px dashed #141414;padding-top:2px">
+                  <span style="color:${colors.text.secondary}">Call Net Prem:</span>
+                  <span style="font-weight:bold">${formatPremiumDiff(strikeObj.callNetPremium)}</span>
+                </div>
+                <div style="display:flex;justify-content:between;gap:20px">
+                  <span style="color:${colors.text.secondary}">Put Net Prem:</span>
+                  <span style="font-weight:bold">${formatPremiumDiff(strikeObj.putNetPremium)}</span>
+                </div>
+                <div style="display:flex;justify-content:between;gap:20px;margin-top:4px;border-top:1px solid #1A1A1A;padding-top:4px">
+                  <span style="color:${colors.text.muted};font-size:9px">OI Change:</span>
+                  <span style="font-weight:bold;color:${strikeObj.oiChange >= 0 ? colors.accent.green : colors.accent.red};font-size:9px">
+                    ${strikeObj.oiChange >= 0 ? '+' : ''}${strikeObj.oiChange.toLocaleString()}
+                  </span>
+                </div>
+                <div style="display:flex;justify-content:between;gap:20px">
+                  <span style="color:${colors.text.muted};font-size:9px">EOD Sentiment:</span>
+                  <span style="font-weight:bold;color:#FFF;font-size:9px">${strikeObj.eodSentiment}</span>
+                </div>
+              </div>
+            `
+            tooltipRef.current.style.opacity = '0.95'
+            positionTooltip(tooltipRef.current, event, containerRect)
+          }
+        })
+        .on('mouseleave', () => {
+          hoverLineContracts.style('opacity', 0)
+          hoverLinePremium.style('opacity', 0)
+          if (tooltipRef.current) tooltipRef.current.style.opacity = '0'
+        })
+    }
+
+    setupHover(gContracts)
+    setupHover(gPremium)
+
+  }, [scrollableStrikes, aggregatedStrikeData, dims.width, chartHeight, spotPrice])
 
   const formatNotional = (val: number) => {
     const absVal = Math.abs(val)
     const sign = val < 0 ? "-" : ""
-    if (absVal >= 1e6) return `${sign}$${(absVal / 1e6).toFixed(2)}M`
-    if (absVal >= 1e3) return `${sign}$${(absVal / 1e3).toFixed(1)}K`
+    if (absVal >= 1e6) return `${sign}${(absVal / 1e6).toFixed(2)}M`
+    if (absVal >= 1e3) return `${sign}${(absVal / 1e3).toFixed(1)}K`
     return `${sign}$${absVal.toFixed(0)}`
   }
 
@@ -291,10 +522,18 @@ export function OptionNetFlowDashboard({ ticker, selectedExpiries }: OptionNetFl
     return `${sign}${absVal.toFixed(0)}`
   }
 
+  // If there's no data, return null (Show nothing)
+  if (!isLoading && data.length === 0) {
+    return null
+  }
+
   return (
-    <div className="flex flex-col lg:flex-row h-full bg-[#050608] text-[#D1D4DC] font-sans antialiased border border-[#14161C] rounded-lg overflow-y-auto lg:overflow-hidden select-none">
+    <div 
+      ref={containerRef}
+      className="flex flex-col lg:flex-row h-full bg-[#050608] text-[#D1D4DC] font-sans antialiased border border-[#14161C] rounded-lg overflow-y-auto lg:overflow-hidden select-none relative"
+    >
       
-      {/* LEFT COLUMN: Main Chart & Config */}
+      {/* LEFT COLUMN: Main Chart SVGs & Config */}
       <div className="flex-1 flex flex-col min-w-0 lg:h-full border-b lg:border-b-0 lg:border-r border-[#14161C]">
         
         {/* HEADER CONTROLS */}
@@ -305,56 +544,29 @@ export function OptionNetFlowDashboard({ ticker, selectedExpiries }: OptionNetFl
               <span>Net Flow by Strike (EOD)</span>
             </h1>
 
-            {/* View mode toggle */}
-            <div className="flex bg-[#0D1015] border border-[#20242D] rounded p-0.5 font-mono text-[10px]">
-              <button
-                onClick={() => setViewMode("contracts")}
-                className={`px-2 py-0.5 rounded transition-all ${
-                  viewMode === "contracts"
-                    ? 'bg-[#1C202E] text-white font-bold'
-                    : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                Net Contracts
-              </button>
-              <button
-                onClick={() => setViewMode("premium")}
-                className={`px-2 py-0.5 rounded transition-all ${
-                  viewMode === "premium"
-                    ? 'bg-[#1C202E] text-white font-bold'
-                    : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                Net Premium ($)
-              </button>
-            </div>
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Source Badge */}
+            {/* Source Classification Badge */}
             {source && (
               <span className={`px-2 py-0.5 rounded text-[9px] font-mono border uppercase ${
                 source.includes("midpoint") 
                   ? "bg-[#092B1D] text-[#00E676] border-[#00E676]/30"
                   : "bg-[#2A2307] text-[#FFD600] border-[#FFD600]/30"
               }`}>
-                {source.includes("midpoint") ? "5m Midpoint Estimation" : "EOD IV/OI Proxy"}
+                {source.includes("midpoint") ? "5m Midpoint" : "EOD IV/OI Proxy"}
               </span>
             )}
 
-            {/* Date Picker */}
-            <div className="flex items-center gap-1 bg-[#0D1015] border border-[#20242D] rounded px-2 h-7 font-mono text-xs">
-              <Calendar className="w-3.5 h-3.5 text-gray-400" />
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => fetchNetFlow(ticker, e.target.value)}
-                className="bg-transparent border-0 text-white focus:outline-none w-[100px] text-[10px]"
-              />
-            </div>
+            {/* Snapshot count badge */}
+            {snapshotCount > 0 && (
+              <span className="px-2 py-0.5 rounded text-[9px] font-mono border bg-[#0D1015] text-[#888] border-[#1A1A1E]">
+                {snapshotCount} snapshots
+              </span>
+            )}
 
             <button
-              onClick={() => fetchNetFlow(ticker, selectedDate)}
+              onClick={() => fetchNetFlow(ticker)}
               disabled={isLoading}
               className="flex items-center justify-center w-7 h-7 bg-[#0D1015] border border-[#20242D] rounded hover:bg-[#1C202E] disabled:opacity-50 text-gray-400 hover:text-white"
             >
@@ -363,8 +575,8 @@ export function OptionNetFlowDashboard({ ticker, selectedExpiries }: OptionNetFl
           </div>
         </div>
 
-        {/* CHART SECTION */}
-        <div className="flex-1 min-h-0 bg-[#020203] relative flex items-center justify-center p-4">
+        {/* D3 SCROLLABLE CHART SVGs */}
+        <div className="flex-1 min-h-[300px] bg-[#020203] relative flex items-center justify-center">
           {isLoading ? (
             <div className="flex flex-col items-center gap-3">
               <div className="w-6 h-6 border-2 border-transparent border-t-[#FFD600] rounded-full animate-spin" />
@@ -375,14 +587,19 @@ export function OptionNetFlowDashboard({ ticker, selectedExpiries }: OptionNetFl
               <AlertCircle className="w-6 h-6 text-red-500" />
               <span className="text-xs font-mono text-red-200">{error}</span>
             </div>
-          ) : chartParams ? (
-            <div className="w-full h-full">
-              <Plot
-                data={chartParams.data as any}
-                layout={chartParams.layout as any}
-                config={{ responsive: true, displayModeBar: false }}
-                style={{ width: "100%", height: "100%" }}
-              />
+          ) : scrollableStrikes.length > 0 ? (
+            <div 
+              ref={scrollContainerRef}
+              className="w-full h-full overflow-y-auto max-h-[750px] terminal-scrollbar relative"
+            >
+              <div className="flex gap-4 w-full px-4">
+                <div className="flex-1">
+                  <svg ref={svgRef} className="w-full" style={{ height: `${chartHeight + HORIZONTAL_MARGINS.top + HORIZONTAL_MARGINS.bottom}px` }} />
+                </div>
+                <div className="flex-1">
+                  <svg ref={volSvgRef} className="w-full" style={{ height: `${chartHeight + HORIZONTAL_MARGINS.top + HORIZONTAL_MARGINS.bottom}px` }} />
+                </div>
+              </div>
             </div>
           ) : (
             null
@@ -479,6 +696,13 @@ export function OptionNetFlowDashboard({ ticker, selectedExpiries }: OptionNetFl
           </div>
         </div>
       )}
+
+      {/* Sync Hover Tooltip */}
+      <div
+        ref={tooltipRef}
+        className="absolute pointer-events-none opacity-0 bg-[#070709]/95 border border-[#141416]/90 rounded p-3 flex flex-col gap-2 shadow-2xl z-30 min-w-[260px] transition-opacity duration-100 text-[#D4D4D8]"
+        style={{ width: "max-content" }}
+      />
     </div>
   )
 }

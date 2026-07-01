@@ -1,206 +1,250 @@
 import logging
-from datetime import datetime, date, timedelta
-from typing import List, Dict, Any, Optional
-from decimal import Decimal
+from datetime import datetime, date
+from typing import Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, func, and_
-from app.models.option_snapshot import OptionSnapshot, OptionData
+from sqlalchemy import text
 
 logger = logging.getLogger("gamma-exposure-backend.flow.netflow")
+
 
 class OptionsNetFlowService:
     def __init__(self, db_session: AsyncSession):
         self.db = db_session
 
-    async def get_net_flow_data(self, ticker: str, query_date: Optional[str] = None) -> Dict[str, Any]:
+    async def get_net_flow_data(
+        self,
+        ticker: str,
+        query_date: Optional[str] = None,
+        spot_percent: float = 15.0,
+    ) -> Dict[str, Any]:
         """
         Calculates options net flow by strike for a given ticker and date.
-        Combines:
-        1. Intraday Bid-Ask Midpoint Tick Test (scraped throughout the day).
-        2. EOD OI & IV change proxy (comparing EOD vs prior day close).
+
+        Uses a single PostgreSQL LAG() window-function query to classify each
+        5-minute volume delta as 'bought' (last > midpoint) or 'written'
+        (last < midpoint) directly in the database engine, avoiding loading
+        hundreds of thousands of ORM objects into Python.
+
+        The query also filters to ±spot_percent% of the latest spot price so
+        the response only contains strikes the client will actually render.
         """
         t = ticker.upper()
-        
-        # 1. Resolve date
+
+        # ── 1. Resolve target date ────────────────────────────────────────
         if query_date:
             try:
                 target_date = datetime.strptime(query_date, "%Y-%m-%d").date()
             except ValueError:
                 target_date = date.today()
         else:
-            # Find the latest snapshot date in database
-            latest_snap_stmt = select(func.date(OptionSnapshot.timestamp)).where(OptionSnapshot.ticker == t).order_by(desc(OptionSnapshot.timestamp)).limit(1)
-            latest_res = await self.db.execute(latest_snap_stmt)
-            target_date = latest_res.scalar() or date.today()
+            latest_res = await self.db.execute(
+                text("""
+                    SELECT DATE(timestamp)
+                    FROM option_snapshots
+                    WHERE ticker = :ticker
+                    ORDER BY timestamp DESC
+                    LIMIT 1
+                """),
+                {"ticker": t},
+            )
+            row = latest_res.scalar()
+            target_date = row if row else date.today()
 
         logger.info(f"Computing Net Flow for {t} on date {target_date}")
 
-        # 2. Fetch all snapshots for target date ordered by timestamp asc
-        start_dt = datetime.combine(target_date, datetime.min.time())
-        end_dt = datetime.combine(target_date, datetime.max.time())
-        
-        snaps_stmt = select(OptionSnapshot).where(
-            and_(
-                OptionSnapshot.ticker == t,
-                OptionSnapshot.timestamp >= start_dt,
-                OptionSnapshot.timestamp <= end_dt
-            )
-        ).order_by(OptionSnapshot.timestamp.asc())
-        
-        snaps_res = await self.db.execute(snaps_stmt)
-        snapshots = snaps_res.scalars().all()
-
-        if not snapshots:
+        # ── 2. Get latest spot price (from the most recent snapshot of that day) ─
+        spot_res = await self.db.execute(
+            text("""
+                SELECT spot_price
+                FROM option_snapshots
+                WHERE ticker = :ticker
+                  AND DATE(timestamp) = :target_date
+                ORDER BY timestamp DESC
+                LIMIT 1
+            """),
+            {"ticker": t, "target_date": target_date},
+        )
+        spot_row = spot_res.scalar()
+        if spot_row is None:
             return {
                 "success": False,
                 "message": f"No options snapshots found for ticker {t} on {target_date}",
                 "date": target_date.isoformat(),
                 "ticker": t,
                 "spotPrice": 0.0,
-                "data": []
+                "data": [],
             }
 
-        # Spot price is from the latest snapshot of that day
-        latest_snap = snapshots[-1]
-        spot_price = float(latest_snap.spot_price)
+        spot_price = float(spot_row)
+        pct = spot_percent / 100.0
+        min_strike = spot_price * (1.0 - pct)
+        max_strike = spot_price * (1.0 + pct)
 
-        # 3. Calculate Intraday Net Flow using Bid-Ask Midpoint test
-        # We will loop through snaps and match contracts.
-        # Key: (strike, option_type, expiration_str)
-        # Value: {bought_volume: 0.0, written_volume: 0.0, last_price: 0.0, bid: 0, ask: 0}
-        intraday_flow = {}
+        # ── 3. Single LAG window-function query for all flow classification ─
+        #
+        # This pushes the entire tick-classification loop into PostgreSQL C code.
+        # LAG() compares each row's volume with the previous snapshot's volume
+        # for the same (strike, option_type, expiration) partition, giving us
+        # the delta volume per 5-minute interval without Python iteration.
+        #
+        # Rules:
+        #   delta_vol > 0 AND last_price > midpoint  → bought
+        #   delta_vol > 0 AND last_price < midpoint  → written
+        #   delta_vol > 0 AND last_price == midpoint → split 50/50
+        #   delta_vol <= 0                           → ignore (no new volume)
+        #
+        flow_res = await self.db.execute(
+            text("""
+                WITH ranked AS (
+                    SELECT
+                        od.strike,
+                        od.option_type,
+                        od.expiration,
+                        od.volume,
+                        od.last_price,
+                        od.bid,
+                        od.ask,
+                        od.open_interest,
+                        od.implied_volatility,
+                        LAG(od.volume) OVER (
+                            PARTITION BY od.strike, od.option_type, od.expiration
+                            ORDER BY os.timestamp
+                        ) AS prev_volume,
+                        LAG(od.last_price) OVER (
+                            PARTITION BY od.strike, od.option_type, od.expiration
+                            ORDER BY os.timestamp
+                        ) AS prev_last_price
+                    FROM option_data od
+                    JOIN option_snapshots os ON od.snapshot_id = os.id
+                    WHERE os.ticker = :ticker
+                      AND DATE(os.timestamp) = :target_date
+                      AND od.strike BETWEEN :min_strike AND :max_strike
+                ),
+                flow_classified AS (
+                    SELECT
+                        strike,
+                        option_type,
+                        expiration,
+                        last_price,
+                        bid,
+                        ask,
+                        open_interest,
+                        implied_volatility,
+                        -- Volume delta for this interval
+                        GREATEST(0, COALESCE(volume, 0) - COALESCE(prev_volume, 0)) AS delta_vol,
+                        -- Midpoint of bid/ask
+                        (COALESCE(bid, 0) + COALESCE(ask, 0)) / 2.0 AS midpoint,
+                        volume AS cum_volume
+                    FROM ranked
+                    WHERE prev_volume IS NOT NULL
+                )
+                SELECT
+                    strike,
+                    option_type,
+                    expiration,
+                    MAX(last_price)          AS last_price,
+                    MAX(bid)                 AS bid,
+                    MAX(ask)                 AS ask,
+                    MAX(cum_volume)          AS volume,
+                    MAX(open_interest)       AS open_interest,
+                    MAX(implied_volatility)  AS iv,
+                    -- Bought = delta volume where last > midpoint
+                    SUM(CASE
+                        WHEN delta_vol > 0 AND midpoint > 0 AND last_price > midpoint
+                        THEN delta_vol
+                        WHEN delta_vol > 0 AND midpoint > 0 AND last_price = midpoint
+                        THEN delta_vol / 2.0
+                        WHEN delta_vol > 0 AND midpoint <= 0
+                        THEN delta_vol / 2.0
+                        ELSE 0
+                    END) AS bought_volume,
+                    -- Written = delta volume where last < midpoint
+                    SUM(CASE
+                        WHEN delta_vol > 0 AND midpoint > 0 AND last_price < midpoint
+                        THEN delta_vol
+                        WHEN delta_vol > 0 AND midpoint > 0 AND last_price = midpoint
+                        THEN delta_vol / 2.0
+                        WHEN delta_vol > 0 AND midpoint <= 0
+                        THEN delta_vol / 2.0
+                        ELSE 0
+                    END) AS written_volume
+                FROM flow_classified
+                GROUP BY strike, option_type, expiration
+                ORDER BY strike ASC, option_type ASC
+            """),
+            {
+                "ticker": t,
+                "target_date": target_date,
+                "min_strike": min_strike,
+                "max_strike": max_strike,
+            },
+        )
 
-        # Fetch all option contracts for all day's snapshots in one query
-        snap_ids = [snap.id for snap in snapshots]
-        opts_stmt = select(OptionData).where(OptionData.snapshot_id.in_(snap_ids))
-        opts_res = await self.db.execute(opts_stmt)
-        all_contracts = opts_res.scalars().all()
+        rows = flow_res.mappings().all()
 
-        # Group by snapshot_id in memory
-        snap_contracts = {snap_id: [] for snap_id in snap_ids}
-        for contract in all_contracts:
-            snap_contracts[contract.snapshot_id].append(contract)
+        # ── 4. Prior day close for OI/IV change proxy ─────────────────────
+        start_dt = datetime.combine(target_date, datetime.min.time())
 
-        # Run Lee-Ready tick test over successive snapshots
-        for idx in range(len(snapshots) - 1):
-            snap_curr = snapshots[idx]
-            snap_next = snapshots[idx + 1]
-            
-            curr_contracts = {
-                (float(o.strike), o.option_type, o.expiration.isoformat()): o 
-                for o in snap_contracts[snap_curr.id]
-            }
-            next_contracts = {
-                (float(o.strike), o.option_type, o.expiration.isoformat()): o 
-                for o in snap_contracts[snap_next.id]
-            }
+        prior_snap_res = await self.db.execute(
+            text("""
+                SELECT id FROM option_snapshots
+                WHERE ticker = :ticker AND timestamp < :start_dt
+                ORDER BY timestamp DESC LIMIT 1
+            """),
+            {"ticker": t, "start_dt": start_dt},
+        )
+        prior_snap_id = prior_snap_res.scalar()
 
-            for key, opt_next in next_contracts.items():
-                strike, opt_type, exp_str = key
-                opt_curr = curr_contracts.get(key)
-                
-                # Cumulative volume on the day
-                vol_curr = int(opt_curr.volume or 0) if opt_curr else 0
-                vol_next = int(opt_next.volume or 0)
-                
-                # Delta volume traded in this 5-minute interval
-                delta_vol = vol_next - vol_curr
-                if delta_vol <= 0:
-                    continue
-
-                last_price = float(opt_next.last_price or 0.0)
-                bid = float(opt_next.bid or 0.0)
-                ask = float(opt_next.ask or 0.0)
-                midpoint = (bid + ask) / 2.0
-
-                if key not in intraday_flow:
-                    intraday_flow[key] = {
-                        "bought_volume": 0.0,
-                        "written_volume": 0.0,
-                        "last_price": last_price,
-                        "bid": bid,
-                        "ask": ask
-                    }
-
-                # Save latest quotes
-                intraday_flow[key]["last_price"] = last_price
-                intraday_flow[key]["bid"] = bid
-                intraday_flow[key]["ask"] = ask
-
-                # Midpoint Classification Test
-                if ask > bid and bid > 0:
-                    if last_price > midpoint:
-                        # Buyer initiated
-                        intraday_flow[key]["bought_volume"] += delta_vol
-                    elif last_price < midpoint:
-                        # Seller initiated (written)
-                        intraday_flow[key]["written_volume"] += delta_vol
-                    else:
-                        # Split 50/50
-                        intraday_flow[key]["bought_volume"] += delta_vol / 2.0
-                        intraday_flow[key]["written_volume"] += delta_vol / 2.0
-                else:
-                    # Fallback when spread is not available or invalid: split 50/50
-                    intraday_flow[key]["bought_volume"] += delta_vol / 2.0
-                    intraday_flow[key]["written_volume"] += delta_vol / 2.0
-
-        # 4. Calculate EOD OI & IV changes (Comparing EOD of target_date vs prior close)
-        # Find prior day close snapshot (last snapshot before start_dt)
-        prior_snap_stmt = select(OptionSnapshot).where(
-            and_(
-                OptionSnapshot.ticker == t,
-                OptionSnapshot.timestamp < start_dt
+        prior_data: Dict[tuple, dict] = {}
+        if prior_snap_id:
+            prior_res = await self.db.execute(
+                text("""
+                    SELECT strike, option_type, expiration,
+                           open_interest, implied_volatility
+                    FROM option_data
+                    WHERE snapshot_id = :snap_id
+                      AND strike BETWEEN :min_strike AND :max_strike
+                """),
+                {
+                    "snap_id": prior_snap_id,
+                    "min_strike": min_strike,
+                    "max_strike": max_strike,
+                },
             )
-        ).order_by(desc(OptionSnapshot.timestamp)).limit(1)
-        
-        prior_res = await self.db.execute(prior_snap_stmt)
-        prior_snap = prior_res.scalar_one_or_none()
+            for pr in prior_res.mappings().all():
+                key = (float(pr["strike"]), pr["option_type"], str(pr["expiration"]))
+                prior_data[key] = {
+                    "oi": int(pr["open_interest"] or 0),
+                    "iv": float(pr["implied_volatility"] or 0.0),
+                }
 
-        prior_contracts = {}
-        if prior_snap:
-            prior_opts_stmt = select(OptionData).where(OptionData.snapshot_id == prior_snap.id)
-            prior_opts_res = await self.db.execute(prior_opts_stmt)
-            prior_contracts = {
-                (float(o.strike), o.option_type, o.expiration.isoformat()): o 
-                for o in prior_opts_res.scalars().all()
-            }
-
-        latest_contracts = {
-            (float(o.strike), o.option_type, o.expiration.isoformat()): o 
-            for o in snap_contracts[latest_snap.id]
-        }
-
-        # 5. Build combined response payload sorted by strike and option type
+        # ── 5. Build response payload ─────────────────────────────────────
         strikes_data = []
-        
-        # Merge keys from intraday and latest EOD snapshots
-        all_keys = set(latest_contracts.keys()).union(intraday_flow.keys())
+        for row in rows:
+            strike = float(row["strike"])
+            opt_type = row["option_type"]
+            exp_str = str(row["expiration"])
+            key = (strike, opt_type, exp_str)
 
-        for key in all_keys:
-            strike, opt_type, exp_str = key
-            opt_latest = latest_contracts.get(key)
-            opt_prior = prior_contracts.get(key)
-            flow_intra = intraday_flow.get(key, {"bought_volume": 0.0, "written_volume": 0.0})
+            last_price = float(row["last_price"] or 0.0)
+            bid = float(row["bid"] or 0.0)
+            ask = float(row["ask"] or 0.0)
+            vol_eod = int(row["volume"] or 0)
+            oi_eod = int(row["open_interest"] or 0)
+            iv_eod = float(row["iv"] or 0.0)
+            bought_vol = float(row["bought_volume"] or 0.0)
+            written_vol = float(row["written_volume"] or 0.0)
 
-            # Base EOD metrics
-            vol_eod = int(opt_latest.volume or 0) if opt_latest else 0
-            oi_eod = int(opt_latest.open_interest or 0) if opt_latest else 0
-            last_price = float(opt_latest.last_price or 0.0) if opt_latest else 0.0
-            iv_eod = float(opt_latest.implied_volatility or 0.0) if opt_latest else 0.0
-            bid = float(opt_latest.bid or 0.0) if opt_latest else 0.0
-            ask = float(opt_latest.ask or 0.0) if opt_latest else 0.0
-
-            # EOD Open Interest & IV Change
-            oi_prior = int(opt_prior.open_interest or 0) if opt_prior else 0
-            iv_prior = float(opt_prior.implied_volatility or 0.0) if opt_prior else iv_eod
-
+            prior = prior_data.get(key, {})
+            oi_prior = prior.get("oi", 0)
+            iv_prior = prior.get("iv", iv_eod)
             oi_change = oi_eod - oi_prior
             iv_change = iv_eod - iv_prior
 
-            # EOD Flow Classifier (OI & IV Proxy)
+            # EOD sentiment proxy based on OI + IV direction
             eod_sentiment = "Neutral"
             if oi_change > 0:
-                if iv_change > 0.005:  # Positive IV shift (> 0.5% point)
+                if iv_change > 0.005:
                     eod_sentiment = "Bought to Open"
                 elif iv_change < -0.005:
                     eod_sentiment = "Written to Open"
@@ -209,9 +253,6 @@ class OptionsNetFlowService:
             elif oi_change < 0:
                 eod_sentiment = "Positions Closed"
 
-            # Intraday net flow calculations
-            bought_vol = flow_intra["bought_volume"]
-            written_vol = flow_intra["written_volume"]
             net_contracts = bought_vol - written_vol
             net_premium = net_contracts * last_price * 100.0
 
@@ -219,29 +260,37 @@ class OptionsNetFlowService:
                 "strike": strike,
                 "type": opt_type,
                 "expiration": exp_str,
-                "lastPrice": last_price,
-                "bid": bid,
-                "ask": ask,
+                "lastPrice": round(last_price, 4),
+                "bid": round(bid, 4),
+                "ask": round(ask, 4),
                 "volume": vol_eod,
                 "openInterest": oi_eod,
                 "oiChange": oi_change,
-                "iv": iv_eod * 100.0,
-                "ivChange": iv_change * 100.0,
-                "boughtVolume": bought_vol,
-                "writtenVolume": written_vol,
-                "netContracts": net_contracts,
-                "netPremium": net_premium,
-                "eodSentiment": eod_sentiment
+                "iv": round(iv_eod * 100.0, 3),
+                "ivChange": round(iv_change * 100.0, 3),
+                "boughtVolume": round(bought_vol, 1),
+                "writtenVolume": round(written_vol, 1),
+                "netContracts": round(net_contracts, 1),
+                "netPremium": round(net_premium, 2),
+                "eodSentiment": eod_sentiment,
             })
 
-        # Sort strikes data by strike price asc, then option type (Call then Put)
-        strikes_data.sort(key=lambda x: (x["strike"], x["type"] == "P"))
+        snap_count_res = await self.db.execute(
+            text("""
+                SELECT COUNT(*) FROM option_snapshots
+                WHERE ticker = :ticker AND DATE(timestamp) = :target_date
+            """),
+            {"ticker": t, "target_date": target_date},
+        )
+        snap_count = snap_count_res.scalar() or 0
 
         return {
             "success": True,
             "date": target_date.isoformat(),
             "ticker": t,
             "spotPrice": spot_price,
-            "source": "scraped-midpoint-midtick" if len(snapshots) > 1 else "eod-only-fallback",
-            "data": strikes_data
+            "spotRange": {"min": round(min_strike, 2), "max": round(max_strike, 2)},
+            "snapshotCount": snap_count,
+            "source": "scraped-midpoint-midtick" if snap_count > 1 else "eod-only-fallback",
+            "data": strikes_data,
         }

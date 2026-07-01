@@ -1,80 +1,68 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from datetime import datetime, date
-from decimal import Decimal
 from app.services.flow.netflow import OptionsNetFlowService
+
 
 @pytest.mark.asyncio
 async def test_options_net_flow_service_with_mock_db():
-    # 1. Setup mock DB session
+    """
+    Test that the optimized LAG window-function based service correctly:
+    1. Calls the latest snapshot date query
+    2. Calls spot price query
+    3. Calls the main LAG window-function flow query
+    4. Calls the prior EOD close snapshot ID query
+    5. Returns correctly structured response with buys and sells
+    """
     mock_db = AsyncMock()
-
-    # Mock snapshots query result
-    mock_snap_1 = MagicMock()
-    mock_snap_1.id = 1
-    mock_snap_1.timestamp = datetime(2026, 6, 30, 9, 30, 0)
-    mock_snap_1.spot_price = Decimal("100.00")
-
-    mock_snap_2 = MagicMock()
-    mock_snap_2.id = 2
-    mock_snap_2.timestamp = datetime(2026, 6, 30, 9, 35, 0)
-    mock_snap_2.spot_price = Decimal("100.50")
-
     mock_execute = AsyncMock()
     mock_db.execute = mock_execute
 
-    # Set up results
-    mock_snaps_res = MagicMock()
-    mock_snaps_res.scalars.return_value.all.return_value = [mock_snap_1, mock_snap_2]
+    # ── Mock 1: Latest snapshot date query ───────────────────────────
+    mock_date_res = MagicMock()
+    mock_date_res.scalar.return_value = None  # Will fall back to date.today()
 
-    # Mock option data for S1
-    mock_opt_s1_c105 = MagicMock()
-    mock_opt_s1_c105.snapshot_id = 1
-    mock_opt_s1_c105.strike = Decimal("105.00")
-    mock_opt_s1_c105.option_type = "C"
-    mock_opt_s1_c105.expiration = date(2026, 7, 2)
-    mock_opt_s1_c105.last_price = Decimal("1.20")
-    mock_opt_s1_c105.volume = 10
-    mock_opt_s1_c105.open_interest = 100
-    mock_opt_s1_c105.implied_volatility = Decimal("0.25")
-    mock_opt_s1_c105.bid = Decimal("1.15")
-    mock_opt_s1_c105.ask = Decimal("1.25")
+    # ── Mock 2: Spot price query ──────────────────────────────────────
+    mock_spot_res = MagicMock()
+    mock_spot_res.scalar.return_value = 100.50  # spot price
 
-    # Mock option data for S2
-    mock_opt_s2_c105 = MagicMock()
-    mock_opt_s2_c105.snapshot_id = 2
-    mock_opt_s2_c105.strike = Decimal("105.00")
-    mock_opt_s2_c105.option_type = "C"
-    mock_opt_s2_c105.expiration = date(2026, 7, 2)
-    # Price rises closer to Ask (1.27 > midpoint of 1.18 and 1.28) -> Buyer-initiated!
-    mock_opt_s2_c105.last_price = Decimal("1.27")
-    mock_opt_s2_c105.volume = 35 # volume increased by 25
-    mock_opt_s2_c105.open_interest = 120
-    mock_opt_s2_c105.implied_volatility = Decimal("0.26")
-    mock_opt_s2_c105.bid = Decimal("1.18")
-    mock_opt_s2_c105.ask = Decimal("1.28")
+    # ── Mock 3: Main LAG flow query result ───────────────────────────
+    # Simulates: C 105, bought 25 contracts at last_price 1.27
+    mock_flow_row = {
+        "strike": 105.00,
+        "option_type": "C",
+        "expiration": "2026-07-02",
+        "last_price": 1.27,
+        "bid": 1.18,
+        "ask": 1.28,
+        "volume": 35,
+        "open_interest": 120,
+        "iv": 0.26,
+        "bought_volume": 25.0,
+        "written_volume": 0.0,
+    }
+    mock_flow_res = MagicMock()
+    mock_flow_res.mappings.return_value.all.return_value = [mock_flow_row]
 
-    # Mock option data result containing all contracts for target day snapshots
-    mock_opts_res = MagicMock()
-    mock_opts_res.scalars.return_value.all.return_value = [mock_opt_s1_c105, mock_opt_s2_c105]
+    # ── Mock 4: Prior EOD snapshot ID query ──────────────────────────
+    mock_prior_snap_id_res = MagicMock()
+    mock_prior_snap_id_res.scalar.return_value = None  # No prior close
 
-    mock_prior_snap_res = MagicMock()
-    mock_prior_snap_res.scalar_one_or_none.return_value = None
+    # ── Mock 5: Snapshot count query ─────────────────────────────────
+    mock_snap_count_res = MagicMock()
+    mock_snap_count_res.scalar.return_value = 78
 
-    # Chain mock returns
-    # Since query_date is passed, the latest date query is SKIPPED.
-    # 1. Snapshots list query
-    # 2. All day option contracts in_ query
-    # 3. Prior EOD close snapshot query
+    # Chain all mock execute results in call order
+    # Since query_date is passed, the date-resolution query is SKIPPED.
+    # Remaining order: 1. spot, 2. flow LAG, 3. prior snap ID, 4. snap count
     mock_execute.side_effect = [
-        mock_snaps_res,      # Snapshots list
-        mock_opts_res,       # All day option contracts (in_ query)
-        mock_prior_snap_res  # Prior EOD close snapshot
+        mock_spot_res,          # 1. Spot price query
+        mock_flow_res,          # 2. Main LAG window flow query
+        mock_prior_snap_id_res, # 3. Prior close snapshot ID
+        mock_snap_count_res,    # 4. Snapshot count
     ]
 
-    # Initialize service
     service = OptionsNetFlowService(mock_db)
-    response = await service.get_net_flow_data("TSLA", "2026-06-30")
+    response = await service.get_net_flow_data("TSLA", "2026-06-30", spot_percent=15.0)
 
     assert response["success"] is True
     assert response["ticker"] == "TSLA"
@@ -85,9 +73,9 @@ async def test_options_net_flow_service_with_mock_db():
     strike_res = response["data"][0]
     assert strike_res["strike"] == 105.0
     assert strike_res["type"] == "C"
-    # Volume delta is 25. Midpoint is 1.23. Last price is 1.27.
-    # Since 1.27 > 1.23, it is classified as BOUGHT.
+    # Volume 25 bought, 0 written → net +25
     assert strike_res["boughtVolume"] == 25.0
     assert strike_res["writtenVolume"] == 0.0
     assert strike_res["netContracts"] == 25.0
-    assert strike_res["netPremium"] == 25.0 * 1.27 * 100.0
+    # netPremium = 25 * 1.27 * 100 = 3175.0
+    assert abs(strike_res["netPremium"] - 3175.0) < 0.01

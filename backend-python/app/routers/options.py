@@ -116,11 +116,12 @@ async def get_options_flow(
 async def get_options_netflow(
     ticker: str = Query(...),
     date: Optional[str] = Query(None),
+    spotPercent: float = Query(15.0, ge=1.0, le=50.0, description="±% range of spot price to include strikes for"),
     db: AsyncSession = Depends(get_db)
 ):
     from app.services.flow.netflow import OptionsNetFlowService
     service = OptionsNetFlowService(db)
-    response = await service.get_net_flow_data(ticker, date)
+    response = await service.get_net_flow_data(ticker, date, spot_percent=spotPercent)
     return response
 
 @router.post("/collect-now")
