@@ -59,6 +59,7 @@ const SUB_TABS: { [key: string]: Array<{ id: string; label: string }> } = {
   gex: [
     { id: 'distribution', label: 'Distribution' },
     { id: 'projections', label: 'Projections' },
+    { id: 'gradients', label: 'Greek Gradients' },
     { id: 'surfaces', label: 'Surfaces' },
   ],
   flow: [
@@ -965,7 +966,7 @@ export function GammaExposureDashboard() {
 
                           {/* Projections Sub-tab */}
                           {activeTab === 'projections' && (
-                            <div className="flex flex-col gap-4">
+                            <div className="w-full">
                               {/* Expected Move Card */}
                               <div
                                 data-ai-context={JSON.stringify({
@@ -1002,23 +1003,25 @@ export function GammaExposureDashboard() {
                                   />
                                 </ChartWrapper>
                               </div>
+                            </div>
+                          )}
 
-                              {/* Vanna/Charm Greek Gradients */}
-                              <div 
-                                className="h-[1200px] w-full"
-                                data-ai-context={JSON.stringify({
-                                  component: "Greek Gradient Heatmaps",
-                                  promptTemplate: "Interpret the Greek Gradient Heatmaps for Vanna and Charm. What do they tell us about dealer positioning and flows?"
-                                })}
-                              >
-                                <GradientChartsWorkspace
-                                  optionData={activeOptionData}
-                                  ticker={ticker}
-                                  spotPrice={spotPrice!}
-                                  market={market}
-                                  pricingMethod={pricingMethod}
-                                />
-                              </div>
+                          {/* Gradients Sub-tab */}
+                          {activeTab === 'gradients' && (
+                            <div 
+                              className="h-[1200px] w-full animate-in fade-in duration-200"
+                              data-ai-context={JSON.stringify({
+                                component: "Greek Gradient Heatmaps",
+                                promptTemplate: "Interpret the Greek Gradient Heatmaps for Vanna and Charm. What do they tell us about dealer positioning and flows?"
+                              })}
+                            >
+                              <GradientChartsWorkspace
+                                optionData={activeOptionData}
+                                ticker={ticker}
+                                spotPrice={spotPrice!}
+                                market={market}
+                                pricingMethod={pricingMethod}
+                              />
                             </div>
                           )}
 
