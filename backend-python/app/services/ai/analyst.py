@@ -201,7 +201,7 @@ Include the disclaimer: "FOR EDUCATIONAL PURPOSES ONLY. OPTION TRADING INVOLVES 
 """
 
             response = self.client.models.generate_content(
-                model="gemini-1.5-flash",
+                model="gemini-2.5-flash",
                 contents=f"GEX Snapshot JSON:\n{json.dumps(context_payload, indent=2)}",
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,
@@ -262,7 +262,7 @@ Indicator key generation rules:
 """
         try:
             response = self.client.models.generate_content(
-                model="gemini-1.5-flash",
+                model="gemini-2.5-flash",
                 contents=f"Description:\n{description}",
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,
@@ -293,7 +293,7 @@ Rules:
 """
         try:
             response = self.client.models.generate_content(
-                model="gemini-1.5-flash",
+                model="gemini-2.5-flash",
                 contents=f"Strategy Config JSON:\n{json.dumps(strategy_config, indent=2)}",
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,
@@ -448,7 +448,7 @@ You are also equipped with tools for the user's trading journal:
 """
 
             response = self.client.models.generate_content(
-                model="gemini-1.5-flash",
+                model="gemini-2.5-flash",
                 contents=contents,
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,

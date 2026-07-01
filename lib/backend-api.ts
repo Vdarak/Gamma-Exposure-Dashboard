@@ -460,6 +460,56 @@ export async function getOptionsFlowData(
   }
 }
 
+export interface NetFlowStrikeData {
+  strike: number
+  type: 'C' | 'P'
+  expiration: string
+  lastPrice: number
+  bid: number
+  ask: number
+  volume: number
+  openInterest: number
+  oiChange: number
+  iv: number
+  ivChange: number
+  boughtVolume: number
+  writtenVolume: number
+  netContracts: number
+  netPremium: number
+  eodSentiment: string
+}
+
+export interface NetFlowResponse {
+  success: boolean
+  date: string
+  ticker: string
+  spotPrice: number
+  source: string
+  data: NetFlowStrikeData[]
+  message?: string
+}
+
+/**
+ * Fetch options Net Flow (EOD) data from backend
+ */
+export async function getOptionsNetFlow(
+  ticker: string,
+  date?: string
+): Promise<NetFlowResponse> {
+  try {
+    let url = `${BACKEND_URL}/api/options/netflow?ticker=${ticker}`
+    if (date) {
+      url += `&date=${encodeURIComponent(date)}`
+    }
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`Failed to fetch options net flow data for ${ticker}`)
+    return await response.json()
+  } catch (error) {
+    console.error(`Error fetching options net flow for ${ticker}:`, error)
+    throw error
+  }
+}
+
 /**
  * Generate AI analyst briefing for a ticker
  */

@@ -25,6 +25,7 @@ import { ExpirySelector, type ExpiryMode, getOpexDte } from "./controls/expiry-s
 import { HorizontalExpirySelector } from "./controls/horizontal-expiry-selector"
 import { TradingJournal } from "./trading-journal/trading-journal"
 import { OptionFlowDashboard } from "./option-flow-dashboard"
+import { OptionNetFlowDashboard } from "./option-netflow-dashboard"
 import { BacktestDashboard } from "./algorithms/backtest-dashboard"
 import { StrategyStatsDashboard } from "./dashboard/strategy-stats-dashboard"
 import { AIAnalystPanel } from "./AIAnalystPanel"
@@ -45,7 +46,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 const SIDEBAR_TABS = [
   { id: 'confluences', label: 'Confluence Hub', icon: 'confluence' },
   { id: 'gex', label: 'GEX Analytics', icon: 'gex' },
-  { id: 'flow', label: 'Options Flow', icon: 'flow' },
+  { id: 'flow', label: 'Flow From Options', icon: 'flow' },
   { id: 'quant', label: 'Quant Pricing', icon: 'scanners' },
   { id: 'algos', label: 'Backtesting', icon: 'algos' },
   { id: 'journal', label: 'Journal', icon: 'calendar' },
@@ -62,13 +63,14 @@ const SUB_TABS: { [key: string]: Array<{ id: string; label: string }> } = {
   ],
   flow: [
     { id: 'live-tape', label: 'Live Tape' },
+    { id: 'net-flow', label: 'Net Flow (EOD)' },
     { id: 'history-trend', label: 'History Trend' },
+    { id: 'cot-positions', label: 'COT Positions' },
   ],
   quant: [
     { id: 'probability-map', label: 'Probability Map' },
     { id: 'garch-forecast', label: 'GARCH Forecast' },
     { id: 'quantum-tunnel', label: 'Quantum Tunnel' },
-    { id: 'cot-positions', label: 'COT Positions' },
   ]
 }
 
@@ -831,7 +833,7 @@ export function GammaExposureDashboard() {
                   </div>
 
                   {/* Horizontal Expiry Selector in the header */}
-                  {(activeSidebarTab === 'gex' || (activeSidebarTab === 'quant' && activeTab === 'quantum-tunnel')) && futureExpiries.length > 0 && (
+                  {(activeSidebarTab === 'gex' || (activeSidebarTab === 'quant' && activeTab === 'quantum-tunnel') || (activeSidebarTab === 'flow' && activeTab === 'net-flow')) && futureExpiries.length > 0 && (
                     <div className="flex-1 min-w-0">
                       <HorizontalExpirySelector
                         availableExpiries={futureExpiries}
@@ -847,7 +849,8 @@ export function GammaExposureDashboard() {
 
                 {/* Workspace tab views with loading screen overlay */}
                 <div className={`flex-1 overflow-y-auto terminal-scrollbar relative ${
-                  activeSidebarTab === 'quant' && (activeTab === 'cot-positions' || activeTab === 'garch-forecast' || activeTab === 'probability-map')
+                  (activeSidebarTab === 'quant' && (activeTab === 'garch-forecast' || activeTab === 'probability-map')) ||
+                  (activeSidebarTab === 'flow' && (activeTab === 'cot-positions' || activeTab === 'net-flow' || activeTab === 'live-tape'))
                     ? 'p-0 space-y-0'
                     : 'p-4 space-y-4'
                 }`}>
@@ -1088,6 +1091,14 @@ export function GammaExposureDashboard() {
                       />
                     </div>
                   )}
+                  {activeSidebarTab === 'flow' && activeTab === 'net-flow' && (
+                    <div className="flex-1 flex flex-col min-h-0 bg-[#020203]">
+                      <OptionNetFlowDashboard 
+                        ticker={ticker}
+                        selectedExpiries={activeExpiries}
+                      />
+                    </div>
+                  )}
                   {activeSidebarTab === 'flow' && activeTab === 'history-trend' && (
                     <div className="flex-1 p-4 overflow-y-auto">
                       <FlowHistoricalView
@@ -1098,6 +1109,17 @@ export function GammaExposureDashboard() {
                         setIsLive={setIsLive}
                         parentLoading={isLoading}
                       />
+                    </div>
+                  )}
+                  {activeSidebarTab === 'flow' && activeTab === 'cot-positions' && (
+                    <div 
+                      className="flex-1 flex flex-col min-h-0"
+                      data-ai-context={JSON.stringify({
+                        component: "COT Flow Chart",
+                        promptTemplate: "Analyze the Commitment of Traders (COT) long/short institutional positioning dynamics and Net GEX flow trend."
+                      })}
+                    >
+                      <CotFlowChart />
                     </div>
                   )}
 
@@ -1172,17 +1194,6 @@ export function GammaExposureDashboard() {
                           />
                         </div>
                       </div>
-                    </div>
-                  )}
-                  {activeSidebarTab === 'quant' && activeTab === 'cot-positions' && (
-                    <div 
-                      className="flex-1 flex flex-col min-h-0"
-                      data-ai-context={JSON.stringify({
-                        component: "COT Flow Chart",
-                        promptTemplate: "Analyze the Commitment of Traders (COT) long/short institutional positioning dynamics and Net GEX flow trend."
-                      })}
-                    >
-                      <CotFlowChart />
                     </div>
                   )}
                 </div>

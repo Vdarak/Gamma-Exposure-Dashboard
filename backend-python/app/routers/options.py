@@ -112,6 +112,17 @@ async def get_options_flow(
     response = await flow_service.get_options_flow_data(ticker, timeframe, startDate)
     return response
 
+@router.get("/options/netflow")
+async def get_options_netflow(
+    ticker: str = Query(...),
+    date: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db)
+):
+    from app.services.flow.netflow import OptionsNetFlowService
+    service = OptionsNetFlowService(db)
+    response = await service.get_net_flow_data(ticker, date)
+    return response
+
 @router.post("/collect-now")
 async def collect_now(db: AsyncSession = Depends(get_db)):
     """Manual trigger to run scheduler and fetch data for all active markets."""
