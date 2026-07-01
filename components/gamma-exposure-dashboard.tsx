@@ -25,7 +25,7 @@ import { ExpirySelector, type ExpiryMode, getOpexDte } from "./controls/expiry-s
 import { HorizontalExpirySelector } from "./controls/horizontal-expiry-selector"
 import { TradingJournal } from "./trading-journal/trading-journal"
 import { OptionFlowDashboard } from "./option-flow-dashboard"
-import { OptionNetFlowDashboard } from "./option-netflow-dashboard"
+import { OptionNetFlowDashboard } from "@/components/option-netflow-dashboard"
 import { BacktestDashboard } from "./algorithms/backtest-dashboard"
 import { StrategyStatsDashboard } from "./dashboard/strategy-stats-dashboard"
 import { AIAnalystPanel } from "./AIAnalystPanel"
