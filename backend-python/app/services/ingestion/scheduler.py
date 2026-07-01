@@ -93,39 +93,42 @@ class IngestionScheduler:
 
     async def collect_live_data(self):
         """Job to collect live options chain data if markets are open."""
-        us_open = is_us_market_open()
-        ind_open = is_india_market_open()
-        
-        if not us_open and not ind_open:
-            logger.info("⏸️ No markets open, skipping live collection.")
-            return
-
-        async with AsyncSessionLocal() as session:
-            saver = DataSaverService(session)
+        try:
+            us_open = is_us_market_open()
+            ind_open = is_india_market_open()
             
-            # US Market Collection
-            if us_open:
-                tickers = settings.US_TICKERS.split(",")
-                logger.info(f"🇺🇸 US Market is open. Collecting for {tickers}...")
-                for ticker in tickers:
-                    try:
-                        snap = await self.cboe_scraper.get_normalized_snapshot(ticker.strip())
-                        if snap:
-                            await saver.save_snapshot(snap)
-                    except Exception as e:
-                        logger.error(f"Error collecting US data for {ticker}: {e}")
+            if not us_open and not ind_open:
+                logger.info("⏸️ No markets open, skipping live collection.")
+                return
 
-            # Indian Market Collection
-            if ind_open:
-                tickers = settings.INDIA_TICKERS.split(",")
-                logger.info(f"🇮🇳 Indian Market is open. Collecting for {tickers}...")
-                for ticker in tickers:
-                    try:
-                        snap = await self.nse_scraper.get_normalized_snapshot(ticker.strip())
-                        if snap:
-                            await saver.save_snapshot(snap)
-                    except Exception as e:
-                        logger.error(f"Error collecting India data for {ticker}: {e}")
+            async with AsyncSessionLocal() as session:
+                saver = DataSaverService(session)
+                
+                # US Market Collection
+                if us_open:
+                    tickers = settings.US_TICKERS.split(",")
+                    logger.info(f"🇺🇸 US Market is open. Collecting for {tickers}...")
+                    for ticker in tickers:
+                        try:
+                            snap = await self.cboe_scraper.get_normalized_snapshot(ticker.strip())
+                            if snap:
+                                await saver.save_snapshot(snap)
+                        except Exception as e:
+                            logger.error(f"Error collecting US data for {ticker}: {e}")
+
+                # Indian Market Collection
+                if ind_open:
+                    tickers = settings.INDIA_TICKERS.split(",")
+                    logger.info(f"🇮🇳 Indian Market is open. Collecting for {tickers}...")
+                    for ticker in tickers:
+                        try:
+                            snap = await self.nse_scraper.get_normalized_snapshot(ticker.strip())
+                            if snap:
+                                await saver.save_snapshot(snap)
+                        except Exception as e:
+                            logger.error(f"Error collecting India data for {ticker}: {e}")
+        except Exception as e:
+            logger.error(f"Critical error in collect_live_data job: {e}")
 
     async def update_interest_rates(self):
         """Job to update macro risk-free interest rates."""

@@ -67,6 +67,7 @@ dependencies = [
     # ── Utilities ──
     "orjson>=3.10.0",               # 10x faster JSON serialization
     "python-dotenv>=1.0.0",
+    "tzdata",
 ]
 
 [project.optional-dependencies]

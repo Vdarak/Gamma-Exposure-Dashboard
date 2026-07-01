@@ -128,9 +128,58 @@ async def get_options_netflow(
 async def collect_now(db: AsyncSession = Depends(get_db)):
     """Manual trigger to run scheduler and fetch data for all active markets."""
     from app.services.ingestion.scheduler import IngestionScheduler
-    scheduler = IngestionScheduler(db)
-    await scheduler.collect_market_data()
+    scheduler = IngestionScheduler()
+    await scheduler.collect_live_data()
     return {
         "success": True,
         "message": "Market data collection triggered successfully"
     }
+
+@router.get("/db-diagnostics")
+async def db_diagnostics(db: AsyncSession = Depends(get_db)):
+    import sqlalchemy as sa
+    try:
+        # 1. Check DB Size
+        db_size_res = await db.execute(sa.text("SELECT pg_size_pretty(pg_database_size(current_database()))"))
+        db_size = db_size_res.scalar()
+        
+        # 2. Check counts and sizes
+        snapshots_count_res = await db.execute(sa.text("SELECT COUNT(*) FROM option_snapshots"))
+        snapshots_count = snapshots_count_res.scalar()
+        
+        options_count_res = await db.execute(sa.text("SELECT COUNT(*) FROM option_data"))
+        options_count = options_count_res.scalar()
+        
+        options_size_res = await db.execute(sa.text("SELECT pg_size_pretty(pg_total_relation_size('option_data'))"))
+        options_size = options_size_res.scalar()
+        
+        # 3. Test database write capability
+        write_status = "SUCCESS"
+        write_test_error = None
+        try:
+            # We use a rollback transaction so we don't pollute database
+            await db.execute(sa.text("INSERT INTO waitlist_signups (email, tier, status) VALUES ('test_diag@diag.com', 'Free', 'pending')"))
+            await db.flush()
+            await db.rollback()
+        except Exception as write_err:
+            write_status = "FAILED"
+            write_test_error = str(write_err)
+            try:
+                await db.rollback()
+            except:
+                pass
+            
+        return {
+            "success": True,
+            "database_size": db_size,
+            "option_snapshots_count": snapshots_count,
+            "option_data_count": options_count,
+            "option_data_table_size": options_size,
+            "write_status": write_status,
+            "write_error": write_test_error
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
