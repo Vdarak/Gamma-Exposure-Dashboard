@@ -13,6 +13,7 @@ import {
 } from "lucide-react"
 import dynamic from "next/dynamic"
 import { getOptionsNetFlow, NetFlowStrikeData, NetFlowResponse } from "@/lib/backend-api"
+import { colors, typography } from "@/lib/design-tokens"
 
 // Dynamically import Plotly to avoid Next.js SSR errors
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false })
@@ -150,7 +151,15 @@ export function OptionNetFlowDashboard({ ticker, selectedExpiries }: OptionNetFl
     const callValues = strikesToShow.map(item => 
       viewMode === "contracts" ? item.callNetContracts : item.callNetPremium
     )
-    const putValues = strikesToShow.map(item => 
+    
+    // Negate Puts so buying puts (bearish) goes left and writing puts (bullish) goes right
+    const putValuesForPlot = strikesToShow.map(item => {
+      const val = viewMode === "contracts" ? item.putNetContracts : item.putNetPremium
+      return -val
+    })
+    
+    // Raw Puts Net Flow for tooltips
+    const putRawValues = strikesToShow.map(item => 
       viewMode === "contracts" ? item.putNetContracts : item.putNetPremium
     )
 
@@ -163,22 +172,33 @@ export function OptionNetFlowDashboard({ ticker, selectedExpiries }: OptionNetFl
           orientation: "h",
           name: "Call Net Flow",
           marker: {
-            color: callValues.map(val => val >= 0 ? "#00E676" : "#0D533A"), // Bright Green for net buy, dark green for net write
+            color: callValues.map(val => val >= 0 ? colors.accent.green : colors.accent.red),
             line: { width: 0.5, color: "#111" }
+          },
+          hoverlabel: {
+            bgcolor: "#111111",
+            bordercolor: "#1A1A1A",
+            font: { family: typography.fontMono, size: 10, color: "#E5E5E5" }
           },
           hovertemplate: `Strike: $%{y}<br>Call Net Flow: %{x:$,.0f}<extra></extra>`
         },
         {
           type: "bar",
-          x: putValues,
+          x: putValuesForPlot,
           y: strikePrices,
           orientation: "h",
           name: "Put Net Flow",
+          customdata: putRawValues,
           marker: {
-            color: putValues.map(val => val >= 0 ? "#FF1744" : "#621223"), // Bright Red for net buy, dark red for net write
+            color: putValuesForPlot.map(val => val >= 0 ? colors.accent.green : colors.accent.red),
             line: { width: 0.5, color: "#111" }
           },
-          hovertemplate: `Strike: $%{y}<br>Put Net Flow: %{x:$,.0f}<extra></extra>`
+          hoverlabel: {
+            bgcolor: "#111111",
+            bordercolor: "#1A1A1A",
+            font: { family: typography.fontMono, size: 10, color: "#E5E5E5" }
+          },
+          hovertemplate: `Strike: $%{y}<br>Put Net Flow: %{customdata:$,.0f}<extra></extra>`
         }
       ],
       layout: {
@@ -186,37 +206,38 @@ export function OptionNetFlowDashboard({ ticker, selectedExpiries }: OptionNetFl
         dragmode: "pan",
         autosize: true,
         height: 520,
+        showlegend: false, // REMOVE LEGEND
         margin: { l: 70, r: 20, t: 30, b: 50 },
-        paper_bgcolor: "rgba(0,0,0,0)",
-        plot_bgcolor: "rgba(0,0,0,0)",
+        paper_bgcolor: "#0A0A0A", // Card surface
+        plot_bgcolor: "#0A0A0A",
         font: {
-          family: "JetBrains Mono, monospace, sans-serif",
-          color: "#949499",
+          family: typography.fontMono,
+          color: colors.text.secondary,
           size: 10
         },
         xaxis: {
-          title: viewMode === "contracts" ? "Net Contracts (Bought - Written)" : "Net Premium Flow ($)",
-          gridcolor: "#181A22",
-          zerolinecolor: "#303644",
+          title: viewMode === "contracts" 
+            ? "Net Contracts (Bullish → | ← Bearish)" 
+            : "Net Premium Flow (Bullish → | ← Bearish)",
+          gridcolor: "#1A1A1A",
+          zerolinecolor: "#2A2A2A",
           zerolinewidth: 1.5,
+          tickfont: { color: colors.text.muted },
+          titlefont: { color: colors.text.secondary },
           tickformat: viewMode === "contracts" ? "," : "$,.0f"
         },
         yaxis: {
           title: "Strike Price ($)",
-          gridcolor: "#181A22",
-          zerolinecolor: "#181A22",
+          gridcolor: "#1A1A1A",
+          zerolinecolor: "#1A1A1A",
+          tickfont: { color: colors.text.muted },
+          titlefont: { color: colors.text.secondary },
           tickmode: "linear",
           tick0: 0,
-          dtick: Math.max(1.0, Math.round(spotPrice * 0.01)) // Dynamically step strikes based on spot price
-        },
-        legend: {
-          x: 0,
-          y: 1.1,
-          orientation: "h",
-          font: { color: "#FFF" }
+          dtick: Math.max(1.0, Math.round(spotPrice * 0.01))
         },
         shapes: [
-          // Current Spot Price Line
+          // Current Spot Price Line (Amber #FFB800)
           {
             type: "line",
             xref: "paper",
@@ -226,7 +247,7 @@ export function OptionNetFlowDashboard({ ticker, selectedExpiries }: OptionNetFl
             y0: spotPrice,
             y1: spotPrice,
             line: {
-              color: "#FFD600",
+              color: colors.accent.amber,
               width: 1.5,
               dash: "dashdot"
             }
@@ -238,15 +259,15 @@ export function OptionNetFlowDashboard({ ticker, selectedExpiries }: OptionNetFl
             yref: "y",
             x: 0.95,
             y: spotPrice,
-            text: `Spot: $${spotPrice.toFixed(2)}`,
+            text: `SPOT ${spotPrice.toFixed(0)}`,
             showarrow: false,
             font: {
-              color: "#FFD600",
+              color: colors.accent.amber,
               size: 9,
-              family: "JetBrains Mono"
+              family: typography.fontMono
             },
-            bgcolor: "#0A0C10",
-            bordercolor: "#FFD600",
+            bgcolor: "#0A0A0A",
+            bordercolor: colors.accent.amber,
             borderwidth: 0.5,
             borderpad: 2
           }
@@ -362,108 +383,102 @@ export function OptionNetFlowDashboard({ ticker, selectedExpiries }: OptionNetFl
                 config={{ responsive: true, displayModeBar: false }}
                 style={{ width: "100%", height: "100%" }}
               />
-              <div className="absolute bottom-2 left-4 right-4 flex justify-between font-mono text-[9px] text-gray-500 bg-[#050608]/75 backdrop-blur px-3 py-1 rounded border border-[#14161C]">
-                <span>💛 Dashdot Line: Spot Price (${spotPrice.toFixed(2)})</span>
-                <span>💡 Green: Call Net Buying/Writing | Red: Put Net Buying/Writing</span>
-              </div>
             </div>
           ) : (
-            <span className="text-xs font-mono text-gray-500">No option flow data available.</span>
+            null
           )}
         </div>
       </div>
 
       {/* RIGHT COLUMN: Statistics Summary & Leaderboard */}
-      <div className="w-full lg:w-[320px] bg-[#07090C] flex flex-col lg:h-full justify-between flex-shrink-0">
-        
-        {/* STATS OVERVIEW CARD */}
-        <div className="p-4 border-b border-[#14161C] space-y-4">
-          <h2 className="text-[11px] font-bold font-mono tracking-wider text-gray-400 uppercase">
-            Net Flow Aggregates
-          </h2>
+      {data.length > 0 && (
+        <div className="w-full lg:w-[320px] bg-[#07090C] flex flex-col lg:h-full justify-between flex-shrink-0">
+          
+          {/* STATS OVERVIEW CARD */}
+          <div className="p-4 border-b border-[#14161C] space-y-4">
+            <h2 className="text-[11px] font-bold font-mono tracking-wider text-gray-400 uppercase">
+              Net Flow Aggregates
+            </h2>
 
-          <div className="grid grid-cols-2 gap-2">
-            {/* Call Net Contracts */}
-            <div className="bg-[#0A0C10] border border-[#14161C] p-2.5 rounded">
-              <span className="text-[9px] font-mono text-gray-500 uppercase block">Calls Net Vol</span>
-              <span className={`text-sm font-mono font-bold ${summaryStats.callNetContracts >= 0 ? "text-[#00E676]" : "text-[#FF1744]"}`}>
-                {formatContracts(summaryStats.callNetContracts)}
-              </span>
+            <div className="grid grid-cols-2 gap-2">
+              {/* Call Net Contracts */}
+              <div className="bg-[#0A0C10] border border-[#14161C] p-2.5 rounded">
+                <span className="text-[9px] font-mono text-gray-500 uppercase block">Calls Net Vol</span>
+                <span className={`text-sm font-mono font-bold ${summaryStats.callNetContracts >= 0 ? "text-[#00C805]" : "text-[#FF3B60]"}`}>
+                  {formatContracts(summaryStats.callNetContracts)}
+                </span>
+              </div>
+              {/* Puts Net Contracts */}
+              <div className="bg-[#0A0C10] border border-[#14161C] p-2.5 rounded">
+                <span className="text-[9px] font-mono text-gray-500 uppercase block">Puts Net Vol</span>
+                <span className={`text-sm font-mono font-bold ${summaryStats.putNetContracts >= 0 ? "text-[#00C805]" : "text-[#FF3B60]"}`}>
+                  {formatContracts(summaryStats.putNetContracts)}
+                </span>
+              </div>
+              {/* Call Net Premium */}
+              <div className="bg-[#0A0C10] border border-[#14161C] p-2.5 rounded">
+                <span className="text-[9px] font-mono text-gray-500 uppercase block">Calls Net Prem</span>
+                <span className={`text-sm font-mono font-bold ${summaryStats.callNetPremium >= 0 ? "text-[#00C805]" : "text-[#FF3B60]"}`}>
+                  {formatNotional(summaryStats.callNetPremium)}
+                </span>
+              </div>
+              {/* Put Net Premium */}
+              <div className="bg-[#0A0C10] border border-[#14161C] p-2.5 rounded">
+                <span className="text-[9px] font-mono text-gray-500 uppercase block">Puts Net Prem</span>
+                <span className={`text-sm font-mono font-bold ${summaryStats.putNetPremium >= 0 ? "text-[#00C805]" : "text-[#FF3B60]"}`}>
+                  {formatNotional(summaryStats.putNetPremium)}
+                </span>
+              </div>
             </div>
-            {/* Puts Net Contracts */}
-            <div className="bg-[#0A0C10] border border-[#14161C] p-2.5 rounded">
-              <span className="text-[9px] font-mono text-gray-500 uppercase block">Puts Net Vol</span>
-              <span className={`text-sm font-mono font-bold ${summaryStats.putNetContracts >= 0 ? "text-[#00E676]" : "text-[#FF1744]"}`}>
-                {formatContracts(summaryStats.putNetContracts)}
-              </span>
-            </div>
-            {/* Call Net Premium */}
-            <div className="bg-[#0A0C10] border border-[#14161C] p-2.5 rounded">
-              <span className="text-[9px] font-mono text-gray-500 uppercase block">Calls Net Prem</span>
-              <span className={`text-sm font-mono font-bold ${summaryStats.callNetPremium >= 0 ? "text-[#00E676]" : "text-[#FF1744]"}`}>
-                {formatNotional(summaryStats.callNetPremium)}
-              </span>
-            </div>
-            {/* Put Net Premium */}
-            <div className="bg-[#0A0C10] border border-[#14161C] p-2.5 rounded">
-              <span className="text-[9px] font-mono text-gray-500 uppercase block">Puts Net Prem</span>
-              <span className={`text-sm font-mono font-bold ${summaryStats.putNetPremium >= 0 ? "text-[#00E676]" : "text-[#FF1744]"}`}>
-                {formatNotional(summaryStats.putNetPremium)}
-              </span>
+
+            <div className="bg-[#0A0C10] border border-[#14161C] p-3 rounded flex justify-between items-center text-xs font-mono">
+              <span className="text-[10px] text-gray-500 uppercase">Total Traded Volume</span>
+              <span className="text-white font-bold">{summaryStats.totalVolume.toLocaleString()}</span>
             </div>
           </div>
 
-          <div className="bg-[#0A0C10] border border-[#14161C] p-3 rounded flex justify-between items-center text-xs font-mono">
-            <span className="text-[10px] text-gray-500 uppercase">Total Traded Volume</span>
-            <span className="text-white font-bold">{summaryStats.totalVolume.toLocaleString()}</span>
+          {/* LEADERBOARD / TABLE */}
+          <div className="flex-1 flex flex-col min-h-0">
+            <div className="px-4 py-2 border-b border-[#14161C] bg-[#0A0C10] flex justify-between items-center">
+              <span className="text-[10px] font-bold font-mono text-gray-400 uppercase tracking-wider">Top Net Premium Flows</span>
+              <span title="Sorted by absolute net option premium added or liquidated.">
+                <HelpCircle className="w-3 h-3 text-gray-500 hover:text-white cursor-pointer" />
+              </span>
+            </div>
+
+            <div className="flex-1 overflow-y-auto font-mono text-[10px]">
+              {topActivity.length > 0 && (
+                <div className="divide-y divide-[#13151B]">
+                  {topActivity.map((item, idx) => {
+                    const isCall = item.type === "C"
+                    const isBuy = item.netPremium >= 0
+                    
+                    return (
+                      <div key={idx} className="p-3 flex flex-row items-center justify-between hover:bg-[#0A0C10] transition-colors">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-white font-bold">
+                            ${item.strike.toFixed(1)} {isCall ? "Call" : "Put"}
+                          </span>
+                          <span className="text-[8px] text-gray-500">Exp: {item.expiration}</span>
+                        </div>
+                        
+                        <div className="text-right flex flex-col gap-0.5">
+                          <span className={`font-bold ${isBuy ? "text-[#00C805]" : "text-[#FF3B60]"}`}>
+                            {isBuy ? "BUY" : "SELL"} {formatNotional(item.netPremium)}
+                          </span>
+                          <span className="text-[8px] text-gray-500">
+                            {formatContracts(item.netContracts)} contracts | OI: {item.openInterest.toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
-
-        {/* LEADERBOARD / TABLE */}
-        <div className="flex-1 flex flex-col min-h-0">
-          <div className="px-4 py-2 border-b border-[#14161C] bg-[#0A0C10] flex justify-between items-center">
-            <span className="text-[10px] font-bold font-mono text-gray-400 uppercase tracking-wider">Top Net Premium Flows</span>
-            <span title="Sorted by absolute net option premium added or liquidated.">
-              <HelpCircle className="w-3 h-3 text-gray-500 hover:text-white cursor-pointer" />
-            </span>
-          </div>
-
-          <div className="flex-1 overflow-y-auto font-mono text-[10px]">
-            {topActivity.length > 0 ? (
-              <div className="divide-y divide-[#13151B]">
-                {topActivity.map((item, idx) => {
-                  const isCall = item.type === "C"
-                  const isBuy = item.netPremium >= 0
-                  
-                  return (
-                    <div key={idx} className="p-3 flex flex-row items-center justify-between hover:bg-[#0A0C10] transition-colors">
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-white font-bold">
-                          ${item.strike.toFixed(1)} {isCall ? "Call" : "Put"}
-                        </span>
-                        <span className="text-[8px] text-gray-500">Exp: {item.expiration}</span>
-                      </div>
-                      
-                      <div className="text-right flex flex-col gap-0.5">
-                        <span className={`font-bold ${isBuy ? "text-[#00E676]" : "text-[#FF1744]"}`}>
-                          {isBuy ? "BUY" : "SELL"} {formatNotional(item.netPremium)}
-                        </span>
-                        <span className="text-[8px] text-gray-500">
-                          {formatContracts(item.netContracts)} contracts | OI: {item.openInterest.toLocaleString()}
-                        </span>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            ) : (
-              <div className="h-full flex items-center justify-center p-4">
-                <span className="text-gray-600 text-[10px]">No active flows computed.</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   )
 }
