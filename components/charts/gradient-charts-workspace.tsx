@@ -635,7 +635,7 @@ function PositionsProfileView({
 }
 
 // ────────────────────────────────────────────────────────
-// GRADIENT HEATMAP CHART COMPONENT (Apache ECharts + SVG)
+// GRADIENT HEATMAP CHART COMPONENT (Apache ECharts + SVG + Smooth Canvas)
 // ────────────────────────────────────────────────────────
 interface GradientHeatmapChartProps {
   greekMode: 'gamma' | 'vanna' | 'charm' | 'delta'
@@ -677,6 +677,7 @@ function GradientHeatmapChart({
   yahooCandles
 }: GradientHeatmapChartProps) {
   const chartRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
   const chartInstanceRef = useRef<echarts.ECharts | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [tooltipData, setTooltipData] = useState<any | null>(null)
@@ -802,6 +803,123 @@ function GradientHeatmapChart({
     const idx = getStrikeIndex(price)
     const pixel = chart.convertToPixel({ xAxisIndex: 0, yAxisIndex: 0 }, [0, idx])
     return pixel ? pixel[1] : 0
+  }
+
+  // Draw the smooth, bilinear-interpolated and blurred gradient on the background canvas
+  const drawSmoothGradient = () => {
+    const canvas = canvasRef.current
+    if (!canvas || !gridRect || gridExposures.length === 0 || strikes.length === 0) {
+      if (canvas && gridRect) {
+        const ctx = canvas.getContext('2d')
+        if (ctx) ctx.clearRect(0, 0, gridRect.width, gridRect.height)
+      }
+      return
+    }
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const dpr = window.devicePixelRatio || 1
+    canvas.width = gridRect.width * dpr
+    canvas.height = gridRect.height * dpr
+    ctx.scale(dpr, dpr)
+
+    // Clear and draw pitch-black background
+    ctx.fillStyle = '#000000'
+    ctx.fillRect(0, 0, gridRect.width, gridRect.height)
+
+    const numTimeSteps = gridExposures.length
+    const numStrikes = strikes.length
+
+    // 1. Render data points onto an offscreen canvas at raw resolution (1px per cell)
+    const offscreen = document.createElement('canvas')
+    offscreen.width = numTimeSteps
+    offscreen.height = numStrikes
+    const oCtx = offscreen.getContext('2d')
+    if (!oCtx) return
+
+    const oImgData = oCtx.createImageData(numTimeSteps, numStrikes)
+
+    // Find the max value to normalize scaling
+    let maxAbs = 0
+    gridExposures.forEach(snap => {
+      snap.values.forEach(v => {
+        const absVal = Math.abs(v)
+        if (absVal > maxAbs) maxAbs = absVal
+      })
+    })
+    const maxVal = maxAbs > 0 ? maxAbs * 0.95 : 1.0
+
+    for (let x = 0; x < numTimeSteps; x++) {
+      const snap = gridExposures[x]
+      for (let y = 0; y < numStrikes; y++) {
+        const val = snap.values[y]
+        const valRatio = maxVal > 0 ? val / maxVal : 0
+        const absVal = Math.abs(valRatio)
+
+        // Cluster focus filtering: filter out noise and rescale
+        let finalRatio = 0
+        if (absVal >= 0.12) {
+          finalRatio = (absVal - 0.12) / (1.0 - 0.12)
+        }
+        const normVal = Math.sign(valRatio) * Math.pow(finalRatio, 0.40)
+
+        // Map intensity directly to continuous alpha opacity for smooth glow
+        const alpha = Math.round(255 * Math.min(1.0, Math.pow(absVal, 0.35)))
+
+        const imgY = numStrikes - 1 - y
+        const pixelIdx = (imgY * numTimeSteps + x) * 4
+
+        let r = 0, g = 0, b = 0
+        if (greekMode === 'gamma' || greekMode === 'delta') {
+          if (normVal >= 0) {
+            r = 0; g = 200; b = 5; // colors.accent.green = #00C805
+          } else {
+            r = 255; g = 59; b = 96; // colors.accent.red = #FF3B60
+          }
+        } else if (greekMode === 'vanna') {
+          if (normVal >= 0) {
+            r = 168; g = 85; b = 247; // colors.accent.purple
+          } else {
+            r = 6; g = 182; b = 212; // colors.accent.cyan
+          }
+        } else { // charm
+          if (normVal >= 0) {
+            r = 6; g = 182; b = 212; // colors.accent.cyan
+          } else {
+            r = 245; g = 158; b = 11; // colors.accent.amber
+          }
+        }
+
+        oImgData.data[pixelIdx] = r
+        oImgData.data[pixelIdx + 1] = g
+        oImgData.data[pixelIdx + 2] = b
+        oImgData.data[pixelIdx + 3] = alpha
+      }
+    }
+    oCtx.putImageData(oImgData, 0, 0)
+
+    // 2. Draw offscreen canvas stretched to grid dimensions with blur and bilinear interpolation
+    ctx.save()
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
+    
+    // Apply a soft blur filter to blend cells seamlessly like VolSignals
+    ctx.filter = 'blur(12px)'
+    ctx.drawImage(offscreen, 0, 0, gridRect.width, gridRect.height)
+    ctx.restore()
+
+    // 3. Draw a very subtle film grain for premium terminal texture
+    ctx.save()
+    const grainDensity = 0.04
+    const noiseCount = Math.floor(gridRect.width * gridRect.height * grainDensity)
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.015)'
+    for (let i = 0; i < noiseCount; i++) {
+      const gx = Math.random() * gridRect.width
+      const gy = Math.random() * gridRect.height
+      ctx.fillRect(gx, gy, 1, 1)
+    }
+    ctx.restore()
   }
 
   const updateOverlayPaths = () => {
@@ -931,6 +1049,11 @@ function GradientHeatmapChart({
     }
   }, [])
 
+  // Redraw the custom background canvas when the grid layout or exposures change
+  useEffect(() => {
+    drawSmoothGradient()
+  }, [gridRect, gridExposures, greekMode])
+
   // Update ECharts options when data changes
   useEffect(() => {
     const chart = chartInstanceRef.current
@@ -1002,7 +1125,10 @@ function GradientHeatmapChart({
           type: 'heatmap',
           data: heatmapData,
           progressive: 1000,
-          animation: false
+          animation: false,
+          itemStyle: {
+            opacity: 0 // Completely transparent - allows the smooth background canvas to show through
+          }
         }
       ]
     }
@@ -1140,12 +1266,26 @@ function GradientHeatmapChart({
         </div>
       </div>
 
+      {/* Background Smooth Gradient Canvas */}
+      {gridRect && (
+        <canvas
+          ref={canvasRef}
+          className="absolute pointer-events-none z-10"
+          style={{
+            left: `${gridRect.left}px`,
+            top: `${gridRect.top}px`,
+            width: `${gridRect.width}px`,
+            height: `${gridRect.height}px`
+          }}
+        />
+      )}
+
       {/* ECharts Heatmap Container */}
-      <div ref={chartRef} className="w-full h-full absolute inset-0" />
+      <div ref={chartRef} className="w-full h-full absolute inset-0 z-20" />
 
       {/* SVG Volatility Walls & Candlesticks Overlay */}
       {gridRect && (
-        <svg className="absolute inset-0 pointer-events-none w-full h-full z-20">
+        <svg className="absolute inset-0 pointer-events-none w-full h-full z-30">
           <defs>
             <clipPath id={`grid-clip-${greekMode}`}>
               <rect
@@ -1249,7 +1389,7 @@ function GradientHeatmapChart({
       {/* Tooltip Overlay */}
       {tooltipData && (
         <div
-          className="absolute z-30 bg-black/90 backdrop-blur-md border border-[#222]/80 px-3 py-2 rounded text-[#D4D4D8] pointer-events-none shadow-2xl animate-in fade-in duration-100"
+          className="absolute z-40 bg-black/90 backdrop-blur-md border border-[#222]/80 px-3 py-2 rounded text-[#D4D4D8] pointer-events-none shadow-2xl animate-in fade-in duration-100"
           style={{
             left: `${tooltipData.x + 14}px`,
             top: `${tooltipData.y - 30}px`,

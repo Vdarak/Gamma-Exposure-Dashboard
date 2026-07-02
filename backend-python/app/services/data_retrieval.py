@@ -150,7 +150,20 @@ class DataRetrievalService:
         
         result = []
         for snap in snapshots:
-            options_stmt = select(OptionData).where(OptionData.snapshot_id == snap.id).order_by(OptionData.strike, OptionData.option_type)
+            if hours_back:
+                # Limit strikes to +/- 15% of spot to prevent huge JSON payloads (>400MB) for gradient view
+                spot = float(snap.spot_price)
+                margin = spot * 0.15
+                options_stmt = (
+                    select(OptionData)
+                    .where(OptionData.snapshot_id == snap.id)
+                    .where(OptionData.strike >= spot - margin)
+                    .where(OptionData.strike <= spot + margin)
+                    .order_by(OptionData.strike, OptionData.option_type)
+                )
+            else:
+                options_stmt = select(OptionData).where(OptionData.snapshot_id == snap.id).order_by(OptionData.strike, OptionData.option_type)
+                
             options_res = await self.db.execute(options_stmt)
             options = options_res.scalars().all()
             
