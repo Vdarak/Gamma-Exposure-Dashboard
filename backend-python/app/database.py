@@ -13,7 +13,8 @@ if settings.environment == "test":
     engine = create_async_engine(
         db_url,
         poolclass=NullPool,
-        future=True
+        future=True,
+        connect_args={"timeout": 10.0}
     )
 else:
     engine = create_async_engine(
@@ -21,7 +22,8 @@ else:
         pool_size=10,
         max_overflow=20,
         pool_pre_ping=True,
-        future=True
+        future=True,
+        connect_args={"timeout": 10.0}
     )
 
 # Async session factory
