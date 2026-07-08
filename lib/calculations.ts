@@ -342,7 +342,12 @@ export function fixOptionData(data: any[], pricingMethod: PricingMethod = 'black
         const gamma = Number.parseFloat(item.gamma || item.greeks?.gamma || 0) || 0
         const open_interest = Number.parseFloat(item.open_interest || item.openInterest || item.oi || 0) || 0
         const volume = Number.parseFloat(item.volume || item.vol || item.trade_volume || item.daily_volume || 0) || 0
-        const iv = Number.parseFloat(item.iv || item.implied_volatility || item.impliedVolatility || 0) || 0
+        let iv = Number.parseFloat(item.iv || item.implied_volatility || item.impliedVolatility || 0) || 0
+        // Normalize IV to percentage (e.g. 25 for 25% vol).
+        // CBOE returns IV as decimal (0.25). Convert to percentage so downstream /100 works correctly.
+        if (iv > 0 && iv < 1) {
+          iv = iv * 100
+        }
         const delta = Number.parseFloat(item.delta || item.greeks?.delta || 0) || 0
         
         // Parse bid/ask/last prices if available
@@ -416,7 +421,7 @@ export function computeTotalGEX(spot: number, data: OptionData[], pricingMethod:
       const timeToExpiry = daysTillExp / 365.25
       
       // Use a default volatility if IV is 0 or missing
-      const volatility = option.iv && option.iv > 0 ? option.iv / 100 : 0.3 // Default 30% vol
+      const volatility = option.iv && option.iv > 0 ? (option.iv > 1 ? option.iv / 100 : option.iv) : 0.3 // Default 30% vol
       
       const optType = option.type === "C" ? "call" : "put"
       
@@ -466,36 +471,29 @@ export function computeTotalGEX(spot: number, data: OptionData[], pricingMethod:
  * @returns An array of `GEXByStrike` objects, sorted by strike price.
  */
 export function computeGEXByStrike(spot: number, data: OptionData[], pricingMethod: PricingMethod = 'black-scholes', referenceDate = new Date()): GEXByStrike[] {
-  // Calculate days till expiration
+  // Calculate GEX: prefer raw gamma from data source (CBOE), fallback to BS/Binomial calculation
   data.forEach((option) => {
-    const daysDiff = Math.max(1, Math.ceil((option.expiration.getTime() - referenceDate.getTime()) / (1000 * 60 * 60 * 24)))
-    option.daysTillExp = daysDiff === 0 ? 1 / 262 : daysDiff / 262
-  })
+    const rawGamma = option.gamma
+    const sign = option.type === "C" ? 1 : -1
 
-  // Calculate GEX using the specified pricing method
-  data.forEach((option) => {
-    const vol = option.iv && option.iv > 0 ? option.iv / 100 : 0.3
-    if (option.type === "C") {
-      option.GEX_BS = calcGammaExEnhanced(
-        spot,
-        option.strike,
-        vol,
-        option.daysTillExp!,
-        0,
-        0,
-        "call",
-        option.open_interest,
-        pricingMethod
-      )
+    if (rawGamma && rawGamma > 0) {
+      // Use CBOE/exchange-provided gamma directly
+      // GEX = sign * S² * γ * OI * contractSize * 0.01 (per 1% move)
+      option.GEX_BS = sign * rawGamma * option.open_interest * CONTRACT_SIZE * spot * spot * 0.01
     } else {
-      option.GEX_BS = -calcGammaExEnhanced(
+      // Fallback: calculate gamma from IV using Black-Scholes/Binomial
+      const daysDiff = Math.max(1, Math.ceil((option.expiration.getTime() - referenceDate.getTime()) / (1000 * 60 * 60 * 24)))
+      option.daysTillExp = daysDiff / 365.25
+      const vol = option.iv && option.iv > 0 ? (option.iv > 1 ? option.iv / 100 : option.iv) : 0.3
+      const optType = option.type === "C" ? "call" : "put"
+      option.GEX_BS = sign * calcGammaExEnhanced(
         spot,
         option.strike,
         vol,
-        option.daysTillExp!,
+        option.daysTillExp,
         0,
         0,
-        "put",
+        optType,
         option.open_interest,
         pricingMethod
       )
@@ -593,7 +591,7 @@ export function findZeroGammaLevel(data: OptionData[], spot: number, specificExp
   filteredData.forEach((option) => {
     const daysDiff = Math.ceil((option.expiration.getTime() - referenceDate.getTime()) / (1000 * 60 * 60 * 24))
     // Handle 0DTE (same day expiration) and negative days (already expired)
-    option.daysTillExp = Math.max(daysDiff, 0) === 0 ? 1 / 262 : Math.max(daysDiff, 1) / 262
+    option.daysTillExp = Math.max(daysDiff, 0) === 0 ? 1 / 365.25 : Math.max(daysDiff, 1) / 365.25
   })
 
   // Use a wide and fine sweep
@@ -608,7 +606,7 @@ export function findZeroGammaLevel(data: OptionData[], spot: number, specificExp
       .filter((option) => option.type === "C")
       .reduce(
         (sum, option) => {
-          const vol = option.iv && option.iv > 0 ? option.iv / 100 : 0.3
+          const vol = option.iv && option.iv > 0 ? (option.iv > 1 ? option.iv / 100 : option.iv) : 0.3
           return sum + calcGammaEx(level, option.strike, vol, option.daysTillExp!, 0, 0, "call", option.open_interest)
         },
         0,
@@ -618,7 +616,7 @@ export function findZeroGammaLevel(data: OptionData[], spot: number, specificExp
       .filter((option) => option.type === "P")
       .reduce(
         (sum, option) => {
-          const vol = option.iv && option.iv > 0 ? option.iv / 100 : 0.3
+          const vol = option.iv && option.iv > 0 ? (option.iv > 1 ? option.iv / 100 : option.iv) : 0.3
           return sum + calcGammaEx(level, option.strike, vol, option.daysTillExp!, 0, 0, "put", option.open_interest)
         },
         0,
@@ -1019,7 +1017,7 @@ export function computeVannaByStrike(
   const vannaByStrike = new Map<number, number>()
   data.forEach((option) => {
     const optType = option.type === "C" ? "call" : "put"
-    const vol = option.iv && option.iv > 0 ? option.iv / 100 : 0.3
+    const vol = option.iv && option.iv > 0 ? (option.iv > 1 ? option.iv / 100 : option.iv) : 0.3
     const vex = calcVannaEnhanced(
       spot,
       option.strike,
@@ -1062,7 +1060,7 @@ export function computeCharmByStrike(
   const charmByStrike = new Map<number, number>()
   data.forEach((option) => {
     const optType = option.type === "C" ? "call" : "put"
-    const vol = option.iv && option.iv > 0 ? option.iv / 100 : 0.3
+    const vol = option.iv && option.iv > 0 ? (option.iv > 1 ? option.iv / 100 : option.iv) : 0.3
     const cex = calcCharmEnhanced(
       spot,
       option.strike,

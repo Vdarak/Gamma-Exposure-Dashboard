@@ -59,12 +59,32 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         data = rawData.data
       }
 
-      if ((data.current_price || data.price) && data.options && Array.isArray(data.options)) {
-        return NextResponse.json({
-          current_price: data.current_price || data.price,
-          options: data.options,
-          timestamp: new Date().toISOString(),
-        })
+      if (data.options && Array.isArray(data.options) && data.options.length > 0) {
+        // Resolve spot price: try CBOE fields first, then Yahoo Finance fallback
+        let spotPrice = data.current_price || data.price || data.close || data.prev_day_close || 0
+
+        // SPX and other indices often have current_price = 0 in CBOE delayed feed
+        if (!spotPrice || spotPrice === 0) {
+          const yahooMap: Record<string, string> = {
+            'SPX': '^SPX', 'NDX': '^NDX', 'RUT': '^RUT', 'DJX': '^DJI',
+            'VIX': '^VIX', 'GLD': 'GLD', 'TSLA': 'TSLA', 'AAPL': 'AAPL',
+            'QQQ': 'QQQ', 'IWM': 'IWM', 'AMZN': 'AMZN', 'NVDA': 'NVDA',
+          }
+          const yahooTicker = yahooMap[ticker] || ticker
+          const yPrice = await fetchEquityPriceFromYahoo(yahooTicker)
+          if (yPrice) {
+            console.log(`[${ticker}] CBOE spot=0, Yahoo fallback: $${yPrice}`)
+            spotPrice = yPrice
+          }
+        }
+
+        if (spotPrice > 0) {
+          return NextResponse.json({
+            current_price: spotPrice,
+            options: data.options,
+            timestamp: new Date().toISOString(),
+          })
+        }
       }
     }
 

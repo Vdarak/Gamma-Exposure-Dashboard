@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     dhan_client_id: str = Field(default="", validation_alias="DHAN_CLIENT_ID")
     dhan_access_token: str = Field(default="", validation_alias="DHAN_ACCESS_TOKEN")
     
+    # ── Ticker Configuration ──
+    US_TICKERS: str = Field(default="SPX,GLD,TSLA", validation_alias="US_TICKERS")
+    INDIA_TICKERS: str = Field(default="NIFTY,BANKNIFTY,RELIANCE", validation_alias="INDIA_TICKERS")
+    
     # ── Data Collection Controls ──
     collect_interval_mins: int = 5
     nse_max_expiries: str = Field(default="all", validation_alias="NSE_MAX_EXPIRIES")

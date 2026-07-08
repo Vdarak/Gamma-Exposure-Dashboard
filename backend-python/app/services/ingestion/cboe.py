@@ -88,12 +88,32 @@ class CBOEScraperService:
         if not raw_data or "options" not in raw_data:
             return None
 
-        # Resolve spot price
-        current_price = raw_data.get("current_price") or raw_data.get("price") or 0.0
-        if current_price == 0.0 and len(raw_data["options"]) > 0:
-            # Fallback to nearest ATM strike if spot price not directly given
-            # We can use the spot price from the first option contract's underlying (if available)
-            pass
+        # Resolve spot price from various CBOE JSON fields
+        current_price = (
+            raw_data.get("current_price")
+            or raw_data.get("price")
+            or raw_data.get("close")
+            or raw_data.get("prev_day_close")
+            or 0.0
+        )
+        
+        # Fallback: fetch live price from Yahoo Finance (needed for index products like SPX)
+        if current_price == 0.0:
+            yahoo_map = {
+                "SPX": "^SPX", "NDX": "^NDX", "RUT": "^RUT", "DJX": "^DJI",
+                "VIX": "^VIX", "GLD": "GLD", "TSLA": "TSLA", "AAPL": "AAPL",
+                "QQQ": "QQQ", "IWM": "IWM", "AMZN": "AMZN", "NVDA": "NVDA",
+            }
+            yf_symbol = yahoo_map.get(ticker, ticker)
+            try:
+                import yfinance as yf
+                t = yf.Ticker(yf_symbol)
+                hist = t.history(period="1d")
+                if not hist.empty:
+                    current_price = float(hist["Close"].iloc[-1])
+                    print(f"   [CBOE {ticker}] Yahoo fallback spot: {current_price}")
+            except Exception as e:
+                print(f"   [CBOE {ticker}] Yahoo spot fallback failed: {e}")
 
         options_list = []
         for opt in raw_data["options"]:
@@ -121,6 +141,10 @@ class CBOEScraperService:
             except ValueError:
                 continue
 
+            raw_iv = opt.get("iv") or 0.0
+            # Normalize IV to decimal: CBOE may return as decimal (0.25) or percentage (25.0)
+            normalized_iv = raw_iv / 100.0 if raw_iv > 1.0 else raw_iv
+            
             contract = OptionContract(
                 strike=strike,
                 option_type=opt_type,
@@ -130,7 +154,7 @@ class CBOEScraperService:
                 ask=opt.get("ask") or 0.0,
                 volume=opt.get("volume") or 0,
                 open_interest=opt.get("open_interest") or 0,
-                implied_volatility=opt.get("iv") or 0.0,
+                implied_volatility=normalized_iv,
                 delta=opt.get("delta") or 0.0,
                 gamma=opt.get("gamma") or 0.0,
                 theta=opt.get("theta") or 0.0,

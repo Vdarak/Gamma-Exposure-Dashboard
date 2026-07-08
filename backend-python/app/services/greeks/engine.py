@@ -100,9 +100,9 @@ class GreeksEngine:
             "delta": delta,
             "gamma": gamma,
             "theta": theta,
-            "vega": vega / 100.0,  # 1% vol change standard
+            "vega": vega,
             "rho": rho,
-            "vanna": vanna / 100.0, # 1% vol change standard
+            "vanna": vanna,
             "charm": charm
         }
 
@@ -140,12 +140,12 @@ class GreeksEngine:
         gex_exact = sign * spot * spot * greeks["gamma"] * open_interest * contract_size / 1e9
         
         # ── Volatility/Vega Exposure (VEX) ──
-        # VEX: vega * open_interest * contract_size / 1e9 (in Billions)
-        vex_exact = greeks["vega"] * open_interest * contract_size / 1e9
+        # VEX: (vega / 100) * open_interest * contract_size / 1e9 (in Billions, per 1% vol change)
+        vex_exact = (greeks["vega"] / 100.0) * open_interest * contract_size / 1e9
 
         # Proxies (compatible with existing TS backend formulas)
         gex_proxy = sign * spot * spot * greeks["gamma"] * open_interest / 1e9
-        vanna_proxy = greeks["vega"] * greeks["delta"]
+        vanna_proxy = (greeks["vega"] / 100.0) * greeks["delta"]
         charm_proxy = greeks["delta"] * greeks["theta"]
 
         return {
