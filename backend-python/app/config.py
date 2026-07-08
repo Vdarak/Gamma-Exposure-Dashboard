@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     INDIA_TICKERS: str = Field(default="NIFTY,BANKNIFTY,RELIANCE", validation_alias="INDIA_TICKERS")
     
     # ── Data Collection Controls ──
-    collect_interval_mins: int = 5
+    collect_interval_mins: int = Field(default=5, validation_alias="COLLECT_INTERVAL_MINUTES")
     nse_max_expiries: str = Field(default="all", validation_alias="NSE_MAX_EXPIRIES")
     
     # ── ML Settings ──
