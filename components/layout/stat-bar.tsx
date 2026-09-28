@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
+import { isIndiaSymbol, formatGEXValue, getContractSize } from "@/lib/calculations"
 
 // ─── Minimal arc gauge for terminal UI ───────────────────────────
 
@@ -122,10 +123,13 @@ interface StatBarProps {
   }>
   market: 'USA' | 'INDIA'
   gammaFlipLevel: number | null
+  ticker?: string
 }
 
-export function StatBar({ spotPrice, totalGEX, optionData, market, gammaFlipLevel }: StatBarProps) {
-  const currencySymbol = market === 'INDIA' ? '₹' : '$'
+export function StatBar({ spotPrice, totalGEX, optionData, market, gammaFlipLevel, ticker }: StatBarProps) {
+  const isIndia = market === 'INDIA' || isIndiaSymbol(ticker)
+  const currencySymbol = isIndia ? '₹' : '$'
+  const contractSize = getContractSize(ticker)
 
   // Compute aggregate stats
   const stats = useMemo(() => {
@@ -137,11 +141,11 @@ export function StatBar({ spotPrice, totalGEX, optionData, market, gammaFlipLeve
     optionData.forEach((opt) => {
       const gamma = opt.gamma || 0
       const oi = opt.open_interest || 0
-      const gexValue = opt.GEX_BS || opt.GEX || gamma * oi * 100
+      const gexValue = opt.GEX_BS || opt.GEX || gamma * oi * contractSize
       const absGEX = Math.abs(gexValue)
 
-      totalGamma += gamma * oi * 100
-      netGamma += opt.type === 'C' ? gamma * oi * 100 : -(gamma * oi * 100)
+      totalGamma += gamma * oi * contractSize
+      netGamma += opt.type === 'C' ? gamma * oi * contractSize : -(gamma * oi * contractSize)
       weightedIV += (opt.iv || 0) * absGEX
       totalAbsGEX += absGEX
     })
@@ -149,7 +153,7 @@ export function StatBar({ spotPrice, totalGEX, optionData, market, gammaFlipLeve
     const gexWeightedVol = totalAbsGEX > 0 ? (weightedIV / totalAbsGEX) * 100 : 0
 
     return { totalGamma, netGamma, gexWeightedVol }
-  }, [optionData])
+  }, [optionData, contractSize])
 
   // Dynamic gauge ranges
   const gexMax = Math.max(Math.abs(totalGEX) * 2, 0.5)
@@ -169,18 +173,22 @@ export function StatBar({ spotPrice, totalGEX, optionData, market, gammaFlipLeve
             <Divider />
             <StatCell
               label="TOTAL GEX"
-              value={totalGEX !== 0 ? `${totalGEX >= 0 ? '+' : ''}${totalGEX.toFixed(4)}B` : '—'}
+              value={totalGEX !== 0
+                ? (isIndia
+                  ? `${totalGEX >= 0 ? '+' : ''}${formatGEXValue(totalGEX, ticker)}`
+                  : `${totalGEX >= 0 ? '+' : ''}${totalGEX.toFixed(4)}B`)
+                : '—'}
               color={totalGEX >= 0 ? '#00C805' : '#FF3B60'}
             />
             <Divider />
             <StatCell
               label="TOTAL GAMMA"
-              value={formatLargeNumber(stats.totalGamma)}
+              value={formatLargeNumber(stats.totalGamma, isIndia)}
             />
             <Divider />
             <StatCell
               label="NET GAMMA"
-              value={formatLargeNumber(stats.netGamma)}
+              value={formatLargeNumber(stats.netGamma, isIndia)}
               color={stats.netGamma >= 0 ? '#00C805' : '#FF3B60'}
             />
             <Divider />
@@ -198,7 +206,7 @@ export function StatBar({ spotPrice, totalGEX, optionData, market, gammaFlipLeve
               min={-gexMax}
               max={gexMax}
               label="GEX Intensity"
-              unit="B"
+              unit={isIndia ? "Cr" : "B"}
               color={totalGEX >= 0 ? '#00C805' : '#FF3B60'}
               colorMuted={totalGEX >= 0 ? 'rgba(0, 200, 5, 0.12)' : 'rgba(255, 59, 96, 0.12)'}
             />
@@ -237,9 +245,15 @@ function Divider() {
   return <div className="w-px h-8 bg-[#1A1A1A]" />
 }
 
-function formatLargeNumber(n: number): string {
+function formatLargeNumber(n: number, isIndia = false): string {
   const abs = Math.abs(n)
   const sign = n >= 0 ? '+' : '-'
+  if (isIndia) {
+    if (abs >= 1e7) return `${sign}${(abs / 1e7).toFixed(2)} Cr`
+    if (abs >= 1e5) return `${sign}${(abs / 1e5).toFixed(2)} L`
+    if (abs >= 1e3) return `${sign}${(abs / 1e3).toFixed(1)} K`
+    return `${sign}${abs.toFixed(0)}`
+  }
   if (abs >= 1e9) return `${sign}${(abs / 1e9).toFixed(2)}B`
   if (abs >= 1e6) return `${sign}${(abs / 1e6).toFixed(2)}M`
   if (abs >= 1e3) return `${sign}${(abs / 1e3).toFixed(1)}K`

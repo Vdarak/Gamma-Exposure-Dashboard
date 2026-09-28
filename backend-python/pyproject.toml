@@ -23,9 +23,8 @@ dependencies = [
 
     # ── Data Collection ──
     "yfinance>=0.2.40",             # Yahoo Finance data
-    "nsepython>=2.8",               # NSE option chains (India)
-    "jugaad-data>=0.25",            # NSE historical data (India)
-    "dhanhq>=2.0",                  # Dhan broker API (India)
+    "nsepython>=2.8",               # NSE option chains (India, fallback)
+    "dhanhq>=2.0",                  # Dhan broker API (India, primary)
 
     # ── Data Science Core ──
     "numpy>=1.26.0",

@@ -42,7 +42,7 @@ interface EnhancedTimeMachineProps {
 
 // Market and ticker configuration
 const US_TICKERS = ['SPX', 'SPY']
-const INDIA_TICKERS = ['NIFTY', 'BANKNIFTY']
+const INDIA_TICKERS = ['NIFTY', 'BANKNIFTY', 'SENSEX']
 
 export function EnhancedTimeMachine({ 
   ticker: initialTicker, 

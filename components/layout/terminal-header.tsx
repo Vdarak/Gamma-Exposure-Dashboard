@@ -1,9 +1,10 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Bot, ChevronDown } from "lucide-react"
-import { colors } from "@/lib/design-tokens"
 import type { OptionData } from "@/lib/types"
+import { isIndiaSymbol, formatGEXValue, getContractSize } from "@/lib/calculations"
+import { getIndiaWeights } from "@/lib/backend-api"
 
 // ─── Minimal arc gauge for terminal header ───────────────────────────
 
@@ -120,6 +121,16 @@ function formatLargeNumber(n: number): string {
 
 // ─── Terminal Header ──────────────────────────────────────────────────
 
+interface DealerWeightInfo {
+  omega_ce: number
+  omega_pe: number
+  alpha: number
+  fii_regime?: string
+  hedging_ratio_ht?: number
+  is_fallback: boolean
+  date: string | null
+}
+
 interface TerminalHeaderProps {
   ticker: string
   spotPrice: number | null
@@ -153,8 +164,27 @@ export function TerminalHeader({
 }: TerminalHeaderProps) {
   const [showInput, setShowInput] = useState(false)
   const [inputValue, setInputValue] = useState("")
+  const [dealerWeights, setDealerWeights] = useState<DealerWeightInfo | null>(null)
 
-  const currencySymbol = market === 'INDIA' ? '₹' : '$'
+  const isIndia = market === 'INDIA'
+  const currencySymbol = isIndia ? '₹' : '$'
+
+  // Fetch dealer weights when India market is active
+  useEffect(() => {
+    if (!isIndia) {
+      setDealerWeights(null)
+      return
+    }
+    let cancelled = false
+    getIndiaWeights()
+      .then(res => {
+        if (!cancelled && res?.data) {
+          setDealerWeights(res.data as DealerWeightInfo)
+        }
+      })
+      .catch(() => {}) // Silently fail — weights are informational
+    return () => { cancelled = true }
+  }, [isIndia, ticker])
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -176,19 +206,24 @@ export function TerminalHeader({
     if (!optionData || optionData.length === 0) {
       return { totalGamma: 0, netGamma: 0, gexWeightedVol: 0 }
     }
+    const contractSize = getContractSize(ticker)
     let totalGamma = 0
     let netGamma = 0
     let weightedIV = 0
     let totalAbsGEX = 0
 
     optionData.forEach((opt) => {
+      // Filter out corrupted ghost contracts (zero volume, massive OI far from spot)
+      const isGhost = (!opt.volume || opt.volume === 0) && (opt.open_interest || 0) > 50000 && Math.abs((opt.strike || 0) - (spotPrice || 0)) / (spotPrice || 1) > 0.03
+      if (isGhost) return
+
       const gamma = opt.gamma || 0
       const oi = opt.open_interest || 0
-      const gexValue = opt.GEX_BS || opt.GEX || gamma * oi * 100
+      const gexValue = opt.GEX_BS || opt.GEX || gamma * oi * contractSize
       const absGEX = Math.abs(gexValue)
 
-      totalGamma += gamma * oi * 100
-      netGamma += opt.type === 'C' ? gamma * oi * 100 : -(gamma * oi * 100)
+      totalGamma += gamma * oi * contractSize
+      netGamma += opt.type === 'C' ? gamma * oi * contractSize : -(gamma * oi * contractSize)
       weightedIV += (opt.iv || 0) * absGEX
       totalAbsGEX += absGEX
     })
@@ -196,7 +231,7 @@ export function TerminalHeader({
     const gexWeightedVol = totalAbsGEX > 0 ? (weightedIV / totalAbsGEX) * 100 : 0
 
     return { totalGamma, netGamma, gexWeightedVol }
-  }, [optionData])
+  }, [optionData, ticker, spotPrice])
 
   const formatTimestamp = (date: Date | null) => {
     if (!date) return "—"
@@ -313,7 +348,11 @@ export function TerminalHeader({
             <div className="flex flex-col justify-center">
               <span className="text-[8px] text-[#888] uppercase font-bold tracking-wider leading-none">TOTAL GEX</span>
               <span className="text-xs font-extrabold mt-1 leading-none" style={{ color: totalGEX && totalGEX >= 0 ? '#00C805' : '#FF3B60' }}>
-                {totalGEX !== undefined && totalGEX !== 0 ? `${totalGEX >= 0 ? '+' : ''}${totalGEX.toFixed(4)}B` : '—'}
+                {totalGEX !== undefined && totalGEX !== 0
+                  ? (isIndia
+                    ? `${totalGEX >= 0 ? '+' : ''}${formatGEXValue(totalGEX, ticker)}`
+                    : `${totalGEX >= 0 ? '+' : ''}${totalGEX.toFixed(4)}B`)
+                  : '—'}
               </span>
             </div>
 
@@ -357,7 +396,7 @@ export function TerminalHeader({
                 min={-gexMax}
                 max={gexMax}
                 label="GEX Intensity"
-                unit="B"
+                unit={isIndia ? "Cr" : "B"}
                 color={totalGEX >= 0 ? '#00C805' : '#FF3B60'}
                 colorMuted={totalGEX >= 0 ? 'rgba(0, 200, 5, 0.12)' : 'rgba(255, 59, 96, 0.12)'}
               />
@@ -376,6 +415,27 @@ export function TerminalHeader({
 
       {/* Right section: Market info & controls */}
       <div className="flex items-center gap-2.5 flex-shrink-0 ml-auto lg:ml-0">
+        {/* Dealer weights badge (India only) */}
+        {isIndia && dealerWeights && (
+          <div className="hidden lg:flex items-center gap-1.5 px-2 py-1 rounded border border-[#1A1A1E] bg-black/30 text-[9px] font-mono">
+            <span className={`font-bold ${
+              dealerWeights.fii_regime === 'MARKET_MAKER'
+                ? 'text-[#00E676]'
+                : 'text-[#FF9100]'
+            }`}>
+              {dealerWeights.fii_regime === 'MARKET_MAKER' ? '⚡ MM' : '📊 DIR'}
+            </span>
+            <span className="w-px h-3 bg-[#222]" />
+            <span className="text-[#888]">α={dealerWeights.alpha.toFixed(2)}</span>
+            <span className="w-px h-3 bg-[#222]" />
+            <span className="text-[#888]">ω<sub>CE</sub>={dealerWeights.omega_ce.toFixed(3)}</span>
+            <span className="text-[#888]">ω<sub>PE</sub>={dealerWeights.omega_pe.toFixed(3)}</span>
+            {dealerWeights.is_fallback && (
+              <span className="text-[#FF3B60] font-bold" title="Using fallback weights — no NSE participant data available">⚠</span>
+            )}
+          </div>
+        )}
+
         {/* Timestamp */}
         <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded border border-[#1A1A1E] bg-black/20 text-[10px] font-mono text-[#949494]">
           <span>{market}</span>

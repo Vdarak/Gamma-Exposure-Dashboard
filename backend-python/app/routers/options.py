@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from app.database import get_db
+from app.config import settings
 from app.services.data_retrieval import DataRetrievalService
 from app.services.flow.service import OptionsFlowService, OptionsFlowResponse
 from app.services.ingestion.saver import DataSaverService
@@ -20,12 +21,28 @@ async def get_current_data(
     if not data:
         # Trigger on-demand scrape
         from app.services.ingestion.cboe import CBOEScraperService
+        from app.services.ingestion.dhan_client import DhanOptionChainClient
         from app.services.ingestion.nse_live import NSELiveScraperService
+        from app.config import is_india_symbol
         
         ticker_upper = ticker.upper()
-        is_index = ticker_upper in {"NIFTY", "BANKNIFTY", "RELIANCE"}
-        scraper = NSELiveScraperService() if is_index else CBOEScraperService()
-        snap = await scraper.get_normalized_snapshot(ticker_upper)
+        
+        if is_india_symbol(ticker_upper):
+            # India: try Dhan first, fallback to NSE
+            snap = None
+            if settings.dhan_client_id and settings.dhan_access_token:
+                try:
+                    dhan = DhanOptionChainClient()
+                    snap = await dhan.get_normalized_snapshot(ticker_upper)
+                except Exception:
+                    pass
+            if snap is None:
+                nse = NSELiveScraperService()
+                snap = await nse.get_normalized_snapshot(ticker_upper)
+        else:
+            # US: CBOE
+            scraper = CBOEScraperService()
+            snap = await scraper.get_normalized_snapshot(ticker_upper)
         
         if snap:
             saver = DataSaverService(db)

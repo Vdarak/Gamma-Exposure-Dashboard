@@ -90,6 +90,8 @@ class YahooFinanceService:
             yf_ticker = "^NSEI"
         elif ticker == "BANKNIFTY":
             yf_ticker = "^NSEBANK"
+        elif ticker == "SENSEX":
+            yf_ticker = "^BSESN"
             
         try:
             t = yf.Ticker(yf_ticker)

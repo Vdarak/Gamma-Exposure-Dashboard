@@ -11,6 +11,7 @@ import {
   computeVannaByStrike,
   computeCharmByStrike,
   computeCallPutWalls,
+  isIndiaSymbol,
   type PricingMethod
 } from "@/lib/calculations"
 import { ChevronsLeft, ChevronsRight, BarChart3, Settings2, RotateCw, Layers, Calendar } from "lucide-react"
@@ -29,10 +30,25 @@ function formatMillions(num: number): string {
   return `${sign}${(val / 1000000).toFixed(0)}M`
 }
 
-// Kept for tooltips (works on values scaled to Billions, e.g. 0.85 = 850M)
-function formatBillions(num: number): string {
-  if (num === 0) return '0'
+// Kept for tooltips (works on values scaled to Billions, e.g. 0.85 = 850M, or Crores for India)
+function formatBillionsBase(num: number, isIndia = false): string {
+  if (num === 0) return isIndia ? '₹0.00 Cr' : '0'
   const val = Math.abs(num)
+  const sign = num >= 0 ? '+' : '−'
+
+  if (isIndia) {
+    if (val >= 1000) {
+      return `${sign}₹${(val / 1000).toFixed(2)}k Cr`
+    }
+    if (val >= 1) {
+      return `${sign}₹${val.toFixed(2)} Cr`
+    }
+    if (val >= 0.01) {
+      return `${sign}₹${val.toFixed(2)} Cr`
+    }
+    return `${sign}₹${(val * 100).toFixed(1)} L`
+  }
+
   const millionsVal = val * 1000
   if (millionsVal >= 1) {
     return `${num >= 0 ? '+' : '−'}${millionsVal.toFixed(0)}M`
@@ -43,12 +59,25 @@ function formatBillions(num: number): string {
   return `${num >= 0 ? '+' : '−'}${(val * 1e9).toFixed(0)}`
 }
 
-// Axis formatter: domain values are in billions (0–2), output shows “+200M” or "+50k" style
-function formatAxisM(domainVal: number): string {
+// Axis formatter: domain values are in billions (0–2), output shows “+200M” or "+50k" style, or Crores for India
+function formatAxisMBase(domainVal: number, isIndia = false): string {
   if (domainVal === 0) return '0'
   const sign = domainVal > 0 ? '+' : '−'
   const absVal = Math.abs(domainVal)
-  
+
+  if (isIndia) {
+    if (absVal >= 1000) {
+      return `${sign}${(absVal / 1000).toFixed(1)}k Cr`
+    }
+    if (absVal >= 1) {
+      return `${sign}${absVal.toFixed(0)} Cr`
+    }
+    if (absVal >= 0.05) {
+      return `${sign}${absVal.toFixed(1)} Cr`
+    }
+    return `${sign}${(absVal * 100).toFixed(0)}L`
+  }
+
   if (absVal >= 0.001) {
     const millions = absVal * 1000
     const formatted = millions % 1 === 0 ? millions.toFixed(0) : millions.toFixed(1)
@@ -96,6 +125,10 @@ export function SyncedStrikeWorkspace({
   onSelectedExpiriesChange,
   onExpiryModeChange,
 }: SyncedStrikeWorkspaceProps) {
+  const isIndia = market === 'INDIA' || isIndiaSymbol(ticker)
+  const formatBillions = (num: number) => formatBillionsBase(num, isIndia)
+  const formatAxisM = (domainVal: number) => formatAxisMBase(domainVal, isIndia)
+
   const containerRef = useRef<HTMLDivElement>(null)
   const candleSvgRef = useRef<SVGSVGElement>(null)
   const gexSvgRef = useRef<SVGSVGElement>(null)
@@ -370,29 +403,29 @@ export function SyncedStrikeWorkspace({
 
   const enrichedStartOptionData = useMemo(() => {
     const cloned = startOptionData.map(o => ({ ...o }))
-    computeGEXByStrike(startSpotPrice, cloned, pricingMethod)
-    computeVannaByStrike(startSpotPrice, cloned, activeR, activeQ, pricingMethod)
-    computeCharmByStrike(startSpotPrice, cloned, activeR, activeQ, pricingMethod)
+    computeGEXByStrike(startSpotPrice, cloned, pricingMethod, undefined, ticker)
+    computeVannaByStrike(startSpotPrice, cloned, activeR, activeQ, pricingMethod, undefined, ticker)
+    computeCharmByStrike(startSpotPrice, cloned, activeR, activeQ, pricingMethod, undefined, ticker)
     return cloned
-  }, [startOptionData, startSpotPrice, pricingMethod, activeR, activeQ])
+  }, [startOptionData, startSpotPrice, pricingMethod, activeR, activeQ, ticker])
 
   const enrichedEndOptionData = useMemo(() => {
     const cloned = endOptionData.map(o => ({ ...o }))
-    computeGEXByStrike(endSpotPrice, cloned, pricingMethod)
-    computeVannaByStrike(endSpotPrice, cloned, activeR, activeQ, pricingMethod)
-    computeCharmByStrike(endSpotPrice, cloned, activeR, activeQ, pricingMethod)
+    computeGEXByStrike(endSpotPrice, cloned, pricingMethod, undefined, ticker)
+    computeVannaByStrike(endSpotPrice, cloned, activeR, activeQ, pricingMethod, undefined, ticker)
+    computeCharmByStrike(endSpotPrice, cloned, activeR, activeQ, pricingMethod, undefined, ticker)
     return cloned
-  }, [endOptionData, endSpotPrice, pricingMethod, activeR, activeQ])
+  }, [endOptionData, endSpotPrice, pricingMethod, activeR, activeQ, ticker])
 
   const startGexProfile = useMemo(() => {
-    const raw = computeGEXByStrike(startSpotPrice, enrichedStartOptionData, pricingMethod)
+    const raw = computeGEXByStrike(startSpotPrice, enrichedStartOptionData, pricingMethod, undefined, ticker)
     return raw.sort((a, b) => a.strike - b.strike)
-  }, [startSpotPrice, enrichedStartOptionData, pricingMethod])
+  }, [startSpotPrice, enrichedStartOptionData, pricingMethod, ticker])
 
   const endGexProfile = useMemo(() => {
-    const raw = computeGEXByStrike(endSpotPrice, enrichedEndOptionData, pricingMethod)
+    const raw = computeGEXByStrike(endSpotPrice, enrichedEndOptionData, pricingMethod, undefined, ticker)
     return raw.sort((a, b) => a.strike - b.strike)
-  }, [endSpotPrice, enrichedEndOptionData, pricingMethod])
+  }, [endSpotPrice, enrichedEndOptionData, pricingMethod, ticker])
 
   const startVolProfile = useMemo(() => {
     const raw = computeVolumeByStrike(enrichedStartOptionData)
@@ -405,20 +438,20 @@ export function SyncedStrikeWorkspace({
   }, [enrichedEndOptionData])
 
   const startVannaProfile = useMemo(() => {
-    return computeVannaByStrike(startSpotPrice, enrichedStartOptionData, activeR, activeQ, pricingMethod)
-  }, [startSpotPrice, enrichedStartOptionData, activeR, activeQ, pricingMethod])
+    return computeVannaByStrike(startSpotPrice, enrichedStartOptionData, activeR, activeQ, pricingMethod, undefined, ticker)
+  }, [startSpotPrice, enrichedStartOptionData, activeR, activeQ, pricingMethod, ticker])
 
   const endVannaProfile = useMemo(() => {
-    return computeVannaByStrike(endSpotPrice, enrichedEndOptionData, activeR, activeQ, pricingMethod)
-  }, [endSpotPrice, enrichedEndOptionData, activeR, activeQ, pricingMethod])
+    return computeVannaByStrike(endSpotPrice, enrichedEndOptionData, activeR, activeQ, pricingMethod, undefined, ticker)
+  }, [endSpotPrice, enrichedEndOptionData, activeR, activeQ, pricingMethod, ticker])
 
   const startCharmProfile = useMemo(() => {
-    return computeCharmByStrike(startSpotPrice, enrichedStartOptionData, activeR, activeQ, pricingMethod)
-  }, [startSpotPrice, enrichedStartOptionData, activeR, activeQ, pricingMethod])
+    return computeCharmByStrike(startSpotPrice, enrichedStartOptionData, activeR, activeQ, pricingMethod, undefined, ticker)
+  }, [startSpotPrice, enrichedStartOptionData, activeR, activeQ, pricingMethod, ticker])
 
   const endCharmProfile = useMemo(() => {
-    return computeCharmByStrike(endSpotPrice, enrichedEndOptionData, activeR, activeQ, pricingMethod)
-  }, [endSpotPrice, enrichedEndOptionData, activeR, activeQ, pricingMethod])
+    return computeCharmByStrike(endSpotPrice, enrichedEndOptionData, activeR, activeQ, pricingMethod, undefined, ticker)
+  }, [endSpotPrice, enrichedEndOptionData, activeR, activeQ, pricingMethod, ticker])
 
   const endZeroGamma = useMemo(() => findZeroGammaLevel(enrichedEndOptionData, endSpotPrice), [enrichedEndOptionData, endSpotPrice])
 
@@ -427,6 +460,7 @@ export function SyncedStrikeWorkspace({
     const isGammaMode = displayMode === 'gamma-vol'
     const startProfile = isGammaMode ? startGexProfile : startVannaProfile
     const endProfile = isGammaMode ? endGexProfile : endVannaProfile
+    const gexDivisor = isIndia ? 1e7 : 1e9
 
     const strikes = Array.from(new Set([
       ...startProfile.map(p => p.strike),
@@ -464,23 +498,25 @@ export function SyncedStrikeWorkspace({
         strike,
         startNetVal,
         endNetVal,
-        startCallVal: startCallVal / 1e9,
-        startPutVal: -startPutVal / 1e9,
-        endCallVal: endCallVal / 1e9,
-        endPutVal: -endPutVal / 1e9,
+        startCallVal: startCallVal / gexDivisor,
+        startPutVal: -startPutVal / gexDivisor,
+        endCallVal: endCallVal / gexDivisor,
+        endPutVal: -endPutVal / gexDivisor,
       }
     })
   }, [
     displayMode,
     startGexProfile, endGexProfile,
     startVannaProfile, endVannaProfile,
-    enrichedStartOptionData, enrichedEndOptionData
+    enrichedStartOptionData, enrichedEndOptionData,
+    isIndia
   ])
 
   const rightProfileDataCombined = useMemo(() => {
     const isVolMode = displayMode === 'gamma-vol'
     const startProfile = isVolMode ? startVolProfile : startCharmProfile
     const endProfile = isVolMode ? endVolProfile : endCharmProfile
+    const divisor = isVolMode ? 1 : (isIndia ? 1e7 : 1e9)
 
     const strikes = Array.from(new Set([
       ...startProfile.map(p => p.strike),
@@ -514,7 +550,6 @@ export function SyncedStrikeWorkspace({
       const startNetVal = startItem ? (isVolMode ? ((startItem as any).volume || 0) : ((startItem as any).charm || 0)) : 0
       const endNetVal = endItem ? (isVolMode ? ((endItem as any).volume || 0) : ((endItem as any).charm || 0)) : 0
 
-      const divisor = isVolMode ? 1 : 1e9
       return {
         strike,
         startNetVal,
@@ -529,7 +564,8 @@ export function SyncedStrikeWorkspace({
     displayMode,
     startVolProfile, endVolProfile,
     startCharmProfile, endCharmProfile,
-    enrichedStartOptionData, enrichedEndOptionData
+    enrichedStartOptionData, enrichedEndOptionData,
+    isIndia
   ])
 
   // ─── Ticker-aware stable scale ───────────────────────────────────────────
@@ -1195,7 +1231,7 @@ export function SyncedStrikeWorkspace({
                   .style('font-family', typography.fontMono)
                   .style('font-size', '8px')
                   .style('font-weight', 'bold')
-                  .text(`${magnetLabel}: ${formatCurrency(maxGexStrike)} (${(Math.abs(maxGexVal)).toFixed(2)}B)`)
+                  .text(`${magnetLabel}: ${formatCurrency(maxGexStrike)} (${(Math.abs(maxGexVal)).toFixed(2)}${isIndia ? ' Cr' : 'B'})`)
               }
 
               // Pull vector line between spot and magnet (if spot is within 3%)
@@ -2860,6 +2896,8 @@ export function SyncedStrikeWorkspace({
                   selectedExpiries={selectedExpiries}
                   onSelectedExpiriesChange={onSelectedExpiriesChange}
                   optionData={endOptionData}
+                  ticker={ticker}
+                  market={market}
                 />
               </PopoverContent>
             </Popover>

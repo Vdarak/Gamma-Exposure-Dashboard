@@ -84,7 +84,7 @@ const USA_TICKERS = [
 ]
 
 const INDIA_TICKERS = [
-  "NIFTY", "BANKNIFTY", "RELIANCE", "TCS", "INFY", "HDFCBANK",
+  "NIFTY", "BANKNIFTY", "SENSEX", "RELIANCE", "TCS", "INFY", "HDFCBANK",
   "ICICIBANK", "KOTAKBANK", "SBIN", "ITC", "LT",
 ]
 
@@ -265,13 +265,13 @@ export function GammaExposureDashboard() {
 
   const gammaFlipLevel = useMemo(() => {
     if (!spotPrice || !activeOptionData.length) return null
-    return findZeroGammaLevel(activeOptionData, spotPrice)
-  }, [activeOptionData, spotPrice])
+    return findZeroGammaLevel(activeOptionData, spotPrice, undefined, undefined, ticker)
+  }, [activeOptionData, spotPrice, ticker])
 
   const activeTotalGEX = useMemo(() => {
     if (!spotPrice || !activeOptionData.length) return 0
-    return computeTotalGEX(spotPrice, activeOptionData, pricingMethod)
-  }, [spotPrice, activeOptionData, pricingMethod])
+    return computeTotalGEX(spotPrice, activeOptionData, pricingMethod, ticker)
+  }, [spotPrice, activeOptionData, pricingMethod, ticker])
 
   const hasData = spotPrice !== null && optionData.length > 0
 
@@ -341,7 +341,7 @@ export function GammaExposureDashboard() {
         setEndOptionData(od)
         setStartSpotPrice(sp)
         setEndSpotPrice(sp)
-        setTotalGEX(computeTotalGEX(sp, od, pricingMethod))
+        setTotalGEX(computeTotalGEX(sp, od, pricingMethod, selectedTicker))
         setLastUpdated(new Date())
         setIsLive(true)
         setCurrentRange([null, null])
@@ -408,7 +408,7 @@ export function GammaExposureDashboard() {
       // Main compatibility states mapped to the end snapshot
       setSpotPrice(endSp)
       setOptionData(endMapped)
-      setTotalGEX(computeTotalGEX(endSp, endMapped, pricingMethod))
+      setTotalGEX(computeTotalGEX(endSp, endMapped, pricingMethod, ticker))
       setLastUpdated(new Date(endSnapshot.timestamp))
       
       // Update current range
@@ -843,6 +843,8 @@ export function GammaExposureDashboard() {
                         selectedExpiries={customSelectedExpiries}
                         onSelectedExpiriesChange={setCustomSelectedExpiries}
                         optionData={optionData}
+                        ticker={ticker}
+                        market={market}
                       />
                     </div>
                   )}

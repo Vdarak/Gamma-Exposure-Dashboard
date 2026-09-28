@@ -715,3 +715,118 @@ export async function getCotFlow(ticker: string): Promise<CotFlowData> {
     throw error
   }
 }
+
+// ─── India GEX API Types & Functions ────────────────────────────────
+
+export interface IndiaGEXStrike {
+  strike: number
+  call_oi: number
+  put_oi: number
+  gamma: number
+  gex_crores: number
+  call_iv: number
+  put_iv: number
+}
+
+export interface DealerWeights {
+  omega_ce: number
+  omega_pe: number
+  date: string | null
+  alpha: number
+  is_fallback: boolean
+}
+
+export interface IndiaGEXData {
+  market: string
+  symbol: string
+  display_name: string
+  spot_price: number
+  total_gex: number
+  currency: string
+  gamma_regime: 'POSITIVE' | 'NEGATIVE'
+  flip_point: number | null
+  lot_size: number
+  dealer_weights: DealerWeights
+  snapshot_timestamp: string
+  available_expiries: string[]
+  selected_expiry: string | null
+  strikes: IndiaGEXStrike[]
+}
+
+export interface IndiaGEXResponse {
+  success: boolean
+  data: IndiaGEXData
+}
+
+export interface IndiaWeightsResponse {
+  success: boolean
+  data: DealerWeights & {
+    fii_regime?: string
+    hedging_ratio_ht?: number
+  }
+}
+
+/**
+ * Fetch India-specific GEX analysis (dealer-weighted, in INR Crores)
+ */
+export async function getIndiaGEX(ticker: string, expiry?: string): Promise<IndiaGEXResponse> {
+  try {
+    let url = `${BACKEND_URL}/api/india/gex?ticker=${ticker}`
+    if (expiry) url += `&expiry=${encodeURIComponent(expiry)}`
+    const response = await fetch(url)
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ detail: 'Unknown error' }))
+      throw new Error(err.detail || `Failed to fetch India GEX for ${ticker}`)
+    }
+    return await response.json()
+  } catch (error) {
+    console.error('Error fetching India GEX:', error)
+    throw error
+  }
+}
+
+/**
+ * Fetch current dealer positioning weights (ω_CE, ω_PE) and dynamic alpha metrics
+ */
+export async function getIndiaWeights(): Promise<IndiaWeightsResponse> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/india/weights`)
+    if (!response.ok) throw new Error('Failed to fetch dealer weights')
+    return await response.json()
+  } catch (error) {
+    console.error('Error fetching India dealer weights:', error)
+    throw error
+  }
+}
+
+/**
+ * Manually refresh dealer weights from NSE Archives
+ */
+export async function refreshIndiaWeights(): Promise<any> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/india/weights/refresh`, { method: 'POST' })
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ detail: 'Refresh failed' }))
+      throw new Error(err.detail || 'Failed to refresh dealer weights')
+    }
+    return await response.json()
+  } catch (error) {
+    console.error('Error refreshing India dealer weights:', error)
+    throw error
+  }
+}
+
+/**
+ * Fetch available Indian instruments and lot sizes
+ */
+export async function getIndiaInstruments(): Promise<any> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/india/instruments`)
+    if (!response.ok) throw new Error('Failed to fetch India instruments')
+    return await response.json()
+  } catch (error) {
+    console.error('Error fetching India instruments:', error)
+    throw error
+  }
+}
+

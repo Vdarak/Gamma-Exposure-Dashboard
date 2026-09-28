@@ -12,6 +12,7 @@ export async function GET(
   if (ticker === 'SPX') ticker = '^SPX'
   else if (ticker === 'NIFTY') ticker = '^NSEI'
   else if (ticker === 'BANKNIFTY') ticker = '^NSEBANK'
+  else if (ticker === 'SENSEX') ticker = '^BSESN'
 
   const { searchParams } = new URL(request.url)
   const timeframe = searchParams.get('timeframe') || '1D'

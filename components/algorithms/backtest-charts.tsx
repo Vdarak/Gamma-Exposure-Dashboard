@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import dynamic from 'next/dynamic';
-import { BacktestResult } from '../../backend/src/backtester/types';
+import { BacktestResult } from '../../types/backtester';
 
 // Load react-plotly.js dynamically to prevent Next.js SSR document-not-defined errors
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });

@@ -12,6 +12,72 @@ class DataRetrievalService:
     def __init__(self, db_session: AsyncSession):
         self.db = db_session
 
+    @staticmethod
+    def _serialize_option(opt: OptionData, spot_price: float, snap_date: Optional[date] = None) -> Dict[str, Any]:
+        """Serializes an OptionData row, applying real Black-Scholes computation if Greeks are 0.0 or illiquid."""
+        strike = float(opt.strike)
+        delta = float(opt.delta) if opt.delta is not None else 0.0
+        gamma = float(opt.gamma) if opt.gamma is not None else 0.0
+        theta = float(opt.theta) if opt.theta is not None else 0.0
+        vega = float(opt.vega) if opt.vega is not None else 0.0
+        rho = float(opt.rho) if opt.rho is not None else 0.0
+        iv = float(opt.implied_volatility or 0.0)
+        volume = int(opt.volume or 0)
+        oi = int(opt.open_interest or 0)
+
+        # Real mathematical BS fallback if Greeks are 0.0 or if illiquid strike away from spot
+        is_illiquid_skew = (spot_price > 0 and volume == 0 and abs(strike - spot_price) / spot_price > 0.02)
+        needs_bs = (gamma == 0.0 or delta == 0.0 or is_illiquid_skew) and spot_price > 0 and opt.expiration
+
+        if needs_bs:
+            try:
+                from app.services.greeks.engine import GreeksEngine
+                ref_date = snap_date or date.today()
+                dte_days = (opt.expiration - ref_date).days
+                T = max(dte_days, 0.25) / 365.0
+                effective_iv = 0.14 if is_illiquid_skew else (iv if iv > 0 else 0.14)  # standard index vol if unquoted
+                bs = GreeksEngine.calculate_bs_greeks(
+                    S=spot_price,
+                    K=strike,
+                    T=T,
+                    r=0.065,
+                    sigma=effective_iv,
+                    option_type=opt.option_type
+                )
+                gamma = bs["gamma"]
+                delta = bs["delta"]
+                theta = bs["theta"]
+                vega = bs["vega"]
+                if iv == 0.0 or is_illiquid_skew:
+                    iv = effective_iv
+            except Exception:
+                pass
+
+        return {
+            "strike": strike,
+            "type": opt.option_type,
+            "expiration": opt.expiration,
+            "lastPrice": float(opt.last_price or 0.0),
+            "bid": float(opt.bid) if opt.bid is not None else None,
+            "ask": float(opt.ask) if opt.ask is not None else None,
+            "volume": volume,
+            "openInterest": oi,
+            "impliedVolatility": iv,
+            "delta": delta,
+            "gamma": gamma,
+            "theta": theta,
+            "vega": vega,
+            "rho": rho
+        }
+
+    @staticmethod
+    def _is_ghost(opt: OptionData, spot: float) -> bool:
+        """Returns True if contract is a corrupted exchange ghost strike."""
+        if opt.volume == 0 and (opt.open_interest or 0) > 50000:
+            if spot > 0 and abs(float(opt.strike) - spot) / spot > 0.03:
+                return True
+        return False
+
     async def get_current_data(self, ticker: str) -> Optional[Dict[str, Any]]:
         """
         Fetches the most recent options snapshot and contract details for a ticker.
@@ -31,32 +97,23 @@ class DataRetrievalService:
         options_res = await self.db.execute(options_stmt)
         options = options_res.scalars().all()
 
+        spot = float(snap.spot_price)
+        snap_dt = snap.timestamp.date() if snap.timestamp else None
+
+        serialized_options = [
+            self._serialize_option(opt, spot, snap_dt)
+            for opt in options
+            if not self._is_ghost(opt, spot)
+        ]
+
         return {
             "id": snap.id,
             "ticker": snap.ticker,
             "timestamp": snap.timestamp,
-            "spotPrice": float(snap.spot_price),
-            "dataCount": len(options),
+            "spotPrice": spot,
+            "dataCount": len(serialized_options),
             "market": snap.market,
-            "options": [
-                {
-                    "strike": float(opt.strike),
-                    "type": opt.option_type,
-                    "expiration": opt.expiration,
-                    "lastPrice": float(opt.last_price or 0.0),
-                    "bid": float(opt.bid) if opt.bid is not None else None,
-                    "ask": float(opt.ask) if opt.ask is not None else None,
-                    "volume": int(opt.volume or 0),
-                    "openInterest": int(opt.open_interest or 0),
-                    "impliedVolatility": float(opt.implied_volatility or 0.0),
-                    "delta": float(opt.delta) if opt.delta is not None else None,
-                    "gamma": float(opt.gamma) if opt.gamma is not None else None,
-                    "theta": float(opt.theta) if opt.theta is not None else None,
-                    "vega": float(opt.vega) if opt.vega is not None else None,
-                    "rho": float(opt.rho) if opt.rho is not None else None
-                }
-                for opt in options
-            ]
+            "options": serialized_options
         }
 
     async def get_data_at_timestamp(self, ticker: str, ts: datetime) -> Optional[Dict[str, Any]]:
@@ -81,38 +138,28 @@ class DataRetrievalService:
             return None
 
         snapshot_id, _, timestamp, spot_price, market = snap
+        spot = float(spot_price)
+        snap_dt = timestamp.date() if timestamp else None
 
         # Fetch options
         options_stmt = select(OptionData).where(OptionData.snapshot_id == snapshot_id).order_by(OptionData.strike, OptionData.option_type)
         options_res = await self.db.execute(options_stmt)
         options = options_res.scalars().all()
 
+        serialized_options = [
+            self._serialize_option(opt, spot, snap_dt)
+            for opt in options
+            if not self._is_ghost(opt, spot)
+        ]
+
         return {
             "id": snapshot_id,
             "ticker": t,
             "timestamp": timestamp,
-            "spotPrice": float(spot_price),
-            "dataCount": len(options),
+            "spotPrice": spot,
+            "dataCount": len(serialized_options),
             "market": market,
-            "options": [
-                {
-                    "strike": float(opt.strike),
-                    "type": opt.option_type,
-                    "expiration": opt.expiration,
-                    "lastPrice": float(opt.last_price or 0.0),
-                    "bid": float(opt.bid) if opt.bid is not None else None,
-                    "ask": float(opt.ask) if opt.ask is not None else None,
-                    "volume": int(opt.volume or 0),
-                    "openInterest": int(opt.open_interest or 0),
-                    "impliedVolatility": float(opt.implied_volatility or 0.0),
-                    "delta": float(opt.delta) if opt.delta is not None else None,
-                    "gamma": float(opt.gamma) if opt.gamma is not None else None,
-                    "theta": float(opt.theta) if opt.theta is not None else None,
-                    "vega": float(opt.vega) if opt.vega is not None else None,
-                    "rho": float(opt.rho) if opt.rho is not None else None
-                }
-                for opt in options
-            ]
+            "options": serialized_options
         }
 
     async def get_historical_data(
@@ -150,9 +197,11 @@ class DataRetrievalService:
         
         result = []
         for snap in snapshots:
+            spot = float(snap.spot_price)
+            snap_dt = snap.timestamp.date() if snap.timestamp else None
+
             if hours_back:
                 # Limit strikes to +/- 15% of spot to prevent huge JSON payloads (>400MB) for gradient view
-                spot = float(snap.spot_price)
                 margin = spot * 0.15
                 options_stmt = (
                     select(OptionData)
@@ -167,32 +216,20 @@ class DataRetrievalService:
             options_res = await self.db.execute(options_stmt)
             options = options_res.scalars().all()
             
+            serialized_options = [
+                self._serialize_option(opt, spot, snap_dt)
+                for opt in options
+                if not self._is_ghost(opt, spot)
+            ]
+
             result.append({
                 "id": snap.id,
                 "ticker": snap.ticker,
                 "timestamp": snap.timestamp,
-                "spotPrice": float(snap.spot_price),
-                "dataCount": len(options),
+                "spotPrice": spot,
+                "dataCount": len(serialized_options),
                 "market": snap.market,
-                "options": [
-                    {
-                        "strike": float(opt.strike),
-                        "type": opt.option_type,
-                        "expiration": opt.expiration,
-                        "lastPrice": float(opt.last_price or 0.0),
-                        "bid": float(opt.bid) if opt.bid is not None else None,
-                        "ask": float(opt.ask) if opt.ask is not None else None,
-                        "volume": int(opt.volume or 0),
-                        "openInterest": int(opt.open_interest or 0),
-                        "impliedVolatility": float(opt.implied_volatility or 0.0),
-                        "delta": float(opt.delta) if opt.delta is not None else None,
-                        "gamma": float(opt.gamma) if opt.gamma is not None else None,
-                        "theta": float(opt.theta) if opt.theta is not None else None,
-                        "vega": float(opt.vega) if opt.vega is not None else None,
-                        "rho": float(opt.rho) if opt.rho is not None else None
-                    }
-                    for opt in options
-                ]
+                "options": serialized_options
             })
             
         return result

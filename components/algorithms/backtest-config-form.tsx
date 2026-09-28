@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState } from 'react';
-import { IndicatorConfig, IndicatorCondition } from '../../backend/src/backtester/types';
+import { IndicatorConfig, IndicatorCondition } from '../../types/backtester';
 import { Plus, Trash2, HelpCircle, Sliders, LineChart, Code } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";

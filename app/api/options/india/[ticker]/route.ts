@@ -3,7 +3,7 @@ import { type NextRequest, NextResponse } from "next/server"
 
 // Helper function to determine if symbol is an index or equity
 function isIndexSymbol(symbol: string): boolean {
-  const indices = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'NIFTYNXT50']
+  const indices = ['NIFTY', 'BANKNIFTY', 'SENSEX', 'FINNIFTY', 'MIDCPNIFTY', 'NIFTYNXT50']
   return indices.some(index => symbol.toUpperCase().includes(index.toUpperCase()))
 }
 
@@ -128,6 +128,7 @@ async function getCurrentPrice(ticker: string): Promise<number | null> {
     const indexSymbols: { [key: string]: string } = {
       'NIFTY': '^NSEI',
       'BANKNIFTY': '^NSEBANK',
+      'SENSEX': '^BSESN',
       'FINNIFTY': '^NSEFIN',
       'MIDCPNIFTY': '^NSEMIDCP',
       'NIFTYNXT50': '^NSENEXT50'

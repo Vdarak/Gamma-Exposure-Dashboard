@@ -164,7 +164,7 @@ export function TradingJournal() {
       await Promise.all(
         tickers.map(async (ticker) => {
           try {
-            const market = ['NIFTY', 'BANKNIFTY', 'RELIANCE'].includes(ticker) ? 'INDIA' : 'USA'
+            const market = ['NIFTY', 'BANKNIFTY', 'SENSEX', 'RELIANCE'].includes(ticker) ? 'INDIA' : 'USA'
             const apiRoute = market === 'INDIA' ? `/api/options/india/${ticker}` : `/api/options/${ticker}`
             const response = await fetch(apiRoute)
             if (response.ok) {

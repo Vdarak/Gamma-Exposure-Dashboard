@@ -1,9 +1,60 @@
 import type { OptionData, GEXByStrike, GEXByExpiration, CallPutWalls, ExpectedMove } from "./types"
 
 /**
- * Standard contract size for options (typically 100 shares per contract).
+ * Default contract size for US options (100 shares per contract).
+ * Indian indices use different lot sizes — use getContractSize() for market-aware sizing.
  */
 const CONTRACT_SIZE = 100
+
+/**
+ * Indian index lot sizes. These are the contract multipliers for GEX calculations.
+ * Must be kept in sync with backend-python/app/config/instruments.json
+ */
+const INDIA_LOT_SIZES: Record<string, number> = {
+  NIFTY: 25,
+  BANKNIFTY: 15,
+  SENSEX: 20,
+}
+
+/**
+ * Returns the contract size (lot size) for a given ticker.
+ * Indian indices have specific lot sizes; everything else defaults to 100 (US standard).
+ */
+export function getContractSize(ticker?: string): number {
+  if (ticker) {
+    const upper = ticker.toUpperCase()
+    if (upper in INDIA_LOT_SIZES) return INDIA_LOT_SIZES[upper]
+  }
+  return CONTRACT_SIZE
+}
+
+/**
+ * Check if a ticker is an Indian market instrument.
+ */
+export function isIndiaSymbol(ticker?: string): boolean {
+  if (!ticker) return false
+  return ticker.toUpperCase() in INDIA_LOT_SIZES
+}
+
+/**
+ * Format GEX values with appropriate currency and unit.
+ * India: ₹X.XX Cr (INR Crores per 1% move)
+ * US: $X.XXB (USD Billions)
+ */
+export function formatGEXValue(value: number, ticker?: string): string {
+  if (isIndiaSymbol(ticker)) {
+    const abs = Math.abs(value)
+    if (abs >= 100000) {
+      return `₹${(value / 1000).toFixed(1)} KCr`
+    }
+    return `₹${value.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} Cr`
+  }
+  // US: value is in billions
+  if (Math.abs(value) >= 1) {
+    return `$${value.toFixed(2)}B`
+  }
+  return `$${(value * 1000).toFixed(1)}M`
+}
 
 /**
  * Pricing method for options calculations
@@ -408,11 +459,21 @@ export function fixOptionData(data: any[], pricingMethod: PricingMethod = 'black
  * @param pricingMethod - The pricing method to use ('black-scholes' or 'binomial').
  * @returns The total Gamma Exposure in billions.
  */
-export function computeTotalGEX(spot: number, data: OptionData[], pricingMethod: PricingMethod = 'black-scholes'): number {
+export function computeTotalGEX(spot: number, data: OptionData[], pricingMethod: PricingMethod = 'black-scholes', ticker?: string): number {
   const today = new Date()
+  const contractSize = getContractSize(ticker)
+  const isIndia = isIndiaSymbol(ticker)
+  const divisor = isIndia ? 1e7 : 1e9 // 1 Crore = 1e7 INR, 1 Billion = 1e9 USD
   
   // Calculate GEX for each option using the specified pricing method if gamma is 0 or missing
   data.forEach((option) => {
+    // Filter ghost contracts (zero volume, massive OI far from spot)
+    const isGhost = (!option.volume || option.volume === 0) && (option.open_interest || 0) > 50000 && Math.abs(option.strike - spot) / spot > 0.03
+    if (isGhost) {
+      option.GEX = 0
+      return
+    }
+
     let gamma = option.gamma
     
     // If gamma is 0 or missing, calculate it using the specified pricing method
@@ -439,13 +500,13 @@ export function computeTotalGEX(spot: number, data: OptionData[], pricingMethod:
       )
       
       // Extract gamma per contract (divide by the scaling factors)
-      gamma = gammaEx / (100 * spot * spot * 0.01)
+      gamma = gammaEx / (contractSize * spot * spot * 0.01)
       
       // Update the option object with calculated gamma
       option.gamma = gamma
     }
     
-    option.GEX = spot * gamma * option.open_interest * CONTRACT_SIZE * spot * 0.01
+    option.GEX = spot * gamma * option.open_interest * contractSize * spot * 0.01
     
     // For puts, gamma exposure is negative (dealers are net short gamma on puts)
     if (option.type === "P") {
@@ -454,7 +515,7 @@ export function computeTotalGEX(spot: number, data: OptionData[], pricingMethod:
   })
 
   const totalGEX = data.reduce((sum, option) => sum + (option.GEX || 0), 0)
-  return totalGEX / 1e9 // Convert to billions
+  return totalGEX / divisor // Convert to Crores (India) or Billions (US)
 }
 
 /**
@@ -463,23 +524,34 @@ export function computeTotalGEX(spot: number, data: OptionData[], pricingMethod:
  * For each option, it first calculates the time to expiration (`daysTillExp`).
  * Then, it calculates the GEX for each option using the specified pricing method.
  * GEX for put options is treated as negative.
- * The results are summed up for each strike price and converted to billions.
+ * The results are summed up for each strike price and converted to billions or crores.
  *
  * @param spot - Current spot price of the underlying asset.
  * @param data - An array of `OptionData` objects.
  * @param pricingMethod - The pricing method to use ('black-scholes' or 'binomial').
+ * @param referenceDate - Reference date for time calculations.
+ * @param ticker - Optional ticker symbol to adapt lot size and currency scale (Crores vs Billions).
  * @returns An array of `GEXByStrike` objects, sorted by strike price.
  */
-export function computeGEXByStrike(spot: number, data: OptionData[], pricingMethod: PricingMethod = 'black-scholes', referenceDate = new Date()): GEXByStrike[] {
-  // Calculate GEX: prefer raw gamma from data source (CBOE), fallback to BS/Binomial calculation
+export function computeGEXByStrike(
+  spot: number,
+  data: OptionData[],
+  pricingMethod: PricingMethod = 'black-scholes',
+  referenceDate = new Date(),
+  ticker?: string
+): GEXByStrike[] {
+  const contractSize = getContractSize(ticker)
+  const isIndia = isIndiaSymbol(ticker)
+  const divisor = isIndia ? 1e7 : 1e9
+
+  // Calculate GEX: prefer raw gamma from data source, fallback to BS/Binomial calculation
   data.forEach((option) => {
     const rawGamma = option.gamma
     const sign = option.type === "C" ? 1 : -1
 
     if (rawGamma && rawGamma > 0) {
-      // Use CBOE/exchange-provided gamma directly
       // GEX = sign * S² * γ * OI * contractSize * 0.01 (per 1% move)
-      option.GEX_BS = sign * rawGamma * option.open_interest * CONTRACT_SIZE * spot * spot * 0.01
+      option.GEX_BS = sign * rawGamma * option.open_interest * contractSize * spot * spot * 0.01
     } else {
       // Fallback: calculate gamma from IV using Black-Scholes/Binomial
       const daysDiff = Math.max(1, Math.ceil((option.expiration.getTime() - referenceDate.getTime()) / (1000 * 60 * 60 * 24)))
@@ -507,10 +579,10 @@ export function computeGEXByStrike(spot: number, data: OptionData[], pricingMeth
     gexByStrike.set(option.strike, currentGEX + (option.GEX_BS || 0))
   })
 
-  // Filter to ±15% from spot price and convert to billions
+  // Convert to Crores (India) or Billions (US)
   const result: GEXByStrike[] = []
   gexByStrike.forEach((gex, strike) => {
-    result.push({ strike, gex: gex / 1e9 })
+    result.push({ strike, gex: gex / divisor })
   })
 
   return result.sort((a, b) => a.strike - b.strike)
@@ -520,14 +592,16 @@ export function computeGEXByStrike(spot: number, data: OptionData[], pricingMeth
  * Computes Gamma Exposure (GEX) aggregated by expiration date.
  *
  * Filters options to include only those expiring within the next year.
- * It uses the pre-calculated `GEX` field on each `OptionData` object (which should be populated by `computeTotalGEX`
- * or a similar function that calculates individual option GEX).
- * The GEX values are summed for each unique expiration date and converted to billions.
+ * The GEX values are summed for each unique expiration date and converted to billions or crores.
  *
  * @param data - An array of `OptionData` objects, expected to have a `GEX` field.
+ * @param ticker - Optional ticker symbol to adapt currency scale.
  * @returns An array of `GEXByExpiration` objects, sorted by expiration date.
  */
-export function computeGEXByExpiration(data: OptionData[]): GEXByExpiration[] {
+export function computeGEXByExpiration(data: OptionData[], ticker?: string): GEXByExpiration[] {
+  const isIndia = isIndiaSymbol(ticker)
+  const divisor = isIndia ? 1e7 : 1e9
+
   // Limit to one year
   const oneYearFromNow = new Date()
   oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1)
@@ -544,7 +618,7 @@ export function computeGEXByExpiration(data: OptionData[]): GEXByExpiration[] {
 
   const result: GEXByExpiration[] = []
   gexByExpiration.forEach((gex, expiration) => {
-    result.push({ expiration, gex: gex / 1e9 })
+    result.push({ expiration, gex: gex / divisor })
   })
 
   return result.sort((a, b) => new Date(a.expiration).getTime() - new Date(b.expiration).getTime())
@@ -565,19 +639,22 @@ export function computeGEXByExpiration(data: OptionData[]): GEXByExpiration[] {
  * @param specificExpiry - Optional specific expiration date. If provided, includes all options expiring on or before this date.
  * @returns The estimated Zero Gamma level (spot price), or `null` if no zero crossing is found or in case of errors.
  */
-export function findZeroGammaLevel(data: OptionData[], spot: number, specificExpiry?: Date, referenceDate = new Date()): number | null {
+export function findZeroGammaLevel(data: OptionData[], spot: number, specificExpiry?: Date, referenceDate = new Date(), ticker?: string): number | null {
+  // Filter ghost contracts (zero volume, massive OI far from spot)
+  const cleanData = data.filter(option => !((!option.volume || option.volume === 0) && (option.open_interest || 0) > 50000 && Math.abs(option.strike - spot) / spot > 0.03))
+
   let filteredData: OptionData[]
 
   if (specificExpiry) {
     // Filter for options expiring on or before the specific date (cumulative gamma effect)
-    filteredData = data.filter((option) => 
+    filteredData = cleanData.filter((option) => 
       option.expiration <= specificExpiry
     )
   } else {
     // Default behavior: filter for options expiring within next 2 months
     const twoMonthsFromNow = new Date()
     twoMonthsFromNow.setDate(referenceDate.getDate() + 60)
-    filteredData = data.filter((option) => option.expiration <= twoMonthsFromNow)
+    filteredData = cleanData.filter((option) => option.expiration <= twoMonthsFromNow)
   }
 
   if (filteredData.length === 0) return null
@@ -1007,8 +1084,12 @@ export function computeVannaByStrike(
   r = 0,
   q = 0,
   pricingMethod: PricingMethod = 'black-scholes',
-  referenceDate = new Date()
+  referenceDate = new Date(),
+  ticker?: string
 ): VannaByStrike[] {
+  const isIndia = isIndiaSymbol(ticker)
+  const divisor = isIndia ? 1e7 : 1e9
+
   data.forEach((option) => {
     const daysDiff = Math.max(1, Math.ceil((option.expiration.getTime() - referenceDate.getTime()) / (1000 * 60 * 60 * 24)))
     option.daysTillExp = daysDiff === 0 ? 1 / 365.25 : daysDiff / 365.25
@@ -1036,7 +1117,7 @@ export function computeVannaByStrike(
 
   const result: VannaByStrike[] = []
   vannaByStrike.forEach((vanna, strike) => {
-    result.push({ strike, vanna: vanna / 1e9 }) // Normalize to billions for consistent formatting
+    result.push({ strike, vanna: vanna / divisor })
   })
   return result.sort((a, b) => a.strike - b.strike)
 }
@@ -1050,8 +1131,12 @@ export function computeCharmByStrike(
   r = 0,
   q = 0,
   pricingMethod: PricingMethod = 'black-scholes',
-  referenceDate = new Date()
+  referenceDate = new Date(),
+  ticker?: string
 ): CharmByStrike[] {
+  const isIndia = isIndiaSymbol(ticker)
+  const divisor = isIndia ? 1e7 : 1e9
+
   data.forEach((option) => {
     const daysDiff = Math.max(1, Math.ceil((option.expiration.getTime() - referenceDate.getTime()) / (1000 * 60 * 60 * 24)))
     option.daysTillExp = daysDiff === 0 ? 1 / 365.25 : daysDiff / 365.25
@@ -1079,7 +1164,7 @@ export function computeCharmByStrike(
 
   const result: CharmByStrike[] = []
   charmByStrike.forEach((charm, strike) => {
-    result.push({ strike, charm: charm / 1e9 }) // Normalize to billions for consistent formatting (formatBillions handles scaling to Millions/Billions)
+    result.push({ strike, charm: charm / divisor })
   })
   return result.sort((a, b) => a.strike - b.strike)
 }

@@ -20,6 +20,23 @@ async def lifespan(app: FastAPI):
             logger.info("Successfully connected to the database.")
     except Exception as e:
         logger.error(f"Failed to connect to the database: {e}")
+
+    # Validate Dhan token on startup (non-blocking)
+    if settings.dhan_client_id and settings.dhan_access_token:
+        try:
+            from app.services.auth.dhan_auth import DhanAuthManager
+            auth = DhanAuthManager()
+            is_valid = await auth.validate_token()
+            if not is_valid:
+                logger.warning(
+                    "⚠️ Dhan access token is invalid or expired. "
+                    "Indian market data collection via Dhan will fail until renewed. "
+                    "NSE direct scraping will be used as fallback."
+                )
+        except Exception as e:
+            logger.error(f"Dhan auth validation error: {e}")
+    else:
+        logger.info("Dhan credentials not configured — Indian market collection will use NSE direct scraping.")
         
     # Start scheduler
     try:
@@ -84,6 +101,7 @@ from app.routers.waitlist import router as waitlist_router
 from app.routers.backtest import router as backtest_router
 from app.routers.ai import router as ai_router
 from app.routers.ml import router as ml_router
+from app.routers.india_gex import router as india_gex_router
 
 # Include routers
 app.include_router(options_router)
@@ -93,6 +111,7 @@ app.include_router(waitlist_router)
 app.include_router(backtest_router)
 app.include_router(ai_router)
 app.include_router(ml_router)
+app.include_router(india_gex_router)
 
 if __name__ == "__main__":
     import uvicorn

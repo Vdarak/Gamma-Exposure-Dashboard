@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState } from 'react';
-import { BacktestResult } from '../../backend/src/backtester/types';
+import { BacktestResult } from '../../types/backtester';
 
 interface BacktestMetricsGridProps {
   result: BacktestResult;

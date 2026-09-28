@@ -219,7 +219,7 @@ export function TradeForm({ isOpen, onClose, onSubmit, initialTrade }: TradeForm
       setIsFetchingPrice(true)
       try {
         const uppercaseTicker = ticker.trim().toUpperCase()
-        const market = ['NIFTY', 'BANKNIFTY', 'RELIANCE'].includes(uppercaseTicker) ? 'INDIA' : 'USA'
+        const market = ['NIFTY', 'BANKNIFTY', 'SENSEX', 'RELIANCE'].includes(uppercaseTicker) ? 'INDIA' : 'USA'
         const apiRoute = market === 'INDIA' 
           ? `/api/options/india/${uppercaseTicker}` 
           : `/api/options/${uppercaseTicker}`

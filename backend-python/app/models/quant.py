@@ -135,3 +135,35 @@ class EarningsDate(Base):
     ticker = Column(String(10), primary_key=True)
     next_earnings_date = Column(Date, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class DealerWeight(Base):
+    """
+    Stores daily dealer positioning weights computed from NSE participant-wise
+    Open Interest data (fao_participant_oi_DDMMYYYY.csv).
+
+    omega_ce / omega_pe represent the fraction of total OI attributable to 
+    dealer (Pro + α*FII) net positioning for calls and puts respectively.
+    Used to sign the India GEX calculation correctly.
+    """
+    __tablename__ = "dealer_weights"
+    __table_args__ = (
+        UniqueConstraint("date", name="uq_dealer_weights_date"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    date = Column(Date, nullable=False, index=True)
+    omega_ce = Column(Numeric(10, 6), nullable=False)
+    omega_pe = Column(Numeric(10, 6), nullable=False)
+    alpha = Column(Numeric(4, 2), default=0.5)
+    # Raw participant data for auditability
+    pro_call_long = Column(BigInteger)
+    pro_call_short = Column(BigInteger)
+    fii_call_long = Column(BigInteger)
+    fii_call_short = Column(BigInteger)
+    pro_put_long = Column(BigInteger)
+    pro_put_short = Column(BigInteger)
+    fii_put_long = Column(BigInteger)
+    fii_put_short = Column(BigInteger)
+    total_call_oi = Column(BigInteger)
+    total_put_oi = Column(BigInteger)
+    created_at = Column(DateTime, default=datetime.utcnow)

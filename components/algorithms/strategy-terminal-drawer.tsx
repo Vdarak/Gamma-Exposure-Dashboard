@@ -1,7 +1,7 @@
 "use client"
 
 import React from 'react';
-import { IndicatorConfig, IndicatorCondition } from '../../backend/src/backtester/types';
+import { IndicatorConfig, IndicatorCondition } from '../../types/backtester';
 import { X, Play, ShieldAlert, ArrowRightLeft, BookOpen, Terminal } from 'lucide-react';
 import { StrategyConditionBlock } from './strategy-condition-block';
 

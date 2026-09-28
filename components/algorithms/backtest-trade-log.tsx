@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState } from 'react';
-import { TradeLog } from '../../backend/src/backtester/types';
+import { TradeLog } from '../../types/backtester';
 
 interface BacktestTradeLogProps {
   trades: TradeLog[];

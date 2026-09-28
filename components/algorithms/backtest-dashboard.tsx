@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useEffect } from 'react';
-import { BacktestConfig, BacktestResult, IndicatorConfig, IndicatorCondition } from '../../backend/src/backtester/types';
+import { BacktestConfig, BacktestResult, IndicatorConfig, IndicatorCondition } from '../../types/backtester';
 import { BacktestConfigForm } from './backtest-config-form';
 import { BacktestMetricsGrid } from './backtest-metrics-grid';
 import { BacktestCharts } from './backtest-charts';

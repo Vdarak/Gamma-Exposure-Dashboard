@@ -9,29 +9,33 @@ ENV PORT=8000
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies (including gcc and libomp for XGBoost)
+# Install system dependencies (gcc, libomp for XGBoost, curl for healthchecks)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
     libomp-dev \
     python3-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy pyproject.toml and project description first for dependency caching
-COPY pyproject.toml /app/
+# Copy requirements file first for caching
+COPY requirements.txt /app/
 
-# Install python dependencies
+# Install python dependencies (CPU-only PyTorch to minimize image size and RAM usage)
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install torch --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir .
+    pip install --no-cache-dir -r requirements.txt
 
-# Copy application source code
+# Copy application source code and migrations
 COPY app /app/app
 COPY alembic /app/alembic
 COPY alembic.ini /app/
+COPY entrypoint.sh /app/
+
+RUN chmod +x /app/entrypoint.sh
 
 # Expose backend port
 EXPOSE 8000
 
-# Start FastAPI application via uvicorn
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+# Run entrypoint script
+ENTRYPOINT ["/app/entrypoint.sh"]

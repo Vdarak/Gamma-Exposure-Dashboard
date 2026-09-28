@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState } from 'react';
-import { IndicatorCondition } from '../../backend/src/backtester/types';
+import { IndicatorCondition } from '../../types/backtester';
 import { Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 

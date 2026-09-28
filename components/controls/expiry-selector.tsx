@@ -3,6 +3,8 @@
 import { useMemo } from "react"
 import type { OptionData } from "@/lib/types"
 
+import { isIndiaSymbol } from "@/lib/calculations"
+
 export type ExpiryMode = '90d' | '0dte' | 'opex' | 'custom'
 
 export function getOpexDte(): number {
@@ -42,12 +44,35 @@ interface ExpirySelectorProps {
   selectedExpiries: string[]
   onSelectedExpiriesChange: (expiries: string[]) => void
   optionData: OptionData[]
+  ticker?: string
+  market?: 'USA' | 'INDIA'
 }
 
-// Format number into compact millions/billions for buildup display
-function formatGexBuildup(num: number): string {
+// Format number into compact Crores (India) or Millions/Billions (US) for buildup display
+function formatGexBuildup(num: number, ticker?: string, market?: string): string {
+  const isIndia = market === 'INDIA' || isIndiaSymbol(ticker)
   const absVal = Math.abs(num)
   const sign = num >= 0 ? '+' : '−'
+
+  if (isIndia) {
+    if (absVal >= 1e7) {
+      return `${sign}₹${(absVal / 1e7).toFixed(1)} Cr`
+    }
+    if (absVal >= 1e5) {
+      return `${sign}₹${(absVal / 1e5).toFixed(1)} L`
+    }
+    if (absVal >= 100) {
+      return `${sign}₹${absVal.toFixed(1)} Cr`
+    }
+    if (absVal >= 1) {
+      return `${sign}₹${absVal.toFixed(2)} Cr`
+    }
+    if (absVal > 0) {
+      return `${sign}₹${(absVal * 100).toFixed(1)} L`
+    }
+    return `₹0`
+  }
+
   if (absVal >= 1000000000) {
     return `${sign}${(absVal / 1000000000).toFixed(1)}B`
   }
@@ -67,12 +92,18 @@ export function ExpirySelector({
   selectedExpiries,
   onSelectedExpiriesChange,
   optionData,
+  ticker,
+  market,
 }: ExpirySelectorProps) {
   
   // 1. Group GEX calls and puts by expiration date
   const gexByExp = useMemo(() => {
     const map = new Map<string, { call: number; put: number }>()
     optionData.forEach(opt => {
+      // Filter ghost contracts
+      const isGhost = (!opt.volume || opt.volume === 0) && (opt.open_interest || 0) > 50000
+      if (isGhost) return
+
       const expStr = opt.expiration.toISOString().split("T")[0]
       const current = map.get(expStr) || { call: 0, put: 0 }
       const gexVal = opt.GEX || opt.GEX_BS || 0
@@ -256,14 +287,14 @@ export function ExpirySelector({
                 {/* Call GEX Buildup */}
                 <div className="flex-1 bg-black/60 border border-terminal-green/20 rounded px-2 py-0.5 text-center">
                   <span className="text-[9px] font-mono text-[#00C805]">
-                    {formatGexBuildup(item.callGex)}
+                    {formatGexBuildup(item.callGex, ticker, market)}
                   </span>
                 </div>
 
                 {/* Put GEX Buildup */}
                 <div className="flex-1 bg-black/60 border border-terminal-red/20 rounded px-2 py-0.5 text-center">
                   <span className="text-[9px] font-mono text-[#FF3B60]">
-                    {formatGexBuildup(item.putGex)}
+                    {formatGexBuildup(item.putGex, ticker, market)}
                   </span>
                 </div>
 

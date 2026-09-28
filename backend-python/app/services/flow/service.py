@@ -79,12 +79,26 @@ class OptionsFlowService:
             if snapshot_count == 0:
                 logger.info(f"No snapshots found for {t}. Fetching initial options snapshot...")
                 from app.services.ingestion.cboe import CBOEScraperService
+                from app.services.ingestion.dhan_client import DhanOptionChainClient
                 from app.services.ingestion.nse_live import NSELiveScraperService
                 from app.services.ingestion.saver import DataSaverService
+                from app.config import settings, is_india_symbol
                 
-                is_index = t in {"NIFTY", "BANKNIFTY", "RELIANCE"}  # Simplistic check
-                scraper = NSELiveScraperService() if is_index else CBOEScraperService()
-                snap = await scraper.get_normalized_snapshot(t)
+                snap = None
+                if is_india_symbol(t):
+                    # India: try Dhan first, fallback to NSE
+                    if settings.dhan_client_id and settings.dhan_access_token:
+                        try:
+                            dhan = DhanOptionChainClient()
+                            snap = await dhan.get_normalized_snapshot(t)
+                        except Exception:
+                            pass
+                    if snap is None:
+                        nse = NSELiveScraperService()
+                        snap = await nse.get_normalized_snapshot(t)
+                else:
+                    scraper = CBOEScraperService()
+                    snap = await scraper.get_normalized_snapshot(t)
                 
                 if snap:
                     saver = DataSaverService(self.db)
