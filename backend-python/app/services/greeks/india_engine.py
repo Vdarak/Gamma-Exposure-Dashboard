@@ -184,9 +184,11 @@ class IndiaGEXEngine:
             # (gamma is identical for CE and PE at the same strike in BS model)
             gamma = data["call_gamma"] if data["call_gamma"] > 0 else data["put_gamma"]
 
-            # Dealer gamma formula: (ω_CE * OI_CE + ω_PE * OI_PE) × Γ
+            # Dealer gamma formula: (ω_CE * OI_CE - |ω_PE| * OI_PE) × Γ
+            # In options market maker positioning, put options contribute negative dealer gamma.
+            # When dealers/writers are short puts, a market drop increases delta risk, forcing selling into drops.
             dealer_gamma_contracts = (
-                (omega_ce * data["call_oi"]) + (omega_pe * data["put_oi"])
+                (omega_ce * data["call_oi"]) - (abs(omega_pe) * data["put_oi"])
             ) * gamma
 
             # GEX in INR Crores per 1% spot move

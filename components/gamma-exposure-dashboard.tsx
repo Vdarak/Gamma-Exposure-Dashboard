@@ -408,7 +408,7 @@ export function GammaExposureDashboard() {
       // Main compatibility states mapped to the end snapshot
       setSpotPrice(endSp)
       setOptionData(endMapped)
-      setTotalGEX(computeTotalGEX(endSp, endMapped, pricingMethod, ticker))
+      setTotalGEX(computeTotalGEX(endSp, endMapped, pricingMethod, selectedTicker.toUpperCase()))
       setLastUpdated(new Date(endSnapshot.timestamp))
       
       // Update current range

@@ -459,13 +459,38 @@ export function fixOptionData(data: any[], pricingMethod: PricingMethod = 'black
  * @param pricingMethod - The pricing method to use ('black-scholes' or 'binomial').
  * @returns The total Gamma Exposure in billions.
  */
-export function computeTotalGEX(spot: number, data: OptionData[], pricingMethod: PricingMethod = 'black-scholes', ticker?: string): number {
+export interface DealerPositioningWeights {
+  omega_ce: number
+  omega_pe: number
+}
+
+/**
+ * Computes the total Gamma Exposure (GEX) for a portfolio of options.
+ *
+ * For US symbols: dealers are assumed net long calls (+1) and net short puts (-1).
+ * For India symbols: dealer positioning weights (ω_CE, -|ω_PE|) from NSE participant data
+ * are applied, properly accounting for heavy call writing and put selling.
+ *
+ * @param spot - Current spot price of the underlying asset.
+ * @param data - An array of `OptionData` objects.
+ * @param pricingMethod - The pricing method to use ('black-scholes' or 'binomial').
+ * @param ticker - Optional ticker symbol to adapt lot size, currency scale, and dealer model.
+ * @param dealerWeights - Optional dynamic dealer positioning weights from backend.
+ * @returns The total Gamma Exposure in billions (US) or Crores (India).
+ */
+export function computeTotalGEX(
+  spot: number,
+  data: OptionData[],
+  pricingMethod: PricingMethod = 'black-scholes',
+  ticker?: string,
+  dealerWeights?: DealerPositioningWeights | null
+): number {
   const today = new Date()
   const contractSize = getContractSize(ticker)
   const isIndia = isIndiaSymbol(ticker)
   const divisor = isIndia ? 1e7 : 1e9 // 1 Crore = 1e7 INR, 1 Billion = 1e9 USD
   
-  // Calculate GEX for each option using the specified pricing method if gamma is 0 or missing
+  // Calculate GEX for each option
   data.forEach((option) => {
     // Filter ghost contracts (zero volume, massive OI far from spot)
     const isGhost = (!option.volume || option.volume === 0) && (option.open_interest || 0) > 50000 && Math.abs(option.strike - spot) / spot > 0.03
@@ -476,42 +501,40 @@ export function computeTotalGEX(spot: number, data: OptionData[], pricingMethod:
 
     let gamma = option.gamma
     
-    // If gamma is 0 or missing, calculate it using the specified pricing method
-    if (!gamma || gamma === 0) {
+    // Prevent broker precision floor on deep OTM wings (>3.5% away from spot): decay properly via BS
+    const isFarOTM = spot > 0 && Math.abs(option.strike - spot) / spot > 0.035
+    if (!gamma || gamma === 0 || isFarOTM) {
       const daysTillExp = Math.max(1, (option.expiration.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
       const timeToExpiry = daysTillExp / 365.25
-      
-      // Use a default volatility if IV is 0 or missing
-      const volatility = option.iv && option.iv > 0 ? (option.iv > 1 ? option.iv / 100 : option.iv) : 0.3 // Default 30% vol
-      
+      const volatility = option.iv && option.iv > 0 ? (option.iv > 1 ? option.iv / 100 : option.iv) : 0.16
       const optType = option.type === "C" ? "call" : "put"
       
-      // Calculate gamma using the specified pricing method
       const gammaEx = calcGammaExEnhanced(
         spot,
         option.strike,
         volatility,
         timeToExpiry,
-        0, // risk-free rate
-        0, // dividend yield
+        0.065,
+        0,
         optType,
-        1, // OI of 1 to get per-contract gamma
+        1,
         pricingMethod
       )
-      
-      // Extract gamma per contract (divide by the scaling factors)
       gamma = gammaEx / (contractSize * spot * spot * 0.01)
-      
-      // Update the option object with calculated gamma
       option.gamma = gamma
     }
     
-    option.GEX = spot * gamma * option.open_interest * contractSize * spot * 0.01
-    
-    // For puts, gamma exposure is negative (dealers are net short gamma on puts)
-    if (option.type === "P") {
-      option.GEX = -option.GEX
+    // Positioning weights:
+    // US: standard assumption (dealers long calls +1, short puts -1)
+    // India: dealer-weighted via NSE participant positioning (calls shorted by bears, puts shorted by writers)
+    let weight = option.type === "C" ? 1 : -1
+    if (isIndia) {
+      const w_ce = dealerWeights ? dealerWeights.omega_ce : -0.0008
+      const w_pe = dealerWeights ? Math.abs(dealerWeights.omega_pe) : 0.0624
+      weight = option.type === "C" ? w_ce : -w_pe
     }
+
+    option.GEX = weight * spot * gamma * option.open_interest * contractSize * spot * 0.01
   })
 
   const totalGEX = data.reduce((sum, option) => sum + (option.GEX || 0), 0)
@@ -521,16 +544,14 @@ export function computeTotalGEX(spot: number, data: OptionData[], pricingMethod:
 /**
  * Computes Gamma Exposure (GEX) aggregated by strike price.
  *
- * For each option, it first calculates the time to expiration (`daysTillExp`).
- * Then, it calculates the GEX for each option using the specified pricing method.
- * GEX for put options is treated as negative.
- * The results are summed up for each strike price and converted to billions or crores.
+ * For each option, calculates the GEX per strike incorporating dealer positioning weights.
  *
  * @param spot - Current spot price of the underlying asset.
  * @param data - An array of `OptionData` objects.
  * @param pricingMethod - The pricing method to use ('black-scholes' or 'binomial').
  * @param referenceDate - Reference date for time calculations.
- * @param ticker - Optional ticker symbol to adapt lot size and currency scale (Crores vs Billions).
+ * @param ticker - Optional ticker symbol to adapt lot size, currency scale, and dealer model.
+ * @param dealerWeights - Optional dynamic dealer positioning weights from backend.
  * @returns An array of `GEXByStrike` objects, sorted by strike price.
  */
 export function computeGEXByStrike(
@@ -538,38 +559,50 @@ export function computeGEXByStrike(
   data: OptionData[],
   pricingMethod: PricingMethod = 'black-scholes',
   referenceDate = new Date(),
-  ticker?: string
+  ticker?: string,
+  dealerWeights?: DealerPositioningWeights | null
 ): GEXByStrike[] {
   const contractSize = getContractSize(ticker)
   const isIndia = isIndiaSymbol(ticker)
   const divisor = isIndia ? 1e7 : 1e9
 
-  // Calculate GEX: prefer raw gamma from data source, fallback to BS/Binomial calculation
   data.forEach((option) => {
-    const rawGamma = option.gamma
-    const sign = option.type === "C" ? 1 : -1
+    const isGhost = (!option.volume || option.volume === 0) && (option.open_interest || 0) > 50000 && Math.abs(option.strike - spot) / spot > 0.03
+    if (isGhost) {
+      option.GEX_BS = 0
+      return
+    }
 
-    if (rawGamma && rawGamma > 0) {
-      // GEX = sign * S² * γ * OI * contractSize * 0.01 (per 1% move)
-      option.GEX_BS = sign * rawGamma * option.open_interest * contractSize * spot * spot * 0.01
-    } else {
-      // Fallback: calculate gamma from IV using Black-Scholes/Binomial
+    let gamma = option.gamma
+    const isFarOTM = spot > 0 && Math.abs(option.strike - spot) / spot > 0.035
+    if (!gamma || gamma === 0 || isFarOTM) {
       const daysDiff = Math.max(1, Math.ceil((option.expiration.getTime() - referenceDate.getTime()) / (1000 * 60 * 60 * 24)))
       option.daysTillExp = daysDiff / 365.25
-      const vol = option.iv && option.iv > 0 ? (option.iv > 1 ? option.iv / 100 : option.iv) : 0.3
+      const vol = option.iv && option.iv > 0 ? (option.iv > 1 ? option.iv / 100 : option.iv) : 0.16
       const optType = option.type === "C" ? "call" : "put"
-      option.GEX_BS = sign * calcGammaExEnhanced(
+      const gammaEx = calcGammaExEnhanced(
         spot,
         option.strike,
         vol,
         option.daysTillExp,
-        0,
+        0.065,
         0,
         optType,
-        option.open_interest,
+        1,
         pricingMethod
       )
+      gamma = gammaEx / (contractSize * spot * spot * 0.01)
+      option.gamma = gamma
     }
+
+    let weight = option.type === "C" ? 1 : -1
+    if (isIndia) {
+      const w_ce = dealerWeights ? dealerWeights.omega_ce : -0.0008
+      const w_pe = dealerWeights ? Math.abs(dealerWeights.omega_pe) : 0.0624
+      weight = option.type === "C" ? w_ce : -w_pe
+    }
+
+    option.GEX_BS = weight * gamma * option.open_interest * contractSize * spot * spot * 0.01
   })
 
   // Group by strike
@@ -705,7 +738,7 @@ export function findZeroGammaLevel(data: OptionData[], spot: number, specificExp
   // Find zero crossings
   const zeroCrossIndices: number[] = []
   for (let i = 0; i < totalGamma.length - 1; i++) {
-    if (totalGamma[i] * totalGamma[i + 1] < 0) {
+    if (totalGamma[i] * totalGamma[i + 1] <= 0) {
       zeroCrossIndices.push(i)
     }
   }
@@ -713,7 +746,11 @@ export function findZeroGammaLevel(data: OptionData[], spot: number, specificExp
   if (zeroCrossIndices.length === 0) return null
 
   try {
-    const idx = zeroCrossIndices[0]
+    // Pick the zero crossing closest to current spot
+    const idx = zeroCrossIndices.reduce((best, curr) =>
+      Math.abs(levels[curr] - spot) < Math.abs(levels[best] - spot) ? curr : best
+    , zeroCrossIndices[0])
+
     const negGamma = totalGamma[idx]
     const posGamma = totalGamma[idx + 1]
     const negStrike = levels[idx]
