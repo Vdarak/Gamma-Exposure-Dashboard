@@ -3,7 +3,8 @@
 import { useState, useCallback, useMemo, useEffect } from "react"
 import type { OptionData } from "@/lib/types"
 import { dataService, type Market } from "@/lib/data-service"
-import { computeTotalGEX, findZeroGammaLevel, type PricingMethod } from "@/lib/calculations"
+import { computeTotalGEX, findZeroGammaLevel, type PricingMethod, type DealerPositioningWeights } from "@/lib/calculations"
+import { createJournalTrade, getIndiaWeights } from "@/lib/backend-api"
 
 // Layout components
 import { TerminalHeader } from "./layout/terminal-header"
@@ -36,7 +37,6 @@ import { QuantumTunnelingGauge } from "./charts/quantum-tunneling-gauge"
 import { CotFlowChart } from "./charts/cot-flow-chart"
 import { GitaQuote } from "./layout/gita-quote"
 import { ConfluenceHub } from "./confluence/confluence-hub"
-import { createJournalTrade } from "@/lib/backend-api"
 
 // UI components
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -106,6 +106,27 @@ export function GammaExposureDashboard() {
   const [optionData, setOptionData] = useState<OptionData[]>([])
   const [totalGEX, setTotalGEX] = useState<number>(0)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [dealerWeights, setDealerWeights] = useState<DealerPositioningWeights | null>(null)
+
+  // Fetch dealer weights for India market
+  useEffect(() => {
+    if (market !== 'INDIA') {
+      setDealerWeights(null)
+      return
+    }
+    let cancelled = false
+    getIndiaWeights()
+      .then(res => {
+        if (!cancelled && res?.data) {
+          setDealerWeights({
+            omega_ce: res.data.omega_ce,
+            omega_pe: res.data.omega_pe,
+          })
+        }
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [market, ticker])
 
   // Sub-controls state
   const [selectedMoveExpiry, setSelectedMoveExpiry] = useState<string>("All Dates")
@@ -265,13 +286,13 @@ export function GammaExposureDashboard() {
 
   const gammaFlipLevel = useMemo(() => {
     if (!spotPrice || !activeOptionData.length) return null
-    return findZeroGammaLevel(activeOptionData, spotPrice, undefined, undefined, ticker)
-  }, [activeOptionData, spotPrice, ticker])
+    return findZeroGammaLevel(activeOptionData, spotPrice, undefined, undefined, ticker, dealerWeights)
+  }, [activeOptionData, spotPrice, ticker, dealerWeights])
 
   const activeTotalGEX = useMemo(() => {
     if (!spotPrice || !activeOptionData.length) return 0
-    return computeTotalGEX(spotPrice, activeOptionData, pricingMethod, ticker)
-  }, [spotPrice, activeOptionData, pricingMethod, ticker])
+    return computeTotalGEX(spotPrice, activeOptionData, pricingMethod, ticker, dealerWeights)
+  }, [spotPrice, activeOptionData, pricingMethod, ticker, dealerWeights])
 
   const hasData = spotPrice !== null && optionData.length > 0
 
@@ -341,7 +362,7 @@ export function GammaExposureDashboard() {
         setEndOptionData(od)
         setStartSpotPrice(sp)
         setEndSpotPrice(sp)
-        setTotalGEX(computeTotalGEX(sp, od, pricingMethod, selectedTicker))
+        setTotalGEX(computeTotalGEX(sp, od, pricingMethod, selectedTicker.toUpperCase(), dealerWeights))
         setLastUpdated(new Date())
         setIsLive(true)
         setCurrentRange([null, null])
@@ -408,7 +429,7 @@ export function GammaExposureDashboard() {
       // Main compatibility states mapped to the end snapshot
       setSpotPrice(endSp)
       setOptionData(endMapped)
-      setTotalGEX(computeTotalGEX(endSp, endMapped, pricingMethod, selectedTicker.toUpperCase()))
+      setTotalGEX(computeTotalGEX(endSp, endMapped, pricingMethod, selectedTicker.toUpperCase(), dealerWeights))
       setLastUpdated(new Date(endSnapshot.timestamp))
       
       // Update current range

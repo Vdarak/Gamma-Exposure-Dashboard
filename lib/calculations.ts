@@ -504,7 +504,7 @@ export function computeTotalGEX(
     // Prevent broker precision floor on deep OTM wings (>3.5% away from spot): decay properly via BS
     const isFarOTM = spot > 0 && Math.abs(option.strike - spot) / spot > 0.035
     if (!gamma || gamma === 0 || isFarOTM) {
-      const daysTillExp = Math.max(1, (option.expiration.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+      const daysTillExp = Math.max(0.5, (option.expiration.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
       const timeToExpiry = daysTillExp / 365.25
       const volatility = option.iv && option.iv > 0 ? (option.iv > 1 ? option.iv / 100 : option.iv) : 0.16
       const optType = option.type === "C" ? "call" : "put"
@@ -523,18 +523,24 @@ export function computeTotalGEX(
       gamma = gammaEx / (contractSize * spot * spot * 0.01)
       option.gamma = gamma
     }
+
+    // Active delta hedging window: suppress far OTM wings (>5% from spot) if gamma is negligible
+    if (spot > 0 && Math.abs(option.strike - spot) / spot > 0.05 && gamma < 1e-7) {
+      gamma = 0
+      option.gamma = 0
+    }
     
     // Positioning weights:
-    // US: standard assumption (dealers long calls +1, short puts -1)
-    // India: dealer-weighted via NSE participant positioning (calls shorted by bears, puts shorted by writers)
+    // US / Default baseline: dealers long calls (+1), short puts (-1)
+    // India: dynamic modulation around baseline (+1, -1) from NSE participant positioning
     let weight = option.type === "C" ? 1 : -1
-    if (isIndia) {
-      const w_ce = dealerWeights ? dealerWeights.omega_ce : -0.0008
-      const w_pe = dealerWeights ? Math.abs(dealerWeights.omega_pe) : 0.0624
-      weight = option.type === "C" ? w_ce : -w_pe
+    if (isIndia && dealerWeights) {
+      const w_call = 1.0 + (dealerWeights.omega_ce || 0)
+      const w_put = 1.0 + Math.abs(dealerWeights.omega_pe || 0)
+      weight = option.type === "C" ? w_call : -w_put
     }
 
-    option.GEX = weight * spot * gamma * option.open_interest * contractSize * spot * 0.01
+    option.GEX = weight * gamma * option.open_interest * contractSize * spot * spot * 0.01
   })
 
   const totalGEX = data.reduce((sum, option) => sum + (option.GEX || 0), 0)
@@ -566,6 +572,13 @@ export function computeGEXByStrike(
   const isIndia = isIndiaSymbol(ticker)
   const divisor = isIndia ? 1e7 : 1e9
 
+  let w_call = 1.0
+  let w_put = 1.0
+  if (isIndia && dealerWeights) {
+    w_call = 1.0 + (dealerWeights.omega_ce || 0)
+    w_put = 1.0 + Math.abs(dealerWeights.omega_pe || 0)
+  }
+
   data.forEach((option) => {
     const isGhost = (!option.volume || option.volume === 0) && (option.open_interest || 0) > 50000 && Math.abs(option.strike - spot) / spot > 0.03
     if (isGhost) {
@@ -576,7 +589,7 @@ export function computeGEXByStrike(
     let gamma = option.gamma
     const isFarOTM = spot > 0 && Math.abs(option.strike - spot) / spot > 0.035
     if (!gamma || gamma === 0 || isFarOTM) {
-      const daysDiff = Math.max(1, Math.ceil((option.expiration.getTime() - referenceDate.getTime()) / (1000 * 60 * 60 * 24)))
+      const daysDiff = Math.max(0.5, Math.ceil((option.expiration.getTime() - referenceDate.getTime()) / (1000 * 60 * 60 * 24)))
       option.daysTillExp = daysDiff / 365.25
       const vol = option.iv && option.iv > 0 ? (option.iv > 1 ? option.iv / 100 : option.iv) : 0.16
       const optType = option.type === "C" ? "call" : "put"
@@ -595,13 +608,12 @@ export function computeGEXByStrike(
       option.gamma = gamma
     }
 
-    let weight = option.type === "C" ? 1 : -1
-    if (isIndia) {
-      const w_ce = dealerWeights ? dealerWeights.omega_ce : -0.0008
-      const w_pe = dealerWeights ? Math.abs(dealerWeights.omega_pe) : 0.0624
-      weight = option.type === "C" ? w_ce : -w_pe
+    if (spot > 0 && Math.abs(option.strike - spot) / spot > 0.05 && gamma < 1e-7) {
+      gamma = 0
+      option.gamma = 0
     }
 
+    const weight = option.type === "C" ? w_call : -w_put
     option.GEX_BS = weight * gamma * option.open_interest * contractSize * spot * spot * 0.01
   })
 
@@ -672,7 +684,14 @@ export function computeGEXByExpiration(data: OptionData[], ticker?: string): GEX
  * @param specificExpiry - Optional specific expiration date. If provided, includes all options expiring on or before this date.
  * @returns The estimated Zero Gamma level (spot price), or `null` if no zero crossing is found or in case of errors.
  */
-export function findZeroGammaLevel(data: OptionData[], spot: number, specificExpiry?: Date, referenceDate = new Date(), ticker?: string): number | null {
+export function findZeroGammaLevel(
+  data: OptionData[],
+  spot: number,
+  specificExpiry?: Date,
+  referenceDate = new Date(),
+  ticker?: string,
+  dealerWeights?: DealerPositioningWeights | null
+): number | null {
   // Filter ghost contracts (zero volume, massive OI far from spot)
   const cleanData = data.filter(option => !((!option.volume || option.volume === 0) && (option.open_interest || 0) > 50000 && Math.abs(option.strike - spot) / spot > 0.03))
 
@@ -692,22 +711,26 @@ export function findZeroGammaLevel(data: OptionData[], spot: number, specificExp
 
   if (filteredData.length === 0) return null
 
-  // Debug: Log how many options are being considered for the gamma flip calculation
-  if (specificExpiry) {
-    console.log(`Gamma flip calculation for ${specificExpiry.toISOString().split('T')[0]}: considering ${filteredData.length} options expiring on or before this date`)
-  }
-
   // Calculate days till expiration for each option
   filteredData.forEach((option) => {
     const daysDiff = Math.ceil((option.expiration.getTime() - referenceDate.getTime()) / (1000 * 60 * 60 * 24))
     // Handle 0DTE (same day expiration) and negative days (already expired)
-    option.daysTillExp = Math.max(daysDiff, 0) === 0 ? 1 / 365.25 : Math.max(daysDiff, 1) / 365.25
+    option.daysTillExp = Math.max(daysDiff, 0.5) / 365.25
   })
 
-  // Use a wide and fine sweep
-  const fromStrike = spot * 0.8
-  const toStrike = spot * 1.2
-  const levels = Array.from({ length: 30 }, (_, i) => fromStrike + ((toStrike - fromStrike) * i) / 29)
+  const isIndia = isIndiaSymbol(ticker)
+  let w_call = 1.0
+  let w_put = 1.0
+  if (isIndia && dealerWeights) {
+    w_call = 1.0 + (dealerWeights.omega_ce || 0)
+    w_put = 1.0 + Math.abs(dealerWeights.omega_pe || 0)
+  }
+
+  // Use a fine sweep around spot
+  const fromStrike = spot * 0.85
+  const toStrike = spot * 1.15
+  const steps = 60
+  const levels = Array.from({ length: steps }, (_, i) => fromStrike + ((toStrike - fromStrike) * i) / (steps - 1))
   const totalGamma: number[] = []
 
   // For each spot level, calculate gamma exposure
@@ -716,8 +739,8 @@ export function findZeroGammaLevel(data: OptionData[], spot: number, specificExp
       .filter((option) => option.type === "C")
       .reduce(
         (sum, option) => {
-          const vol = option.iv && option.iv > 0 ? (option.iv > 1 ? option.iv / 100 : option.iv) : 0.3
-          return sum + calcGammaEx(level, option.strike, vol, option.daysTillExp!, 0, 0, "call", option.open_interest)
+          const vol = option.iv && option.iv > 0 ? (option.iv > 1 ? option.iv / 100 : option.iv) : 0.20
+          return sum + w_call * calcGammaEx(level, option.strike, vol, option.daysTillExp!, 0.065, 0, "call", option.open_interest)
         },
         0,
       )
@@ -726,8 +749,8 @@ export function findZeroGammaLevel(data: OptionData[], spot: number, specificExp
       .filter((option) => option.type === "P")
       .reduce(
         (sum, option) => {
-          const vol = option.iv && option.iv > 0 ? (option.iv > 1 ? option.iv / 100 : option.iv) : 0.3
-          return sum + calcGammaEx(level, option.strike, vol, option.daysTillExp!, 0, 0, "put", option.open_interest)
+          const vol = option.iv && option.iv > 0 ? (option.iv > 1 ? option.iv / 100 : option.iv) : 0.20
+          return sum + w_put * calcGammaEx(level, option.strike, vol, option.daysTillExp!, 0.065, 0, "put", option.open_interest)
         },
         0,
       )
@@ -738,7 +761,7 @@ export function findZeroGammaLevel(data: OptionData[], spot: number, specificExp
   // Find zero crossings
   const zeroCrossIndices: number[] = []
   for (let i = 0; i < totalGamma.length - 1; i++) {
-    if (totalGamma[i] * totalGamma[i + 1] <= 0) {
+    if (totalGamma[i] * totalGamma[i + 1] <= 0 && Math.abs(totalGamma[i] - totalGamma[i + 1]) > 1e-8) {
       zeroCrossIndices.push(i)
     }
   }

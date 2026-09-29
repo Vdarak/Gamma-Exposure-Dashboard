@@ -123,15 +123,23 @@ class IndiaGEXEngine:
         omega_pe = weights["omega_pe"]
 
         # 4. Compute GEX per strike
-        # Group options by strike, aggregate CE and PE data
+        # Each contract calculates its own GEX based on its exact DTE and IV, aggregated to strike
         strike_map: Dict[float, Dict[str, Any]] = {}
+        total_gex_crores = 0.0
+
+        # Dealer positioning weights:
+        # Baseline is +1 for calls and -1 for puts.
+        # Participant weights modulate the baseline: w_call = 1.0 + omega_ce, w_put = 1.0 + |omega_pe|
+        w_call = 1.0 + float(omega_ce or 0.0)
+        w_put = 1.0 + abs(float(omega_pe or 0.0))
+        today = date.today()
 
         for opt in options:
             strike = float(opt.strike)
             # Skip corrupted exchange ghost strikes
             vol = int(opt.volume or 0)
-            oi_raw = int(opt.open_interest or 0)
-            if vol == 0 and oi_raw > 50000 and spot_price > 0 and abs(strike - spot_price) / spot_price > 0.03:
+            oi = int(opt.open_interest or 0)
+            if vol == 0 and oi > 50000 and spot_price > 0 and abs(strike - spot_price) / spot_price > 0.03:
                 continue
 
             if strike not in strike_map:
@@ -139,72 +147,59 @@ class IndiaGEXEngine:
                     "strike": strike,
                     "call_oi": 0,
                     "put_oi": 0,
-                    "call_gamma": 0.0,
-                    "put_gamma": 0.0,
+                    "gamma": 0.0,
+                    "gex_crores": 0.0,
                     "call_iv": 0.0,
                     "put_iv": 0.0,
                 }
 
             entry = strike_map[strike]
-            oi = oi_raw
-            gamma = float(opt.gamma or 0.0)
             iv = float(opt.implied_volatility or 0.0)
+            sigma = (iv if iv < 1.0 else iv / 100.0) if iv > 0 else 0.16
+            if sigma <= 0.01:
+                sigma = 0.16
 
-            # If gamma is missing from the data source, compute via Black-Scholes
-            if gamma == 0.0 and iv > 0 and spot_price > 0:
-                dte_days = (opt.expiration - date.today()).days
-                if dte_days > 0:
-                    T = dte_days / 365.0
-                    sigma = iv if iv < 1.0 else iv / 100.0
-                    greeks = GreeksEngine.calculate_bs_greeks(
-                        S=spot_price,
-                        K=strike,
-                        T=T,
-                        r=0.065,  # India risk-free rate ~6.5%
-                        sigma=sigma,
-                        option_type=opt.option_type,
-                    )
-                    gamma = greeks["gamma"]
+            dte_days = max(1, (opt.expiration - today).days)
+            T = max(dte_days, 0.5) / 365.25
 
-            if opt.option_type == "C":
-                entry["call_oi"] = oi
-                entry["call_gamma"] = gamma
+            greeks = GreeksEngine.calculate_bs_greeks(
+                S=spot_price,
+                K=strike,
+                T=T,
+                r=0.065,  # India risk-free rate ~6.5%
+                sigma=sigma,
+                option_type=opt.option_type,
+            )
+            gamma = greeks["gamma"]
+
+            # Suppress far OTM wings (>5% from spot) if gamma is negligible
+            if abs(strike - spot_price) / spot_price > 0.05 and gamma < 1e-7:
+                gamma = 0.0
+
+            entry["gamma"] = max(entry["gamma"], gamma)
+            is_call = opt.option_type == "C"
+
+            if is_call:
+                entry["call_oi"] += oi
                 entry["call_iv"] = iv
+                contract_gex = (w_call * oi * gamma * spot_price * (0.01 * spot_price) * lot_size) / CRORE
+                entry["gex_crores"] += contract_gex
+                total_gex_crores += contract_gex
             else:
-                entry["put_oi"] = oi
-                entry["put_gamma"] = gamma
+                entry["put_oi"] += oi
                 entry["put_iv"] = iv
+                contract_gex = (-w_put * oi * gamma * spot_price * (0.01 * spot_price) * lot_size) / CRORE
+                entry["gex_crores"] += contract_gex
+                total_gex_crores += contract_gex
 
-        # 5. Calculate GEX for each strike
         strike_records: List[Dict[str, Any]] = []
-        total_gex_crores = 0.0
-
         for strike, data in sorted(strike_map.items()):
-            # Use call gamma as the representative gamma for this strike
-            # (gamma is identical for CE and PE at the same strike in BS model)
-            gamma = data["call_gamma"] if data["call_gamma"] > 0 else data["put_gamma"]
-
-            # Dealer gamma formula: (ω_CE * OI_CE - |ω_PE| * OI_PE) × Γ
-            # In options market maker positioning, put options contribute negative dealer gamma.
-            # When dealers/writers are short puts, a market drop increases delta risk, forcing selling into drops.
-            dealer_gamma_contracts = (
-                (omega_ce * data["call_oi"]) - (abs(omega_pe) * data["put_oi"])
-            ) * gamma
-
-            # GEX in INR Crores per 1% spot move
-            # GEX_K = Dealer_Gamma × S × (0.01 × S) × LotSize / 10^7
-            strike_gex_crores = (
-                dealer_gamma_contracts * spot_price * (0.01 * spot_price) * lot_size
-            ) / CRORE
-
-            total_gex_crores += strike_gex_crores
-
             strike_records.append({
                 "strike": strike,
                 "call_oi": data["call_oi"],
                 "put_oi": data["put_oi"],
-                "gamma": round(gamma, 8),
-                "gex_crores": round(strike_gex_crores, 4),
+                "gamma": round(data["gamma"], 8),
+                "gex_crores": round(data["gex_crores"], 4),
                 "call_iv": round(data["call_iv"], 4),
                 "put_iv": round(data["put_iv"], 4),
             })
@@ -222,6 +217,12 @@ class IndiaGEXEngine:
         exp_res = await self.db.execute(exp_query)
         available_expiries = [row[0].isoformat() for row in exp_res.fetchall()]
 
+        # Master regime anchor (Pillar 4): Spot >= Flip Point -> POSITIVE, Spot < Flip Point -> NEGATIVE
+        if flip_point is not None:
+            gamma_regime = "POSITIVE" if spot_price >= flip_point else "NEGATIVE"
+        else:
+            gamma_regime = "POSITIVE" if total_gex_crores >= 0 else "NEGATIVE"
+
         return {
             "market": "NSE",
             "symbol": ticker,
@@ -229,7 +230,7 @@ class IndiaGEXEngine:
             "spot_price": round(spot_price, 2),
             "total_gex": round(total_gex_crores, 2),
             "currency": "INR_CRORES",
-            "gamma_regime": "POSITIVE" if total_gex_crores >= 0 else "NEGATIVE",
+            "gamma_regime": gamma_regime,
             "flip_point": flip_point,
             "lot_size": lot_size,
             "dealer_weights": {
@@ -265,7 +266,7 @@ class IndiaGEXEngine:
             s1, s2 = strikes[i], strikes[i + 1]
             gex1, gex2 = s1["gex_crores"], s2["gex_crores"]
 
-            if (gex1 <= 0 and gex2 > 0) or (gex1 >= 0 and gex2 < 0):
+            if (gex1 < 0 and gex2 > 0) or (gex1 > 0 and gex2 < 0):
                 denom = gex2 - gex1
                 if abs(denom) < 1e-10:
                     continue

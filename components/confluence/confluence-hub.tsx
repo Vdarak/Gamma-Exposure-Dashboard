@@ -476,12 +476,17 @@ export function ConfluenceHub({
               <div className="bg-black/40 border border-white/5 rounded p-3 flex justify-between items-center">
                 <div className="flex flex-col">
                   <span className="text-[9px] text-[#666] uppercase">GEX Regime</span>
-                  <span className={`text-xs font-bold mt-0.5 ${totalGEX >= 0 ? "text-terminal-green" : "text-terminal-red"}`}>
-                    {totalGEX >= 0 ? "POSITIVE GAMMA" : "NEGATIVE GAMMA"}
-                  </span>
+                  {(() => {
+                    const isPositive = gammaFlipLevel && spotPrice ? spotPrice >= gammaFlipLevel : totalGEX >= 0
+                    return (
+                      <span className={`text-xs font-bold mt-0.5 ${isPositive ? "text-terminal-green" : "text-terminal-red"}`}>
+                        {isPositive ? "POSITIVE GAMMA" : "NEGATIVE GAMMA"}
+                      </span>
+                    )
+                  })()}
                 </div>
                 <div className="flex items-center gap-1">
-                  {totalGEX >= 0 ? (
+                  {(gammaFlipLevel && spotPrice ? spotPrice >= gammaFlipLevel : totalGEX >= 0) ? (
                     <TrendingUp className="w-4 h-4 text-terminal-green" />
                   ) : (
                     <TrendingDown className="w-4 h-4 text-terminal-red" />

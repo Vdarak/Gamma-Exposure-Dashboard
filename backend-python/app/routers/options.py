@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from app.database import get_db
-from app.config import settings
+from app.config import settings, is_india_symbol
 from app.services.data_retrieval import DataRetrievalService
 from app.services.flow.service import OptionsFlowService, OptionsFlowResponse
 from app.services.ingestion.saver import DataSaverService
@@ -23,7 +23,6 @@ async def get_current_data(
         from app.services.ingestion.cboe import CBOEScraperService
         from app.services.ingestion.dhan_client import DhanOptionChainClient
         from app.services.ingestion.nse_live import NSELiveScraperService
-        from app.config import is_india_symbol
         
         ticker_upper = ticker.upper()
         

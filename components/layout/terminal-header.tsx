@@ -385,6 +385,18 @@ export function TerminalHeader({
                 {gammaFlipLevel ? `${currencySymbol}${gammaFlipLevel.toFixed(0)}` : '—'}
               </span>
             </div>
+
+            <div className="hidden sm:block w-px h-6 bg-[#1A1A1E] self-center" />
+
+            {/* Regime */}
+            <div className="flex flex-col justify-center">
+              <span className="text-[8px] text-[#888] uppercase font-bold tracking-wider leading-none">REGIME</span>
+              <span className="text-xs font-extrabold mt-1 leading-none" style={{
+                color: (gammaFlipLevel ? spotPrice >= gammaFlipLevel : (totalGEX || 0) >= 0) ? '#00C805' : '#FF3B60'
+              }}>
+                {(gammaFlipLevel ? spotPrice >= gammaFlipLevel : (totalGEX || 0) >= 0) ? '+ GAMMA' : '- GAMMA'}
+              </span>
+            </div>
           </div>
 
           {/* Gauges */}
