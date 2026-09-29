@@ -35,6 +35,7 @@ import { ProbabilityMapChart } from "./charts/probability-map-chart"
 import { GarchForecastChart } from "./charts/garch-forecast-chart"
 import { QuantumTunnelingGauge } from "./charts/quantum-tunneling-gauge"
 import { CotFlowChart } from "./charts/cot-flow-chart"
+import { ParticipantFlowChart } from "./charts/participant-flow-chart"
 import { GitaQuote } from "./layout/gita-quote"
 import { ConfluenceHub } from "./confluence/confluence-hub"
 
@@ -65,6 +66,7 @@ const SUB_TABS: { [key: string]: Array<{ id: string; label: string }> } = {
   flow: [
     { id: 'live-tape', label: 'Live Tape' },
     { id: 'net-flow', label: 'Net Flow (EOD)' },
+    { id: 'participant-flow', label: 'Participant Flow' },
     { id: 'history-trend', label: 'History Trend' },
     { id: 'cot-positions', label: 'COT Positions' },
   ],
@@ -874,7 +876,7 @@ export function GammaExposureDashboard() {
                 {/* Workspace tab views with loading screen overlay */}
                 <div className={`flex-1 overflow-y-auto terminal-scrollbar relative ${
                   (activeSidebarTab === 'quant' && (activeTab === 'garch-forecast' || activeTab === 'probability-map')) ||
-                  (activeSidebarTab === 'flow' && (activeTab === 'cot-positions' || activeTab === 'net-flow' || activeTab === 'live-tape'))
+                  (activeSidebarTab === 'flow' && (activeTab === 'cot-positions' || activeTab === 'participant-flow' || activeTab === 'net-flow' || activeTab === 'live-tape'))
                     ? 'p-0 space-y-0'
                     : 'p-4 space-y-4'
                 }`}>
@@ -1146,6 +1148,17 @@ export function GammaExposureDashboard() {
                       })}
                     >
                       <CotFlowChart />
+                    </div>
+                  )}
+                  {activeSidebarTab === 'flow' && activeTab === 'participant-flow' && (
+                    <div 
+                      className="flex-1 flex flex-col min-h-0 p-4"
+                      data-ai-context={JSON.stringify({
+                        component: "Participant Flow Chart",
+                        promptTemplate: "Analyze NSE institutional participant positioning (FII, Pro, Client, DII), Long/Short futures ratio, and strike-level IPF deconstruction."
+                      })}
+                    >
+                      <ParticipantFlowChart />
                     </div>
                   )}
 

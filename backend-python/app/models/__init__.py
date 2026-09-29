@@ -1,6 +1,6 @@
 from app.database import Base
 from app.models.option_snapshot import OptionSnapshot, OptionData
-from app.models.quant import IndiaEquityDaily, IndiaFoDaily, InterestRate, CotPosition, SpotPriceHistory, DailyOptionSummary, QuantForecast, EarningsDate, DealerWeight
+from app.models.quant import IndiaEquityDaily, IndiaFoDaily, InterestRate, CotPosition, SpotPriceHistory, DailyOptionSummary, QuantForecast, EarningsDate, DealerWeight, ParticipantOIDaily
 from app.models.ml import MLFeatureSnapshot, MLPrediction, MLModelRegistry
 from app.models.billing import WaitlistSignup
 from app.models.suggestion import OptionSuggestionHistory
@@ -20,6 +20,7 @@ __all__ = [
     "QuantForecast",
     "EarningsDate",
     "DealerWeight",
+    "ParticipantOIDaily",
     "MLFeatureSnapshot",
     "MLPrediction",
     "MLModelRegistry",

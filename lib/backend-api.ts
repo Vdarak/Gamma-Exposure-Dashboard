@@ -830,3 +830,122 @@ export async function getIndiaInstruments(): Promise<any> {
   }
 }
 
+// ─── Participant Open Interest & Positioning APIs ──────────────────────────
+
+export interface ParticipantMetrics {
+  fut_long: number
+  fut_short: number
+  net_fut: number
+  call_long: number
+  call_short: number
+  net_ce: number
+  put_long: number
+  put_short: number
+  net_pe: number
+  long_short_ratio?: number
+}
+
+export interface ParticipantHistoryItem {
+  date: string
+  fii: ParticipantMetrics
+  pro: ParticipantMetrics
+  client: ParticipantMetrics
+  dii: ParticipantMetrics
+  total_call_oi: number
+  total_put_oi: number
+  total_fut_oi: number
+}
+
+export interface ParticipantDailySummary {
+  date: string
+  previous_date: string | null
+  fii_long_short_ratio: number
+  fii_long_short_pct: number
+  sentiment_regime: 'EXTREME_BULLISH' | 'MODERATE_BULLISH' | 'NEUTRAL' | 'MODERATE_BEARISH' | 'EXTREME_BEARISH'
+  sentiment_label: string
+  sentiment_color: string
+  commentary: string
+  today: {
+    fii: {
+      net_fut: number
+      net_ce: number
+      net_pe: number
+      delta_fut: number
+      delta_ce: number
+      delta_pe: number
+    }
+    pro: {
+      net_fut: number
+      net_ce: number
+      net_pe: number
+      delta_fut: number
+      delta_ce: number
+      delta_pe: number
+    }
+    client: {
+      net_fut: number
+      net_ce: number
+      net_pe: number
+      delta_fut: number
+      delta_ce: number
+      delta_pe: number
+    }
+    dii: {
+      net_fut: number
+      net_ce: number
+      net_pe: number
+      delta_fut: number
+      delta_ce: number
+      delta_pe: number
+    }
+  }
+}
+
+/**
+ * Fetch chronological participant positioning history for time-series charts.
+ */
+export async function getParticipantHistory(
+  startDate: string = '2026-01-01',
+  limit: number = 300
+): Promise<{ success: boolean; count: number; data: ParticipantHistoryItem[] }> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/india/participants/history?start_date=${encodeURIComponent(startDate)}&limit=${limit}`)
+    if (!res.ok) throw new Error('Failed to fetch participant history')
+    return await res.json()
+  } catch (error) {
+    console.error('Error fetching participant history:', error)
+    throw error
+  }
+}
+
+/**
+ * Fetch latest EOD change summary card with 1-day Delta OI across all 4 participants.
+ */
+export async function getParticipantDailySummary(): Promise<{ success: boolean; data: ParticipantDailySummary }> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/india/participants/daily-summary`)
+    if (!res.ok) throw new Error('Failed to fetch participant daily summary')
+    return await res.json()
+  } catch (error) {
+    console.error('Error fetching participant daily summary:', error)
+    throw error
+  }
+}
+
+/**
+ * Fetch live strike-level position deconstruction via IPF (Sinkhorn-Knopp).
+ */
+export async function getLiveIPFDeconstruction(ticker: string = 'NIFTY', expiry?: string): Promise<any> {
+  try {
+    let url = `${BACKEND_URL}/api/india/gex/ipf-deconstruction?ticker=${encodeURIComponent(ticker)}`
+    if (expiry) url += `&expiry=${encodeURIComponent(expiry)}`
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`Failed to fetch live IPF deconstruction for ${ticker}`)
+    return await res.json()
+  } catch (error) {
+    console.error('Error fetching live IPF deconstruction:', error)
+    throw error
+  }
+}
+
+

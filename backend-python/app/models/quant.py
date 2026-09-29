@@ -167,3 +167,78 @@ class DealerWeight(Base):
     total_call_oi = Column(BigInteger)
     total_put_oi = Column(BigInteger)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ParticipantOIDaily(Base):
+    """
+    Historical EOD Participant-wise Open Interest across all 4 market segments:
+    Client (Retail & HNIs), DII (Domestic Mutual Funds & Insurers), 
+    FII (Foreign Institutional Investors), and Pro (Proprietary Desks & Market Makers).
+    Sourced from NSE daily derivatives reports (fao_participant_oi_DDMMYYYY.csv).
+    """
+    __tablename__ = "participant_oi_daily"
+    __table_args__ = (
+        UniqueConstraint("date", name="uq_participant_oi_daily_date"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    date = Column(Date, nullable=False, unique=True, index=True)
+
+    # Client (Retail)
+    client_fut_long = Column(BigInteger, nullable=False, default=0)
+    client_fut_short = Column(BigInteger, nullable=False, default=0)
+    client_call_long = Column(BigInteger, nullable=False, default=0)
+    client_call_short = Column(BigInteger, nullable=False, default=0)
+    client_put_long = Column(BigInteger, nullable=False, default=0)
+    client_put_short = Column(BigInteger, nullable=False, default=0)
+
+    # DII (Domestic Institutions)
+    dii_fut_long = Column(BigInteger, nullable=False, default=0)
+    dii_fut_short = Column(BigInteger, nullable=False, default=0)
+    dii_call_long = Column(BigInteger, nullable=False, default=0)
+    dii_call_short = Column(BigInteger, nullable=False, default=0)
+    dii_put_long = Column(BigInteger, nullable=False, default=0)
+    dii_put_short = Column(BigInteger, nullable=False, default=0)
+
+    # FII (Foreign Institutional Investors)
+    fii_fut_long = Column(BigInteger, nullable=False, default=0)
+    fii_fut_short = Column(BigInteger, nullable=False, default=0)
+    fii_call_long = Column(BigInteger, nullable=False, default=0)
+    fii_call_short = Column(BigInteger, nullable=False, default=0)
+    fii_put_long = Column(BigInteger, nullable=False, default=0)
+    fii_put_short = Column(BigInteger, nullable=False, default=0)
+
+    # Pro (Prop Desks & Market Makers)
+    pro_fut_long = Column(BigInteger, nullable=False, default=0)
+    pro_fut_short = Column(BigInteger, nullable=False, default=0)
+    pro_call_long = Column(BigInteger, nullable=False, default=0)
+    pro_call_short = Column(BigInteger, nullable=False, default=0)
+    pro_put_long = Column(BigInteger, nullable=False, default=0)
+    pro_put_short = Column(BigInteger, nullable=False, default=0)
+
+    # Derived Quant Metrics (stored for rapid time-series analysis)
+    fii_net_fut = Column(BigInteger, nullable=False, default=0)
+    fii_net_ce = Column(BigInteger, nullable=False, default=0)
+    fii_net_pe = Column(BigInteger, nullable=False, default=0)
+    fii_long_short_ratio = Column(Numeric(6, 4))  # fii_fut_long / (fii_fut_long + fii_fut_short)
+
+    pro_net_fut = Column(BigInteger, nullable=False, default=0)
+    pro_net_ce = Column(BigInteger, nullable=False, default=0)
+    pro_net_pe = Column(BigInteger, nullable=False, default=0)
+
+    client_net_fut = Column(BigInteger, nullable=False, default=0)
+    client_net_ce = Column(BigInteger, nullable=False, default=0)
+    client_net_pe = Column(BigInteger, nullable=False, default=0)
+
+    dii_net_fut = Column(BigInteger, nullable=False, default=0)
+    dii_net_ce = Column(BigInteger, nullable=False, default=0)
+    dii_net_pe = Column(BigInteger, nullable=False, default=0)
+
+    # Aggregate Market OI
+    total_fut_oi = Column(BigInteger, nullable=False, default=0)
+    total_call_oi = Column(BigInteger, nullable=False, default=0)
+    total_put_oi = Column(BigInteger, nullable=False, default=0)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
