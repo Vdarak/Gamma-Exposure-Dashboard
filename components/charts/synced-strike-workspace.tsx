@@ -256,14 +256,14 @@ export function SyncedStrikeWorkspace({
         if (active && res.success && Array.isArray(res.candles) && res.candles.length > 0) {
           setCandlesData(res.candles)
           const len = res.candles.length
-          setXRange([0, len])
+          setXRange(prev => (prev[0] === 0 && prev[1] === len ? prev : [0, len]))
         }
       })
       .catch(err => {
         console.warn('Unable to load real history. Falling back to mock generator.', err)
         // Clear candlesData so we fall back to mock walk
         setCandlesData([])
-        setXRange([0, 80])
+        setXRange(prev => (prev[0] === 0 && prev[1] === 80 ? prev : [0, 80]))
       })
       .finally(() => {
         if (active) setLoadingHistory(false)
@@ -703,13 +703,18 @@ export function SyncedStrikeWorkspace({
       const clampedMin = Math.max(allStrikes[0], minRange)
       const clampedMax = Math.min(allStrikes[allStrikes.length - 1], maxRange)
 
-      setYDomain([Math.max(0, clampedMin - strikeSpacing * 0.5), clampedMax + strikeSpacing * 0.5])
+      const targetMin = Math.max(0, clampedMin - strikeSpacing * 0.5)
+      const targetMax = clampedMax + strikeSpacing * 0.5
+      setYDomain(prev => (Math.abs(prev[0] - targetMin) < 0.01 && Math.abs(prev[1] - targetMax) < 0.01 ? prev : [targetMin, targetMax]))
     } else {
       const pct = expiryMode === '0dte' ? 0.025 : 0.08
       const zoomRange = endSpotPrice * pct
-      setYDomain([endSpotPrice - zoomRange, endSpotPrice + zoomRange])
+      const targetMin = endSpotPrice - zoomRange
+      const targetMax = endSpotPrice + zoomRange
+      setYDomain(prev => (Math.abs(prev[0] - targetMin) < 0.01 && Math.abs(prev[1] - targetMax) < 0.01 ? prev : [targetMin, targetMax]))
     }
-    setXRange([0, candles.length])
+    const targetEnd = candles.length
+    setXRange(prev => (prev[0] === 0 && prev[1] === targetEnd ? prev : [0, targetEnd]))
   }
 
   // 4. Set initial domain based on all strikes (fully zoomed out)
@@ -722,26 +727,49 @@ export function SyncedStrikeWorkspace({
   useEffect(() => {
     if (!dragState || !dragState.isDragging) return
 
-    const handleMouseMoveGlobal = (event: MouseEvent) => {
+    let rafId: number | null = null
+    let latestEvent: MouseEvent | null = null
+
+    const processDrag = () => {
+      rafId = null
+      if (!latestEvent || !dragState) return
+      const event = latestEvent
+
       const deltaY = event.clientY - dragState.startY
       const deltaX = event.clientX - dragState.startX
+
+      let [minY, maxY] = dragState.initialYDomain
+      if (minY === 0 && maxY === 0) {
+        if (endSpotPrice > 0) {
+          minY = endSpotPrice * 0.95
+          maxY = endSpotPrice * 1.05
+        } else {
+          return
+        }
+      }
 
       if (dragState.isPriceScale) {
         // Dragging Price Scale (Y-axis): stretch/compress Y scale domain
         // Dragging down (positive deltaY) compresses visual scale (expands domain)
         // Dragging up (negative deltaY) stretches visual scale (shrinks domain)
-        const factor = 1 + (deltaY / 220)
-        const [minY, maxY] = dragState.initialYDomain
+        const factor = Math.max(0.05, 1 + (deltaY / 220))
         const center = (minY + maxY) / 2
-        const halfSpan = (maxY - minY) / 2
-        const newHalfSpan = Math.max(endSpotPrice * 0.001, Math.min(endSpotPrice * 0.4, halfSpan * factor))
-        setYDomain([center - newHalfSpan, center + newHalfSpan])
+        const rawHalfSpan = (maxY - minY) / 2
+        const halfSpan = rawHalfSpan > 0 ? rawHalfSpan : (endSpotPrice > 0 ? endSpotPrice * 0.05 : 50)
+        const minAllowedHalfSpan = endSpotPrice > 0 ? endSpotPrice * 0.001 : 1
+        const maxAllowedHalfSpan = endSpotPrice > 0 ? endSpotPrice * 0.4 : 5000
+        const newHalfSpan = Math.max(minAllowedHalfSpan, Math.min(maxAllowedHalfSpan, halfSpan * factor))
+        
+        const nextMin = center - newHalfSpan
+        const nextMax = center + newHalfSpan
+        setYDomain(prev => (Math.abs(prev[0] - nextMin) < 0.01 && Math.abs(prev[1] - nextMax) < 0.01 ? prev : [nextMin, nextMax]))
       } else if (dragState.isTimeScale) {
         // Dragging Time Scale (X-axis): stretch/compress X scale range (timeline zoom)
-        const factor = 1 + (deltaX / 220)
+        const factor = Math.max(0.05, 1 + (deltaX / 220))
         const [startIdx, endIdx] = dragState.initialXRange
         const initialSpan = endIdx - startIdx
-        const newSpan = Math.max(5, Math.min(candles.length, Math.round(initialSpan * factor)))
+        const totalCandles = candles.length || 80
+        const newSpan = Math.max(5, Math.min(totalCandles, Math.round(initialSpan * factor)))
         
         // Adjust bounds centered around the mid-index of the initial range
         const midIdx = (startIdx + endIdx) / 2
@@ -749,52 +777,75 @@ export function SyncedStrikeWorkspace({
         let newStart = Math.round(midIdx - halfSpan)
         let newEnd = Math.round(midIdx + halfSpan)
         
-        // Clamp bounds to [0, candles.length]
+        // Clamp bounds to [0, totalCandles]
         if (newStart < 0) {
           newEnd -= newStart
           newStart = 0
         }
-        if (newEnd > candles.length) {
-          newStart -= (newEnd - candles.length)
-          newEnd = candles.length
+        if (newEnd > totalCandles) {
+          newStart -= (newEnd - totalCandles)
+          newEnd = totalCandles
         }
         newStart = Math.max(0, newStart)
         
-        setXRange([newStart, newEnd])
+        setXRange(prev => (prev[0] === newStart && prev[1] === newEnd ? prev : [newStart, newEnd]))
       } else {
-        const [minY, maxY] = dragState.initialYDomain
         const span = maxY - minY
 
         if (isRotated && dragState.isProfileDrag) {
           // Rotated mode profile drag: horizontal panning shifts the shared strike price domain
-          const strikeDelta = -(deltaX / dimensions.width) * span * 0.95
-          setYDomain([minY + strikeDelta, maxY + strikeDelta])
+          const width = dimensions.width || 1000
+          const strikeDelta = -(deltaX / width) * span * 0.95
+          const nextMin = minY + strikeDelta
+          const nextMax = maxY + strikeDelta
+          setYDomain(prev => (Math.abs(prev[0] - nextMin) < 0.01 && Math.abs(prev[1] - nextMax) < 0.01 ? prev : [nextMin, nextMax]))
         } else {
           // Dragging Chart Body: Pan horizontally (scroll timeline) and vertically (shift center)
-          // Pan Y (shifts domain up or down)
-          const strikeDelta = (deltaY / dimensions.height) * span * 0.95
+          const height = dimensions.height || 500
+          const strikeDelta = (deltaY / height) * span * 0.95
 
           // Pan X (scrolls candles timeline)
           // Every 8 pixels of drag shifts 1 candle
           const candleShift = Math.round(deltaX / 8)
           const [startIdx, endIdx] = dragState.initialXRange
+          const totalCandles = candles.length || 80
           const maxShift = startIdx
-          const maxRightShift = candles.length - endIdx
+          const maxRightShift = totalCandles - endIdx
           const actualShift = Math.max(-maxRightShift, Math.min(maxShift, candleShift))
 
-          setYDomain([minY + strikeDelta, maxY + strikeDelta])
-          setXRange([startIdx - actualShift, endIdx - actualShift])
+          const nextMin = minY + strikeDelta
+          const nextMax = maxY + strikeDelta
+          const nextStart = startIdx - actualShift
+          const nextEnd = endIdx - actualShift
+
+          setYDomain(prev => (Math.abs(prev[0] - nextMin) < 0.01 && Math.abs(prev[1] - nextMax) < 0.01 ? prev : [nextMin, nextMax]))
+          setXRange(prev => (prev[0] === nextStart && prev[1] === nextEnd ? prev : [nextStart, nextEnd]))
         }
       }
     }
 
+    const handleMouseMoveGlobal = (event: MouseEvent) => {
+      latestEvent = event
+      if (rafId === null) {
+        rafId = requestAnimationFrame(processDrag)
+      }
+    }
+
     const handleMouseUpGlobal = () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId)
+        rafId = null
+      }
       setDragState(null)
     }
 
-    window.addEventListener('mousemove', handleMouseMoveGlobal)
+    window.addEventListener('mousemove', handleMouseMoveGlobal, { passive: true })
     window.addEventListener('mouseup', handleMouseUpGlobal)
     return () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId)
+        rafId = null
+      }
       window.removeEventListener('mousemove', handleMouseMoveGlobal)
       window.removeEventListener('mouseup', handleMouseUpGlobal)
     }
@@ -813,6 +864,10 @@ export function SyncedStrikeWorkspace({
     const isPriceScale = isCandlesCollapsed || clickX >= (rect.width - 45)
     const isTimeScale = clickY >= (rect.height - 40)
 
+    const initialY: [number, number] = (yDomain[0] !== 0 || yDomain[1] !== 0)
+      ? [yDomain[0], yDomain[1]]
+      : (endSpotPrice > 0 ? [endSpotPrice * 0.95, endSpotPrice * 1.05] : [0, 100])
+
     setDragState({
       isDragging: true,
       isPriceScale: isTimeScale ? false : isPriceScale,
@@ -820,7 +875,7 @@ export function SyncedStrikeWorkspace({
       isTimeScale,
       startX: event.clientX,
       startY: event.clientY,
-      initialYDomain: [...yDomain] as [number, number],
+      initialYDomain: initialY,
       initialXRange: [...xRange] as [number, number],
     })
   }
@@ -843,13 +898,17 @@ export function SyncedStrikeWorkspace({
 
   // Mouse down on profile charts (always acts as a vertical pan/drag)
   const handleProfileMouseDown = (event: React.MouseEvent<SVGSVGElement>) => {
+    const initialY: [number, number] = (yDomain[0] !== 0 || yDomain[1] !== 0)
+      ? [yDomain[0], yDomain[1]]
+      : (endSpotPrice > 0 ? [endSpotPrice * 0.95, endSpotPrice * 1.05] : [0, 100])
+
     setDragState({
       isDragging: true,
       isPriceScale: false,
       isProfileDrag: true,
       startX: event.clientX,
       startY: event.clientY,
-      initialYDomain: [...yDomain] as [number, number],
+      initialYDomain: initialY,
       initialXRange: [...xRange] as [number, number],
     })
   }
